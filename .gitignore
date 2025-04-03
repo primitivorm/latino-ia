@@ -1,0 +1,17 @@
+# Archivos y directorios generados por CMake
+/build/
+/CMakeFiles/
+/CMakeCache.txt
+/cmake_install.cmake
+/*.cmake
+/*.vcxproj
+/*.sln
+/*.user
+/*.dir/
+/*.log
+
+# Archivos y directorios generados durante la compilación
+/out/
+/bin/
+/lib/
+/obj/
