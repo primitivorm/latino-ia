@@ -1,6 +1,8 @@
 add_executable(latino
   main.cpp
   lexer.cpp
+  ast.cpp
+  ast_impresor.cpp
   parser.cpp
   compiler.cpp
   interpreter.cpp
