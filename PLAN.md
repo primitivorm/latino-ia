@@ -26,7 +26,7 @@ archivo .lat → Lexer → Parser (AST) → Análisis semántico → Generación
 | 4 | Análisis semántico | ✅ Completada (PR #4) |
 | 5 | Generación de código C | ✅ Completada (PR #5) |
 | 6 | Biblioteca de runtime en C | ✅ Completada (PR #5) |
-| 7 | Driver / CLI | 🟡 Parcial (driver emite C / AST; falta compilar a ejecutable y banderas) |
+| 7 | Driver / CLI | ✅ Completada (PR #6) — falta solo `--solo-c` a archivo |
 | 8 | Pruebas y ejemplos | 🟡 En curso (CTest: lexer + AST + parser + semántico + codegen; e2e manual) |
 
 ---
@@ -87,12 +87,12 @@ Archivos: [src/lexer.cpp](src/lexer.cpp), [include/lexer.h](include/lexer.h).
 - [x] Estrategia de memoria simple **documentada** (sin liberación por ahora; suficiente para programas cortos).
 - [x] Compilado como librería `latino_runtime` en CMake para verificar que sigue siendo válido.
 
-### Fase 7 — Driver / CLI 🟡 ([src/main.cpp](src/main.cpp))
-- [x] Lee un archivo `.lat` pasado como argumento (o un demo si no se pasa).
-- [x] Orquesta: fuente → Lexer → Parser (AST) → Semántico → `GeneradorC` (emite el `.c` por stdout).
-- [x] Bandera `--ast` (volcar el AST).
-- [ ] Invocar el compilador de C del sistema para producir un ejecutable.
-- [ ] Banderas `-o <salida>` y `--solo-c`.
+### Fase 7 — Driver / CLI ✅ ([src/main.cpp](src/main.cpp), [include/invocador_c.h](include/invocador_c.h), [src/invocador_c.cpp](src/invocador_c.cpp))
+- [x] Lee un archivo `.lat` pasado como argumento.
+- [x] Orquesta: fuente → Lexer → Parser (AST) → Semántico → `GeneradorC` → escribe `.c` temporal → **invoca el compilador de C** → ejecutable.
+- [x] **Invocación automática del compilador**: `config.h` generado por CMake ([src/config.h.in](src/config.h.in)) hornea la ruta del compilador, el estilo (`msvc`/`gnu`), `VsDevCmd.bat` y `LATINO_RUNTIME_DIR`. En MSVC se monta el entorno de VS vía un `.bat` temporal (con `-startdir=none`), así `latino prog.lat` produce el `.exe` desde **cualquier** shell. Fallback a `CC`/PATH (gcc/clang).
+- [x] Banderas: `-o <salida>`, `--solo-c` (emite C por stdout), `--ast`, `--runtime <dir>`.
+- [ ] Pendiente menor: `--solo-c` a un archivo (`-o`) en lugar de solo stdout.
 
 ### Fase 8 — Pruebas y ejemplos 🟡
 - [x] Pruebas unitarias del lexer ([tests/test_lexer.cpp](tests/test_lexer.cpp)).
@@ -115,7 +115,7 @@ Archivos: [src/lexer.cpp](src/lexer.cpp), [include/lexer.h](include/lexer.h).
 | Análisis semántico | [include/analizador_semantico.h](include/analizador_semantico.h), [src/analizador_semantico.cpp](src/analizador_semantico.cpp) |
 | Generación de código | [src/compiler.cpp](src/compiler.cpp), [include/compiler.h](include/compiler.h) |
 | Runtime C | [runtime/latino.h](runtime/latino.h), [runtime/latino.c](runtime/latino.c) |
-| Driver | [src/main.cpp](src/main.cpp) |
+| Driver / invocación del compilador | [src/main.cpp](src/main.cpp), [include/invocador_c.h](include/invocador_c.h), [src/invocador_c.cpp](src/invocador_c.cpp), [src/config.h.in](src/config.h.in) |
 | Pruebas | [tests/](tests/) (test_lexer, test_ast, test_parser, test_semantico, test_codegen), [tests/CMakeLists.txt](tests/CMakeLists.txt) |
 | Build | [src/CMakeLists.txt](src/CMakeLists.txt), [CMakeLists.txt](CMakeLists.txt) |
 | Especificación / fuente de verdad | [WORK.md](WORK.md) |
@@ -129,5 +129,5 @@ Archivos: [src/lexer.cpp](src/lexer.cpp), [include/lexer.h](include/lexer.h).
 1. **Construir:** `.\generar-salida.ps1` y luego `cmake --build build` (o `cmake --build build --config Debug`).
 2. **Pruebas unitarias (CTest):** `ctest --test-dir build -C Debug --output-on-failure`.
    - ✅ 5 suites: lexer, AST, parser, análisis semántico y generación de código C.
-3. **Extremo a extremo (manual):** por cada `ejemplos/*.lat`: `latino <archivo> > prog.c`, luego compilar `prog.c` + [runtime/latino.c](runtime/latino.c) con un compilador de C (`cl /utf-8 /I runtime`), ejecutar y comparar la salida con la documentada (`#salida:`). Los 11 ejemplos pasan.
-4. **Regresión (futuro):** automatizar el paso 3 como suite (CTest) que falle si alguna salida no coincide, cuando el driver (Fase 7) sepa invocar el compilador de C.
+3. **Extremo a extremo:** `latino <archivo.lat> -o <salida.exe>` produce el ejecutable directamente (desde cualquier shell, sin Developer prompt) y al correrlo la salida coincide con la documentada (`#salida:`). Los 11 ejemplos pasan.
+4. **Regresión (futuro):** automatizar el paso 3 como suite (CTest) que, por cada ejemplo, lo compile con `latino`, lo ejecute y compare la salida. Ya es viable porque `latino` invoca el compilador por su cuenta.
