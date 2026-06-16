@@ -46,6 +46,18 @@ target_include_directories(test_semantico PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
 add_test(NAME test_semantico COMMAND test_semantico)
 
+# Pruebas de generación de código C (Fase 5).
+add_executable(test_codegen
+  test_codegen.cpp
+  ${CMAKE_SOURCE_DIR}/src/lexer.cpp
+  ${CMAKE_SOURCE_DIR}/src/parser.cpp
+  ${CMAKE_SOURCE_DIR}/src/ast.cpp
+  ${CMAKE_SOURCE_DIR}/src/compiler.cpp
+)
+target_include_directories(test_codegen PRIVATE ${CMAKE_SOURCE_DIR}/include)
+
+add_test(NAME test_codegen COMMAND test_codegen)
+
 # Utilidad de depuración (no es una prueba): vuelca los tokens de un .lat.
 add_executable(lexer_dump
   lexer_dump.cpp

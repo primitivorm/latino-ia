@@ -5,20 +5,32 @@
 
 #include "analizador_semantico.h"
 #include "ast_impresor.h"
+#include "compiler.h"
 #include "lexer.h"
 #include "parser.h"
 
-// Driver mínimo (la CLI completa llega en la Fase 7).
+// Driver del compilador (la CLI completa, con compilación a ejecutable, llega
+// en la Fase 7).
 // Uso:
-//   latino <archivo.lat>   -> parsea el archivo y vuelca su AST
-//   latino                 -> parsea un programa de demostración
+//   latino <archivo.lat>          -> emite el código C equivalente por stdout
+//   latino <archivo.lat> --ast    -> vuelca el AST (depuración)
 int main(int argc, char** argv) {
-    std::string codigoFuente;
+    std::string ruta;
+    bool modoAst = false;
 
-    if (argc >= 2) {
-        std::ifstream archivo(argv[1], std::ios::binary);
+    for (int i = 1; i < argc; i++) {
+        std::string arg = argv[i];
+        if (arg == "--ast")
+            modoAst = true;
+        else if (ruta.empty())
+            ruta = arg;
+    }
+
+    std::string codigoFuente;
+    if (!ruta.empty()) {
+        std::ifstream archivo(ruta, std::ios::binary);
         if (!archivo) {
-            std::cerr << "No se pudo abrir el archivo: " << argv[1] << std::endl;
+            std::cerr << "No se pudo abrir el archivo: " << ruta << std::endl;
             return 1;
         }
         std::stringstream ss;
@@ -32,18 +44,21 @@ int main(int argc, char** argv) {
     Lexer lexer(codigoFuente);
     Parser parser(lexer);
     std::unique_ptr<Programa> programa = parser.parse();
-
     if (!programa)
-        return 1;  // hubo un error de sintaxis (ya reportado)
+        return 1;  // error de sintaxis (ya reportado)
 
     // Análisis semántico.
     AnalizadorSemantico semantico;
     if (!semantico.analizar(*programa))
-        return 1;  // hubo errores semánticos (ya reportados)
+        return 1;  // errores semánticos (ya reportados)
 
-    // Por ahora volcamos el AST. La generación de código C llega en la Fase 5.
-    ImpresorAST impresor(std::cout);
-    impresor.imprimir(*programa);
+    if (modoAst) {
+        ImpresorAST impresor(std::cout);
+        impresor.imprimir(*programa);
+    } else {
+        GeneradorC generador;
+        std::cout << generador.generar(*programa);
+    }
 
     return 0;
 }

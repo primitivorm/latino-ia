@@ -104,6 +104,7 @@ using ListaSent = std::vector<SentPtr>;
 struct LitNumero : Expresion {
     double valor = 0.0;
     bool esEntero = true;
+    std::string lexema;  // texto original (para emitir el literal C exacto)
     LATINO_ACEPTAR
 };
 

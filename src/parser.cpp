@@ -487,6 +487,7 @@ ExprPtr Parser::parsePrimario() {
         auto n = std::make_unique<LitNumero>();
         n->valor = std::stod(tk.lexeme);
         n->esEntero = (tk.type == TokenType::Entero);
+        n->lexema = tk.lexeme;
         n->linea = tk.line;
         return n;
     }
