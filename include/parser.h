@@ -1,25 +1,83 @@
 // parser.h
+//
+// Analizador sintáctico por descenso recursivo. Consume los tokens del Lexer
+// y construye el AST (ver ast.h). Devuelve un Programa, o nullptr si encuentra
+// un error de sintaxis (reportado por stderr con número de línea).
 
 #ifndef PARSER_H
 #define PARSER_H
 
+#include <initializer_list>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "ast.h"
 #include "lexer.h"
 
 class Parser {
 public:
-    Parser(Lexer& lexer);
+    explicit Parser(Lexer& lexer);
 
-    void parse();
+    std::unique_ptr<Programa> parse();
 
 private:
     Lexer& lexer;
-    Token currentToken;
+    Token actual;
 
-    void eat(TokenType type);
-    void programa();
-    void sentencia();
-    void expresion();
-    // Agrega aquí más funciones para las reglas gramaticales
+    // --- Manejo del flujo de tokens ---
+    void avanzar();
+    bool esEOF() const;
+    bool esFinDeLinea() const;
+    bool esOperador(const std::string& s) const;
+    bool esDelimitador(const std::string& s) const;
+    bool esReservada(const std::string& s) const;
+    bool esTerminadorBloque() const;
+    bool esAlgunaReservada(std::initializer_list<const char*> palabras) const;
+
+    void esperarOperador(const std::string& s);
+    void esperarDelimitador(const std::string& s);
+    void esperarReservada(const std::string& s);
+
+    void saltarNuevasLineas();
+    void consumirFinDeSentencia();
+
+    [[noreturn]] void error(const std::string& mensaje) const;
+
+    // --- Sentencias ---
+    std::unique_ptr<Programa> parsePrograma();
+    SentPtr parseSentencia();
+    SentPtr parseSentenciaSimple();      // asignación o expresión + terminador
+    SentPtr parseAsignacionOExpr();      // igual, pero sin consumir terminador
+    SentPtr parseSi();
+    SentPtr parseElegir();
+    SentPtr parseDesde();
+    SentPtr parseMientras();
+    SentPtr parseRepetir();
+    SentPtr parseFuncion();
+    SentPtr parseRetornar();
+
+    ListaSent parseBloque(std::initializer_list<const char*> terminadores);
+    std::vector<ExprPtr> parseListaExpresiones();
+
+    // --- Expresiones (de menor a mayor precedencia) ---
+    ExprPtr parseExpresion();
+    ExprPtr parseTernario();
+    ExprPtr parseO();
+    ExprPtr parseY();
+    ExprPtr parseIgualdad();
+    ExprPtr parseRelacional();
+    ExprPtr parseConcatenacion();
+    ExprPtr parseAditivo();
+    ExprPtr parseMultiplicativo();
+    ExprPtr parseUnario();
+    ExprPtr parsePotencia();
+    ExprPtr parsePostfijo();
+    ExprPtr parsePrimario();
+
+    ExprPtr parseLlamada(ExprPtr destino);
+    ExprPtr parseLista();
+    ExprPtr parseDiccionario();
 };
 
 #endif  // PARSER_H

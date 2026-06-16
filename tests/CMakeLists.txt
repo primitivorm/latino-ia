@@ -21,6 +21,18 @@ target_include_directories(test_ast PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
 add_test(NAME test_ast COMMAND test_ast)
 
+# Pruebas del parser (Fase 3).
+add_executable(test_parser
+  test_parser.cpp
+  ${CMAKE_SOURCE_DIR}/src/lexer.cpp
+  ${CMAKE_SOURCE_DIR}/src/parser.cpp
+  ${CMAKE_SOURCE_DIR}/src/ast.cpp
+  ${CMAKE_SOURCE_DIR}/src/ast_impresor.cpp
+)
+target_include_directories(test_parser PRIVATE ${CMAKE_SOURCE_DIR}/include)
+
+add_test(NAME test_parser COMMAND test_parser)
+
 # Utilidad de depuración (no es una prueba): vuelca los tokens de un .lat.
 add_executable(lexer_dump
   lexer_dump.cpp
