@@ -1,0 +1,23 @@
+// config.h — generado por CMake (configure_file). NO editar a mano.
+//
+// Valores horneados en tiempo de configuración para que el driver pueda
+// localizar el compilador de C y el runtime al producir un ejecutable.
+
+#ifndef LATINO_CONFIG_H
+#define LATINO_CONFIG_H
+
+// Ruta del compilador de C detectado por CMake (CMAKE_C_COMPILER).
+#define LATINO_CC "@LATINO_CC@"
+
+// Estilo de línea de comandos del compilador: "msvc" o "gnu".
+#define LATINO_CC_ESTILO "@LATINO_CC_ESTILO@"
+
+// Ruta a VsDevCmd.bat (solo MSVC; cadena vacía en otros casos). Permite montar
+// el entorno de Visual Studio (INCLUDE/LIB) antes de invocar cl desde cualquier shell.
+#define LATINO_VSDEVCMD "@LATINO_VSDEVCMD@"
+
+// Carpeta del runtime (latino.h / latino.c) que se compila y enlaza con el
+// programa generado.
+#define LATINO_RUNTIME_DIR "@LATINO_RUNTIME_DIR@"
+
+#endif  // LATINO_CONFIG_H
