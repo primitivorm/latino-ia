@@ -19,15 +19,15 @@ archivo .lat → Lexer → Parser (AST) → Análisis semántico → Generación
 
 | Fase | Descripción | Estado |
 | ---- | ----------- | ------ |
-| 0 | Cimientos del proyecto | ✅ Completada |
-| 1 | Lexer completo | ✅ Completada |
-| 2 | Diseño del AST | ⬜ Pendiente |
-| 3 | Parser → AST | ⬜ Pendiente |
-| 4 | Análisis semántico | ⬜ Pendiente |
-| 5 | Generación de código C | ⬜ Pendiente |
-| 6 | Biblioteca de runtime en C | ⬜ Pendiente |
-| 7 | Driver / CLI | ⬜ Pendiente |
-| 8 | Pruebas y ejemplos | 🟡 En curso (pruebas del lexer ya integradas con CTest) |
+| 0 | Cimientos del proyecto | ✅ Completada (PR #1) |
+| 1 | Lexer completo | ✅ Completada (PR #1) |
+| 2 | Diseño del AST | ✅ Completada (PR #2) |
+| 3 | Parser → AST | ✅ Completada (PR #3) |
+| 4 | Análisis semántico | ✅ Completada (PR #4) |
+| 5 | Generación de código C | ✅ Completada (PR #5) |
+| 6 | Biblioteca de runtime en C | ✅ Completada (PR #5) |
+| 7 | Driver / CLI | 🟡 Parcial (driver emite C / AST; falta compilar a ejecutable y banderas) |
+| 8 | Pruebas y ejemplos | 🟡 En curso (CTest: lexer + AST + parser + semántico + codegen; e2e manual) |
 
 ---
 
@@ -50,46 +50,58 @@ Archivos: [src/lexer.cpp](src/lexer.cpp), [include/lexer.h](include/lexer.h).
 - [x] Conteo de líneas correcto (incluso a través de comentarios multilínea).
 - [x] Pruebas unitarias en [tests/test_lexer.cpp](tests/test_lexer.cpp), integradas con CTest.
 
-### Fase 2 — Diseño del AST (nuevos `include/ast.h`, `src/ast.cpp`)
-- Jerarquía de nodos: programa, sentencias (asignación, asignación múltiple, `si/osi/sino`, `elegir/caso/defecto`, `desde`, `mientras`, `repetir/hasta`, `romper`, definición de función, `retornar`, llamada/expresión-sentencia) y expresiones (literales numérico/cadena/lógico/`nulo`, identificador, binaria, unaria, ternaria, acceso por índice `[]`, acceso a miembro `.`, llamada a función, literal de lista, literal de diccionario).
-- Recomendado: jerarquía de clases con patrón **Visitor**, para que el generador de código sea un visitante.
+### Fase 2 — Diseño del AST ✅ ([include/ast.h](include/ast.h), [src/ast.cpp](src/ast.cpp))
+- [x] Jerarquía de nodos: programa, sentencias (asignación, asignación múltiple, `si/osi/sino`, `elegir/caso/defecto`, `desde`, `mientras`, `repetir/hasta`, `romper`, definición de función, `retornar`, expresión-sentencia) y expresiones (literales numérico/cadena/lógico/`nulo`, identificador, binaria, unaria, postoperador `++/--`, ternaria, acceso por índice `[]`, acceso a miembro `.`, llamada, literal de lista, literal de diccionario, `...`).
+- [x] Patrón **Visitante** (`Visitante` con `aceptar`/`visitar`), para que análisis y generación de código sean visitantes.
+- [x] [include/ast_impresor.h](include/ast_impresor.h) + [src/ast_impresor.cpp](src/ast_impresor.cpp): `ImpresorAST`, primer visitante (vuelca el AST; reutilizado en `--ast`).
+- [x] Pruebas en [tests/test_ast.cpp](tests/test_ast.cpp).
 
-### Fase 3 — Parser → AST ([src/parser.cpp](src/parser.cpp), [include/parser.h](include/parser.h))
-- Reescribir como **descenso recursivo** que devuelve un AST (no `void`).
-- Expresiones con **precedencia de operadores** correcta (tipo C/Python/Lua): ternario, `||`, `&&`, relacionales, `..`, aditivos, multiplicativos, potencia `^`, unarios, postfijos (`++ --`, `[]`, `.`, llamada), primarios.
-- Todas las sentencias de la sección VI de WORK.md, incluida la asignación múltiple (`a, b, c = 1, 2, 3`) con relleno `nulo`/descarte.
-- Funciones: `funcion`/`fun`, `retornar`/`ret`, parámetro variádico `...` y `[...]`.
-- Usar los tokens `FinDeLinea` como terminadores de sentencia (tolerar saltos al inicio del archivo y dentro de listas/diccionarios multilínea).
-- Manejo de errores con línea y mensaje claro (reemplazar los `exit(EXIT_FAILURE)` crudos).
+### Fase 3 — Parser → AST ✅ ([src/parser.cpp](src/parser.cpp), [include/parser.h](include/parser.h))
+- [x] **Descenso recursivo** que devuelve el AST (`unique_ptr<Programa>`).
+- [x] Expresiones con **precedencia** tipo C/Lua: ternario, `||`, `&&`, igualdad (`== != ~=`), relacional (`< > <= >=`), concatenación `..`, aditivo, multiplicativo, potencia `^` (asoc. derecha), unario `-`, postfijos (`++ --`, `[]`, `.`, llamada).
+- [x] Todas las sentencias de la sección VI de WORK.md, incluida la asignación múltiple (`a, b, c = 1, 2, 3`).
+- [x] Funciones: `funcion`/`fun`, `retornar`/`ret`, parámetro variádico `...` y `[...]`.
+- [x] `FinDeLinea` como terminador de sentencia; saltos ignorados dentro de `()`, `[]`, `{}` (listas/diccionarios multilínea).
+- [x] Manejo de errores con línea y mensaje claro (sin `exit()` crudo; devuelve `nullptr`).
+- [x] Pruebas en [tests/test_parser.cpp](tests/test_parser.cpp).
 
-### Fase 4 — Análisis semántico
-- Tabla de símbolos por ámbito (global/función) para resolver variables y funciones.
-- Validar reglas de WORK.md: identificadores válidos (no empiezan por número, no palabra reservada), **constantes en mayúsculas**.
-- Reportar errores semánticos (variable no declarada, redefinición) sin abortar de golpe.
-- Como Latino es dinámicamente tipado, el chequeo de tipos es mínimo; los tipos se resuelven en tiempo de ejecución vía el runtime (Fase 6).
+### Fase 4 — Análisis semántico ✅ ([include/analizador_semantico.h](include/analizador_semantico.h), [src/analizador_semantico.cpp](src/analizador_semantico.cpp))
+- [x] Tabla de símbolos por ámbito (global/función) para resolver variables y funciones (con *hoisting* de definiciones).
+- [x] Reglas de WORK.md: **constantes en mayúsculas** (no reasignables). Los identificadores inválidos (empezar por número o ser palabra reservada) ya los descarta el lexer.
+- [x] Errores semánticos **acumulados** (sin abortar al primero), ordenados por línea: variable no declarada, reasignación de constante, `romper`/`retornar`/`...` fuera de contexto, función no definida, aridad incorrecta, redefinición de función, parámetro duplicado.
+- [x] Sin chequeo de tipos (Latino es dinámico; los tipos se resuelven en el runtime, Fase 6).
+- [x] Pruebas en [tests/test_semantico.cpp](tests/test_semantico.cpp).
 
-### Fase 5 — Generación de código C ([src/compiler.cpp](src/compiler.cpp), [include/compiler.h](include/compiler.h))
-- Implementar la generación como un **visitante del AST** que emite C.
-- Cada variable se compila al tipo dinámico `Valor` (ver Fase 6), no a tipos C nativos directos.
-- Traducir control de flujo (`si`→`if`, `desde`→`for`, `mientras`→`while`, `repetir/hasta`→`do/while`, `elegir`→`switch`/cadena `if/else`), funciones a funciones C que reciben/devuelven `Valor`, listas y diccionarios a constructores del runtime.
-- Emitir el `.c` resultante (incluyendo `runtime/latino.h`).
+### Fase 5 — Generación de código C ✅ ([src/compiler.cpp](src/compiler.cpp), [include/compiler.h](include/compiler.h))
+> Las Fases 5 y 6 se hicieron juntas: el código C generado no tiene sentido (ni se puede verificar) sin el runtime al que llama.
+- [x] `GeneradorC` recorre el AST y emite C. Cada variable se compila al tipo dinámico `LatValor`.
+- [x] Control de flujo: `si`→`if/else if/else`, `desde`/`mientras`→`while`, `repetir/hasta`→`do/while` (condición negada), `elegir`→cadena `if/else if` con `lat_igual`, `romper`→`break`, `retornar`→`return`.
+- [x] Funciones de usuario → funciones C que reciben/devuelven `LatValor` (con prototipos para *hoisting*). Variádicas: parámetros fijos + `lat_resto` (lista); las llamadas empaquetan los argumentos extra; `[...]` → `lat_resto`.
+- [x] Listas/diccionarios → `lat_lista_de`/`lat_dic_de`; indexación y asignación por índice (incluida la negativa); ternario, concatenación, etc.
+- [x] Pruebas en [tests/test_codegen.cpp](tests/test_codegen.cpp).
 
-### Fase 6 — Biblioteca de runtime en C (nuevo `runtime/latino.h`, `runtime/latino.c`)
-- Tipo `Valor` (unión etiquetada: lógico/`double`/cadena/lista/diccionario/`nulo`), acorde a la tabla de tipos de [WORK.md](WORK.md) sección IV.
-- Operaciones aritméticas, lógicas, relacionales, concatenación `..`, indexación (incluida la negativa de listas), acceso a diccionario por clave.
-- Funciones integradas: `escribir`, `imprimir`, etc.
-- Gestión de memoria de listas/diccionarios/cadenas (estrategia simple documentada).
+### Fase 6 — Biblioteca de runtime en C ✅ ([runtime/latino.h](runtime/latino.h), [runtime/latino.c](runtime/latino.c))
+- [x] Tipo `LatValor` (unión etiquetada: `nulo`/lógico/`double`/cadena/lista/diccionario), acorde a la tabla de tipos de [WORK.md](WORK.md) sección IV.
+- [x] Aritmética, relacionales, lógicos, concatenación `..`, indexación (negativa en listas) y acceso a diccionario por clave.
+- [x] Funciones integradas: `escribir`, `imprimir`; conversión a cadena (`lat_a_cadena`) con formato `[a, b, c]` y `{clave: valor}`.
+- [x] Estrategia de memoria simple **documentada** (sin liberación por ahora; suficiente para programas cortos).
+- [x] Compilado como librería `latino_runtime` en CMake para verificar que sigue siendo válido.
 
-### Fase 7 — Driver / CLI ([src/main.cpp](src/main.cpp))
-- Reemplazar la cadena codificada por lectura de un archivo `.lat` pasado como argumento.
-- Orquestar: leer fuente → Lexer → Parser (AST) → (Semántico) → Compiler (emite `.c`) → invocar el compilador C del sistema.
-- Banderas: `-o salida`, `--solo-c` (emitir solo el `.c`), `--ast` (volcar el AST).
-- Actualizar [src/CMakeLists.txt](src/CMakeLists.txt) con los nuevos archivos.
+### Fase 7 — Driver / CLI 🟡 ([src/main.cpp](src/main.cpp))
+- [x] Lee un archivo `.lat` pasado como argumento (o un demo si no se pasa).
+- [x] Orquesta: fuente → Lexer → Parser (AST) → Semántico → `GeneradorC` (emite el `.c` por stdout).
+- [x] Bandera `--ast` (volcar el AST).
+- [ ] Invocar el compilador de C del sistema para producir un ejecutable.
+- [ ] Banderas `-o <salida>` y `--solo-c`.
 
 ### Fase 8 — Pruebas y ejemplos 🟡
-- [x] Pruebas unitarias del lexer integradas con CTest ([tests/test_lexer.cpp](tests/test_lexer.cpp), [tests/CMakeLists.txt](tests/CMakeLists.txt)).
-- [ ] Pruebas del parser (volcar y comparar el AST de cada ejemplo).
-- [ ] Pruebas de extremo a extremo: compilar y ejecutar cada archivo de [ejemplos/](ejemplos/) y comparar su salida contra la documentada (`#salida:`) en [WORK.md](WORK.md).
+- [x] Pruebas unitarias del lexer ([tests/test_lexer.cpp](tests/test_lexer.cpp)).
+- [x] Pruebas del AST ([tests/test_ast.cpp](tests/test_ast.cpp)).
+- [x] Pruebas del parser ([tests/test_parser.cpp](tests/test_parser.cpp)).
+- [x] Pruebas del análisis semántico ([tests/test_semantico.cpp](tests/test_semantico.cpp)).
+- [x] Pruebas de generación de código C ([tests/test_codegen.cpp](tests/test_codegen.cpp)).
+- [x] Extremo a extremo (manual): los 11 ejemplos de [ejemplos/](ejemplos/) generan C, compilan con el runtime y se ejecutan; las salidas de `hola`, `operadores`, `si`, `funciones`, `listas`, `diccionarios`, etc. coinciden con las documentadas (`#salida:`).
+- [ ] Automatizar el extremo a extremo dentro de CTest (requiere localizar un compilador de C de forma portable; hoy se hace con `cl` en un script).
 
 ---
 
@@ -98,12 +110,13 @@ Archivos: [src/lexer.cpp](src/lexer.cpp), [include/lexer.h](include/lexer.h).
 | Componente | Archivos |
 |---|---|
 | Lexer | [src/lexer.cpp](src/lexer.cpp), [include/lexer.h](include/lexer.h) |
-| AST (nuevo) | `include/ast.h`, `src/ast.cpp` |
+| AST | [include/ast.h](include/ast.h), [src/ast.cpp](src/ast.cpp), [include/ast_impresor.h](include/ast_impresor.h), [src/ast_impresor.cpp](src/ast_impresor.cpp) |
 | Parser | [src/parser.cpp](src/parser.cpp), [include/parser.h](include/parser.h) |
+| Análisis semántico | [include/analizador_semantico.h](include/analizador_semantico.h), [src/analizador_semantico.cpp](src/analizador_semantico.cpp) |
 | Generación de código | [src/compiler.cpp](src/compiler.cpp), [include/compiler.h](include/compiler.h) |
-| Runtime C (nuevo) | `runtime/latino.h`, `runtime/latino.c` |
+| Runtime C | [runtime/latino.h](runtime/latino.h), [runtime/latino.c](runtime/latino.c) |
 | Driver | [src/main.cpp](src/main.cpp) |
-| Pruebas | [tests/test_lexer.cpp](tests/test_lexer.cpp), [tests/CMakeLists.txt](tests/CMakeLists.txt) |
+| Pruebas | [tests/](tests/) (test_lexer, test_ast, test_parser, test_semantico, test_codegen), [tests/CMakeLists.txt](tests/CMakeLists.txt) |
 | Build | [src/CMakeLists.txt](src/CMakeLists.txt), [CMakeLists.txt](CMakeLists.txt) |
 | Especificación / fuente de verdad | [WORK.md](WORK.md) |
 
@@ -115,7 +128,6 @@ Archivos: [src/lexer.cpp](src/lexer.cpp), [include/lexer.h](include/lexer.h).
 
 1. **Construir:** `.\generar-salida.ps1` y luego `cmake --build build` (o `cmake --build build --config Debug`).
 2. **Pruebas unitarias (CTest):** `ctest --test-dir build -C Debug --output-on-failure`.
-   - Lexer: ✅ implementado en [tests/test_lexer.cpp](tests/test_lexer.cpp).
-   - Parser (futuro): volcar el AST (`--ast`) de cada ejemplo y comprobar su estructura.
-3. **Prueba de extremo a extremo (futuro):** por cada archivo en [ejemplos/](ejemplos/), ejecutar `latino ejemplo.lat -o ejemplo.exe`, correr el ejecutable y comparar su salida con la documentada (`#salida:`) en [WORK.md](WORK.md). Empezar por `escribir("hola mundo")` y avanzar característica por característica.
-4. **Regresión:** integrar el paso 3 como suite automatizada (CTest) que falle si alguna salida no coincide.
+   - ✅ 5 suites: lexer, AST, parser, análisis semántico y generación de código C.
+3. **Extremo a extremo (manual):** por cada `ejemplos/*.lat`: `latino <archivo> > prog.c`, luego compilar `prog.c` + [runtime/latino.c](runtime/latino.c) con un compilador de C (`cl /utf-8 /I runtime`), ejecutar y comparar la salida con la documentada (`#salida:`). Los 11 ejemplos pasan.
+4. **Regresión (futuro):** automatizar el paso 3 como suite (CTest) que falle si alguna salida no coincide, cuando el driver (Fase 7) sepa invocar el compilador de C.
