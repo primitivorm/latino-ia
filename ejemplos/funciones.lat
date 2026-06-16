@@ -1,0 +1,25 @@
+# Funciones (WORK.md sección VII)
+fun sumar(a, b)
+    ret a + b
+fin
+
+r = sumar(2, 3)
+escribir(r)
+#salida: 5
+
+# Argumentos variables
+funcion varArgs(arg1, arg2, ...)
+    va = [...]
+    escribir("parametro 1: " .. arg1)
+    escribir("parametro 2: " .. arg2)
+    escribir("parametro 3: " .. va[0])
+    retornar arg1 + arg2
+fin
+
+r = varArgs(1, 2, 3)
+escribir(r)
+#salida:
+#parametro 1: 1
+#parametro 2: 2
+#parametro 3: 3
+#3
