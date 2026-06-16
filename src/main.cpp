@@ -3,6 +3,7 @@
 #include <sstream>
 #include <string>
 
+#include "analizador_semantico.h"
 #include "ast_impresor.h"
 #include "lexer.h"
 #include "parser.h"
@@ -34,6 +35,11 @@ int main(int argc, char** argv) {
 
     if (!programa)
         return 1;  // hubo un error de sintaxis (ya reportado)
+
+    // Análisis semántico.
+    AnalizadorSemantico semantico;
+    if (!semantico.analizar(*programa))
+        return 1;  // hubo errores semánticos (ya reportados)
 
     // Por ahora volcamos el AST. La generación de código C llega en la Fase 5.
     ImpresorAST impresor(std::cout);

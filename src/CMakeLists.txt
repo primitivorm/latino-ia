@@ -4,6 +4,7 @@ add_executable(latino
   ast.cpp
   ast_impresor.cpp
   parser.cpp
+  analizador_semantico.cpp
   compiler.cpp
   interpreter.cpp
 )
