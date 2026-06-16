@@ -1,0 +1,15 @@
+# Variables y asignación múltiple (WORK.md secciones II y III)
+nombre = "Juan Perez"
+calificacion = 10
+numeros = [1, 2, 3, 4, 5]                                  // lista
+sueldos = { "Jesus": 10000, "Maria": 20000, "Jose": 30000 } // diccionario
+
+a, b, c = 1, 2, 3   # a = 1  b = 2  c = 3
+a, b, c = 1, 2      # a = 1  b = 2  c = nulo
+a, b    = 1, 2, 3   # a = 1  b = 2  se descarta el 3
+
+PI = 3.14159        // constante (en mayúsculas)
+G = 9.8
+
+escribir(nombre)
+#salida: Juan Perez

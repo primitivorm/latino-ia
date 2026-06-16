@@ -1,0 +1,7 @@
+# mientras (while) (WORK.md sección VI)
+i = 0
+mientras i < 10
+    escribir(i)
+    i++
+fin
+#salida: 0 1 2 3 4 5 6 7 8 9

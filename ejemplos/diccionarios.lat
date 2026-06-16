@@ -1,0 +1,11 @@
+# Diccionarios (WORK.md sección IX)
+actores = { "Chilindrina": "Maria Antonieta de las Nieves",
+            "El chavo del 8": "Roberto Gomez Bolaños",
+            "Tres patines": "Leopoldo Fernandez" }
+
+escribir(actores["Chilindrina"])
+#salida: Maria Antonieta de las Nieves
+
+actores["Chilindrina"] = "Maria Antonieta"
+escribir(actores["Chilindrina"])
+#salida: Maria Antonieta

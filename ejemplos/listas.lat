@@ -1,0 +1,13 @@
+# Listas (WORK.md sección VIII)
+numeros = [1, 2, 3, 4, 5]
+vacia = []
+
+escribir(numeros[1])
+#salida: 2
+
+numeros[0] = 99
+escribir(numeros)
+#salida: [99, 2, 3, 4, 5]
+
+escribir(numeros[-1])    # índice negativo: último elemento
+#salida: 5

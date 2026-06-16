@@ -1,0 +1,8 @@
+# Estructura de control si/sino (WORK.md sección VI)
+edad = 5
+si edad >= 18
+    escribir("Eres mayor de edad, ya puedes votar.")
+sino
+    escribir("Eres un niño, tienes que ir a la escuela.")
+fin
+#salida: Eres un niño, tienes que ir a la escuela.

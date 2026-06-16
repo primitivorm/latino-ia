@@ -1,0 +1,17 @@
+# elegir (switch case) (WORK.md sección VI)
+calificacion = 'B'
+elegir(calificacion)
+    caso 'A':
+        escribir("Excelente!.")
+    caso 'B':
+        escribir("Bien echo!.")
+    caso 'C':
+        escribir("Bien echo!.")
+    caso 'D':
+        escribir("Todavia pasas.")
+    caso 'F':
+        escribir("Estas reprobado.")
+    otro:
+        escribir("Calificación invalida.")
+fin
+#salida: Bien echo!.
