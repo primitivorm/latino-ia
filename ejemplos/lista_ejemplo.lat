@@ -1,0 +1,36 @@
+# Fase 11 — Librería lista
+
+# Criterio de aceptación
+nums = [3, 1, 4, 1, 5]
+lista.agregar(nums, 9)
+escribir(lista.longitud(nums))    #salida: 6
+escribir(lista.contiene(nums, 4)) #salida: cierto
+lista.invertir(nums)
+escribir(nums)                    #salida: [9, 5, 1, 4, 1, 3]
+
+# Funciones adicionales
+a = [1, 2, 3]
+b = [4, 5]
+c = lista.concatenar(a, b)
+escribir(lista.longitud(c))       #salida: 5
+
+escribir(lista.encontrar(c, 4))   #salida: 3
+
+lista.insertar(a, 1, 99)
+escribir(a)                       #salida: [1, 99, 2, 3]
+
+lista.eliminar(a, 99)
+escribir(a)                       #salida: [1, 2, 3]
+
+lista.eliminar_indice(a, 0)
+escribir(a)                       #salida: [2, 3]
+
+lista.extender(a, b)
+escribir(a)                       #salida: [2, 3, 4, 5]
+
+escribir(lista.separador(a, "-")) #salida: 2-3-4-5
+
+d = lista.crear(3, 0)
+escribir(d)                       #salida: [0, 0, 0]
+
+escribir(lista.comparar([1,2], [1,2])) #salida: 0
