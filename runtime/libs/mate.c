@@ -29,6 +29,7 @@ static double a_numero(LatValor v) {
 static LatValor lista2(LatValor a, LatValor b) {
     LatLista *l = (LatLista *)malloc(sizeof(LatLista));
     if (!l) return lat_nulo();
+    l->refs      = 1;
     l->capacidad = 2;
     l->longitud  = 2;
     l->datos = (LatValor *)malloc(sizeof(LatValor) * 2);

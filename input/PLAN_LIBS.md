@@ -481,18 +481,21 @@ escribe s ~= "[0-9]+"   # cierto
 
 ---
 
-## Fase 19 — Manejo de Memoria
+## Fase 19 — Manejo de Memoria ✅
 
-**Archivos:** `runtime/latino.h`, `runtime/latino.c`
+**Archivos:** `runtime/latino.h`, `runtime/latino.c`, `runtime/libs/cadena.c`, `runtime/libs/lista.c`
 
-El runtime actual no libera memoria (aceptable para scripts cortos).  
-Para programas de larga duración se necesita:
+Conteo de referencias implementado:
 
-- Contador de referencias simple en `LatValor`
-- `lat_valor_retener(LatValor v)` / `lat_valor_liberar(LatValor v)`
-- Liberar cadenas, listas y diccionarios cuando el contador llega a 0
-
-**Prioridad:** Baja. Implementar después de que todas las librerías funcionen.
+- `LatCadenaBloque` (interno a `latino.c`): encabezado `size_t refs` + datos de cadena
+  contigüos en memoria; `v.como.cadena` apunta a `datos[0]`, justo después del encabezado.
+- `LatLista.refs` y `LatDic.refs`: campo `size_t` añadido como primer miembro.
+- `lat_valor_retener(LatValor v)` — incrementa el contador; devuelve el mismo valor.
+- `lat_valor_liberar(LatValor v)` — decrementa; libera en cascada cuando llega a 0.
+- Constructores `lat_cadena`, `lat_concatenar`, `lista_nueva`, `dic_nuevo` inicializan `refs = 1`.
+- Las tres asignaciones directas de `LatLista` en `cadena.c` y la de `lista.c` también
+  inicializan `refs = 1`.
+- Ejemplo: `ejemplos/memoria_ejemplo.lat`.
 
 ---
 

@@ -4,10 +4,9 @@
  * Define el tipo dinámico LatValor y las operaciones que el código generado por
  * el compilador (Fase 5) utiliza.
  *
- * Nota: por simplicidad, esta primera versión NO libera memoria (cadenas,
- * listas y diccionarios se asignan en el heap y se filtran). Es suficiente para
- * los programas cortos de ejemplo; una estrategia de liberación/recolección
- * llegará más adelante.
+ * Fase 19: El runtime usa conteo de referencias para cadenas, listas y
+ * diccionarios.  Llama a lat_valor_retener/lat_valor_liberar al asignar o
+ * descartar valores de heap para controlar el ciclo de vida de la memoria.
  */
 
 #ifndef LATINO_H
@@ -51,12 +50,14 @@ struct LatModulo {
 };
 
 struct LatLista {
+    size_t refs;      /* Fase 19: contador de referencias */
     LatValor* datos;
     size_t longitud;
     size_t capacidad;
 };
 
 struct LatDic {
+    size_t refs;      /* Fase 19: contador de referencias */
     char** claves;
     LatValor* valores;
     size_t longitud;
@@ -115,5 +116,11 @@ void lat_imprimirf(size_t n, ...);
 LatValor lat_limpiar(void);
 LatValor lat_error(LatValor v);
 LatValor lat_incluir(LatValor v);
+
+/* --- Gestión de memoria por conteo de referencias (Fase 19) --- */
+/* Incrementa el contador del valor heap; devuelve el mismo valor. */
+LatValor lat_valor_retener(LatValor v);
+/* Decrementa el contador; libera la memoria cuando llega a cero. */
+void     lat_valor_liberar(LatValor v);
 
 #endif /* LATINO_H */

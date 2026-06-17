@@ -169,6 +169,7 @@ LatValor lat_cadena_bytes(LatValor s) {
         arr[i] = lat_numero((double)(unsigned char)str[i]);
     LatLista *lista = (LatLista *)malloc(sizeof(LatLista));
     if (!lista) { free(arr); return lat_nulo(); }
+    lista->refs     = 1;
     lista->datos    = arr;
     lista->longitud = n;
     lista->capacidad = n;
@@ -492,6 +493,7 @@ LatValor lat_cadena_separar(LatValor sv, LatValor delimv) {
 
     LatLista *lista = (LatLista *)malloc(sizeof(LatLista));
     if (!lista) { free(arr); return lat_nulo(); }
+    lista->refs     = 1;
     lista->datos    = arr;
     lista->longitud = count;
     lista->capacidad = count;
@@ -613,6 +615,7 @@ LatValor lat_cadena_regexl(LatValor sv, LatValor patronv) {
 
     LatLista *lista = (LatLista *)malloc(sizeof(LatLista));
     if (!lista) { free(arr); return lat_nulo(); }
+    lista->refs     = 1;
     lista->datos    = arr;
     lista->longitud = count;
     lista->capacidad = cap;
