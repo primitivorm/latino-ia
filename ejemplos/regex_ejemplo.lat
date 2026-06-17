@@ -1,0 +1,31 @@
+# Ejemplo del operador RegEx (~=) — Fase 18
+# El operador ~= devuelve cierto si la cadena izquierda contiene
+# una coincidencia del patrón ERE de la derecha.
+
+s = "hola mundo 123"
+
+# Dígitos presentes → cierto
+escribe(s ~= "[0-9]+")
+
+# Ancla de inicio → cierto
+escribe(s ~= "^hola")
+
+# Patrón inexistente → falso
+escribe(s ~= "xyz")
+
+# Solo letras minúsculas
+escribe("abc" ~= "[a-z]+")
+
+# Letras mayúsculas en cadena minúscula → falso
+escribe("abc" ~= "[A-Z]+")
+
+# Metacaracter \d equivale a [0-9]
+escribe("precio: 42" ~= "\\d+")
+
+#salida:
+#cierto
+#cierto
+#falso
+#cierto
+#falso
+#cierto

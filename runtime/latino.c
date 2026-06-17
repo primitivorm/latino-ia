@@ -2,11 +2,112 @@
 
 #include "latino.h"
 
+#include <ctype.h>
 #include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+/* ================================================================
+ * Fase 18 — Motor de expresiones regulares (ERE, subconjunto).
+ * Soporta: . * + ? ^ $ [clase] [^clase] \d \w \s y variantes en
+ * mayúscula (\D \W \S).  Búsqueda sin ancla intenta en cada posición.
+ * ================================================================ */
+
+static int rx_meta(char e, unsigned char c) {
+    switch (e) {
+        case 'd': return isdigit(c);
+        case 'D': return !isdigit(c);
+        case 'w': return (isalnum(c) || c == '_');
+        case 'W': return !(isalnum(c) || c == '_');
+        case 's': return isspace(c);
+        case 'S': return !isspace(c);
+        default:  return (c == (unsigned char)e);
+    }
+}
+
+static int rx_clase(const char *re, unsigned char c) {
+    int neg = 0;
+    if (*re == '^') { neg = 1; re++; }
+    int enc = 0;
+    while (*re && *re != ']') {
+        if (*re == '\\') {
+            re++;
+            if (*re) { enc |= rx_meta(*re, c); re++; }
+        } else if (re[1] == '-' && re[2] != ']' && re[2] != '\0') {
+            if (c >= (unsigned char)re[0] && c <= (unsigned char)re[2]) enc = 1;
+            re += 3;
+        } else {
+            if ((unsigned char)*re == c) enc = 1;
+            re++;
+        }
+    }
+    return neg ? !enc : enc;
+}
+
+static int rx_uno(const char *re, unsigned char c) {
+    if (*re == '[') return rx_clase(re + 1, c);
+    if (*re == '\\') return rx_meta(re[1], c);
+    if (*re == '.') return (c != '\0');
+    return ((unsigned char)*re == c);
+}
+
+static const char *rx_siguiente(const char *re) {
+    if (*re == '\\' && re[1] != '\0') return re + 2;
+    if (*re == '[') {
+        re++;
+        if (*re == '^') re++;
+        while (*re && *re != ']') {
+            if (*re == '\\' && re[1] != '\0') re++;
+            re++;
+        }
+        if (*re == ']') re++;
+        return re;
+    }
+    return re + 1;
+}
+
+static int rx_len(const char *re, const char *txt);
+
+static int rx_star(const char *atom, const char *rest, const char *txt, int plus) {
+    int n = 0;
+    while (txt[n] != '\0' && rx_uno(atom, (unsigned char)txt[n])) n++;
+    if (plus && n == 0) return -1;
+    for (int i = n; i >= (plus ? 1 : 0); i--) {
+        int r = rx_len(rest, txt + i);
+        if (r >= 0) return i + r;
+    }
+    return -1;
+}
+
+static int rx_len(const char *re, const char *txt) {
+    if (*re == '\0') return 0;
+    if (*re == '$') return (*txt == '\0') ? 0 : -1;
+    const char *ae = rx_siguiente(re);
+    char q = *ae;
+    if (q == '*' || q == '+') return rx_star(re, ae + 1, txt, q == '+');
+    if (q == '?') {
+        if (*txt != '\0' && rx_uno(re, (unsigned char)*txt)) {
+            int r = rx_len(ae + 1, txt + 1);
+            if (r >= 0) return r + 1;
+        }
+        return rx_len(ae + 1, txt);
+    }
+    if (*txt == '\0' || !rx_uno(re, (unsigned char)*txt)) return -1;
+    int r = rx_len(ae, txt + 1);
+    return (r >= 0) ? r + 1 : -1;
+}
+
+static int rx_match(const char *str, const char *re) {
+    int anchored = (*re == '^');
+    if (anchored) re++;
+    do {
+        if (rx_len(re, str) >= 0) return 1;
+        if (anchored) break;
+    } while (*str++ != '\0');
+    return 0;
+}
 
 /* ------------------------------------------------------------------ */
 /* Utilidades internas                                                */
@@ -259,6 +360,8 @@ LatValor lat_o(LatValor a, LatValor b) {
     return lat_logico(lat_es_verdadero(a) || lat_es_verdadero(b));
 }
 LatValor lat_coincide(LatValor a, LatValor b) {
+    if (a.tipo == LAT_CADENA && b.tipo == LAT_CADENA)
+        return lat_logico(rx_match(a.como.cadena, b.como.cadena));
     return lat_logico(son_iguales(a, b));
 }
 
