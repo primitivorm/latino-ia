@@ -276,6 +276,21 @@ std::string GeneradorC::genLlamada(Llamada* ll) {
                 s += ")";
                 return s;
             }
+
+            // Despacho dinámico sobre variable que contiene un módulo cargado.
+            // milib.fn(args)  →  lat_paquete_llamar(v_milib, "fn", nargs, arg0, ...)
+            {
+                libsUsadas.insert("paquete");
+                const std::string& varname = obj->nombre;
+                const std::string& fnname  = am->miembro;
+                std::string s = "lat_paquete_llamar(" + varC(varname) +
+                                ", lat_cadena(\"" + escaparCadena(fnname) + "\"), " +
+                                std::to_string(ll->argumentos.size());
+                for (auto& arg : ll->argumentos)
+                    s += ", " + genExpr(arg.get());
+                s += ")";
+                return s;
+            }
         }
     }
 

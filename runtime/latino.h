@@ -21,11 +21,13 @@ typedef enum {
     LAT_NUMERO,
     LAT_CADENA,
     LAT_LISTA,
-    LAT_DICCIONARIO
+    LAT_DICCIONARIO,
+    LAT_MODULO
 } LatTipo;
 
 typedef struct LatLista LatLista;
 typedef struct LatDic LatDic;
+typedef struct LatModulo LatModulo;
 
 typedef struct {
     LatTipo tipo;
@@ -35,8 +37,18 @@ typedef struct {
         char* cadena;
         LatLista* lista;
         LatDic* dic;
+        LatModulo* modulo;
     } como;
 } LatValor;
+
+/* Tipo función exportada por módulos dinámicos:
+ *   LatValor mi_funcion(int nargs, LatValor* args)
+ */
+typedef LatValor (*LatFnModulo)(int nargs, LatValor* args);
+
+struct LatModulo {
+    void* handle;  /* LoadLibrary / dlopen handle */
+};
 
 struct LatLista {
     LatValor* datos;
