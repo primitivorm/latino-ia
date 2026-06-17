@@ -1,0 +1,37 @@
+# Fase 13 — Librería mate
+# Criterio de aceptación
+escribir(mate.pi())               #salida: 3.14159
+escribir(mate.raiz(16))           #salida: 4
+escribir(mate.piso(3.7))          #salida: 3
+escribir(mate.abs(-5))            #salida: 5
+# Redondeo
+escribir(mate.techo(3.2))         #salida: 4
+escribir(mate.redondear(3.5))     #salida: 4
+escribir(mate.truncar(3.9))       #salida: 3
+# Potencia / raíz cúbica
+escribir(mate.pot(2, 10))         #salida: 1024
+escribir(mate.raizc(27))          #salida: 3
+# Utilidades
+escribir(mate.max(3, 7))          #salida: 7
+escribir(mate.min(3, 7))          #salida: 3
+escribir(mate.porc(25, 200))      #salida: 12.5
+escribir(mate.base(255, 16))      #salida: ff
+# Exp / logaritmo
+escribir(mate.exp(0))             #salida: 1
+escribir(mate.log10(100))         #salida: 2
+# Pares (devuelven lista de 2)
+escribir(mate.frexp(8))           #salida: [0.5, 4]
+escribir(mate.parte(3.75))        #salida: [3, 0.75]
+escribir(mate.ldexp(0.5, 4))      #salida: 8
+# Ejercitar el resto sin verificar salida
+tau = mate.tau()
+eu  = mate.e()
+sn  = mate.sen(0)
+cn  = mate.cos(0)
+tn  = mate.tan(0)
+sh  = mate.senh(0)
+ch  = mate.cosh(0)
+th  = mate.tanh(0)
+at2 = mate.atan2(0, 1)
+rnd = mate.aleatorio()
+alt = mate.alt()
