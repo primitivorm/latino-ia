@@ -27,7 +27,8 @@ archivo .lat → Lexer → Parser (AST) → Análisis semántico → Generación
 | 5 | Generación de código C | ✅ Completada (PR #5) |
 | 6 | Biblioteca de runtime en C | ✅ Completada (PR #5) |
 | 7 | Driver / CLI | ✅ Completada (PR #6, #7) |
-| 8 | Pruebas y ejemplos | 🟡 En curso (CTest: lexer + AST + parser + semántico + codegen; e2e manual) |
+| 8 | Pruebas y ejemplos | ✅ Completada (PR #8) |
+
 
 ---
 
@@ -93,14 +94,15 @@ Archivos: [src/lexer.cpp](src/lexer.cpp), [include/lexer.h](include/lexer.h).
 - [x] **Invocación automática del compilador**: `config.h` generado por CMake ([src/config.h.in](src/config.h.in)) hornea la ruta del compilador, el estilo (`msvc`/`gnu`), `VsDevCmd.bat` y `LATINO_RUNTIME_DIR`. En MSVC se monta el entorno de VS vía un `.bat` temporal (con `-startdir=none`), así `latino prog.lat` produce el `.exe` desde **cualquier** shell. Fallback a `CC`/PATH (gcc/clang).
 - [x] Banderas: `-o <salida>`, `--solo-c` (emite el C a `-o` si se indica, si no a stdout), `--ast`, `--runtime <dir>`.
 
-### Fase 8 — Pruebas y ejemplos 🟡
+### Fase 8 — Pruebas y ejemplos ✅
 - [x] Pruebas unitarias del lexer ([tests/test_lexer.cpp](tests/test_lexer.cpp)).
 - [x] Pruebas del AST ([tests/test_ast.cpp](tests/test_ast.cpp)).
 - [x] Pruebas del parser ([tests/test_parser.cpp](tests/test_parser.cpp)).
 - [x] Pruebas del análisis semántico ([tests/test_semantico.cpp](tests/test_semantico.cpp)).
 - [x] Pruebas de generación de código C ([tests/test_codegen.cpp](tests/test_codegen.cpp)).
 - [x] Extremo a extremo (manual): los 11 ejemplos de [ejemplos/](ejemplos/) generan C, compilan con el runtime y se ejecutan; las salidas de `hola`, `operadores`, `si`, `funciones`, `listas`, `diccionarios`, etc. coinciden con las documentadas (`#salida:`).
-- [ ] Automatizar el extremo a extremo dentro de CTest (requiere localizar un compilador de C de forma portable; hoy se hace con `cl` en un script).
+- [x] Automatizar el extremo a extremo dentro de CTest (driver portable de pruebas E2E en C++).
+
 
 ---
 
