@@ -1,0 +1,28 @@
+# Fase 15 — Librería archivo
+# escribir + leer (round-trip)
+archivo.escribir("_t15.txt", "Hola Latino")
+contenido = archivo.leer("_t15.txt")
+escribir(contenido)                           #salida: Hola Latino
+
+# lineas cuenta las líneas del archivo
+lineas = archivo.lineas("_t15.txt")
+escribir(lista.longitud(lineas))              #salida: 1
+
+# anexar texto al final
+archivo.anexar("_t15.txt", " y mas")
+contenido2 = archivo.leer("_t15.txt")
+escribir(contenido2)                          #salida: Hola Latino y mas
+
+# renombrar y leer desde el nuevo nombre
+archivo.renombrar("_t15.txt", "_t15b.txt")
+contenido3 = archivo.leer("_t15b.txt")
+escribir(contenido3)                          #salida: Hola Latino y mas
+
+# duplicar y verificar copia
+archivo.duplicar("_t15b.txt", "_t15c.txt")
+contenido4 = archivo.leer("_t15c.txt")
+escribir(contenido4)                          #salida: Hola Latino y mas
+
+# limpieza de archivos temporales
+archivo.borrar("_t15b.txt")
+archivo.borrar("_t15c.txt")
