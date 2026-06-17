@@ -1,0 +1,9 @@
+# Fase 12 — Librería dic
+# Criterio de aceptación
+persona = {"nombre": "Ana", "edad": 30}
+escribir(dic.llaves(persona))             #salida: [nombre, edad]
+escribir(dic.valores(persona))            #salida: [Ana, 30]
+escribir(dic.contiene(persona, "edad"))   #salida: cierto
+dic.eliminar(persona, "edad")
+escribir(dic.longitud(persona))           #salida: 1
+escribir(dic.contiene(persona, "edad"))   #salida: falso
