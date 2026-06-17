@@ -17,8 +17,8 @@ static void uso() {
     std::cerr <<
         "Uso: latino <archivo.lat> [opciones]\n"
         "  (por defecto)      compila el programa a un ejecutable\n"
-        "  -o <ruta>          ruta del ejecutable de salida\n"
-        "  --solo-c           emite el código C por stdout y termina\n"
+        "  -o <ruta>          ruta de salida (ejecutable, o el .c con --solo-c)\n"
+        "  --solo-c           emite el código C (a -o si se indica, si no a stdout)\n"
         "  --ast              vuelca el AST (depuración)\n"
         "  --runtime <dir>    carpeta del runtime (latino.h/latino.c)\n";
 }
@@ -89,9 +89,19 @@ int main(int argc, char** argv) {
     GeneradorC generador;
     std::string codigoC = generador.generar(*programa);
 
-    // --solo-c: emitir el C por stdout y terminar.
+    // --solo-c: emitir el C a un archivo (si se indicó -o) o por stdout.
     if (soloC) {
-        std::cout << codigoC;
+        if (salida.empty()) {
+            std::cout << codigoC;
+        } else {
+            std::ofstream f(salida, std::ios::binary);
+            if (!f) {
+                std::cerr << "No se pudo escribir el archivo: " << salida << std::endl;
+                return 1;
+            }
+            f << codigoC;
+            std::cerr << "Código C generado: " << salida << std::endl;
+        }
         return 0;
     }
 
