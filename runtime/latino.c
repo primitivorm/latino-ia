@@ -50,7 +50,35 @@ LatValor lat_numero(double n) {
 LatValor lat_cadena(const char* s) {
     LatValor v;
     v.tipo = LAT_CADENA;
-    v.como.cadena = dup_cadena(s);
+    
+    size_t len = strlen(s);
+    char* resolved = (char*)malloc(len + 1);
+    if (!resolved) {
+        v.como.cadena = NULL;
+        return v;
+    }
+    size_t j = 0;
+    for (size_t i = 0; i < len; i++) {
+        if (s[i] == '\\' && i + 1 < len) {
+            i++;
+            switch (s[i]) {
+                case 'n': resolved[j++] = '\n'; break;
+                case 't': resolved[j++] = '\t'; break;
+                case 'r': resolved[j++] = '\r'; break;
+                case '\\': resolved[j++] = '\\'; break;
+                case '"': resolved[j++] = '"'; break;
+                case '\'': resolved[j++] = '\''; break;
+                default:
+                    resolved[j++] = '\\';
+                    resolved[j++] = s[i];
+                    break;
+            }
+        } else {
+            resolved[j++] = s[i];
+        }
+    }
+    resolved[j] = '\0';
+    v.como.cadena = resolved;
     return v;
 }
 
@@ -365,3 +393,160 @@ LatValor lat_escribir(LatValor v) {
 LatValor lat_imprimir(LatValor v) {
     return lat_escribir(v);
 }
+
+LatValor lat_acadena(LatValor v) {
+    char* s = lat_a_cadena(v);
+    LatValor r = lat_cadena(s);
+    free(s);
+    return r;
+}
+
+LatValor lat_alogico(LatValor v) {
+    return lat_logico(lat_es_verdadero(v));
+}
+
+LatValor lat_anumero(LatValor v) {
+    if (v.tipo == LAT_NUMERO) {
+        return v;
+    }
+    if (v.tipo == LAT_LOGICO) {
+        return lat_numero(v.como.logico ? 1.0 : 0.0);
+    }
+    if (v.tipo == LAT_CADENA) {
+        double d = strtod(v.como.cadena, NULL);
+        return lat_numero(d);
+    }
+    return lat_numero(0.0);
+}
+
+LatValor lat_leer(void) {
+    size_t cap = 256;
+    size_t len = 0;
+    char* buf = (char*)malloc(cap);
+    if (!buf) return lat_nulo();
+    int c;
+    while ((c = getchar()) != EOF && c != '\n') {
+        if (len + 1 >= cap) {
+            cap *= 2;
+            char* temp = (char*)realloc(buf, cap);
+            if (!temp) {
+                free(buf);
+                return lat_nulo();
+            }
+            buf = temp;
+        }
+        buf[len++] = (char)c;
+    }
+    buf[len] = '\0';
+    if (len > 0 && buf[len - 1] == '\r') {
+        buf[len - 1] = '\0';
+    }
+    LatValor r = lat_cadena(buf);
+    free(buf);
+    return r;
+}
+
+LatValor lat_tipo(LatValor v) {
+    switch (v.tipo) {
+        case LAT_NULO:        return lat_cadena("nulo");
+        case LAT_LOGICO:      return lat_cadena("logico");
+        case LAT_NUMERO:      return lat_cadena("numero");
+        case LAT_CADENA:      return lat_cadena("cadena");
+        case LAT_LISTA:       return lat_cadena("lista");
+        case LAT_DICCIONARIO: return lat_cadena("dic");
+    }
+    return lat_cadena("desconocido");
+}
+
+void lat_imprimirf(size_t n, ...) {
+    if (n == 0) return;
+    va_list ap;
+    va_start(ap, n);
+    LatValor fmtVal = va_arg(ap, LatValor);
+    if (fmtVal.tipo != LAT_CADENA) {
+        va_end(ap);
+        return;
+    }
+    const char* fmt = fmtVal.como.cadena;
+    size_t argIdx = 1;
+    
+    while (*fmt) {
+        if (*fmt == '%' && *(fmt + 1) != '\0') {
+            fmt++;
+            if (*fmt == '%') {
+                putchar('%');
+                fmt++;
+                continue;
+            }
+            
+            char spec[64];
+            size_t specLen = 0;
+            spec[specLen++] = '%';
+            
+            while (*fmt && strchr("diufegsScxpX", *fmt) == NULL && specLen < 62) {
+                spec[specLen++] = *fmt++;
+            }
+            if (*fmt) {
+                spec[specLen++] = *fmt;
+            }
+            spec[specLen] = '\0';
+            
+            char typeChar = *fmt;
+            if (*fmt) fmt++;
+            
+            if (argIdx < n) {
+                LatValor arg = va_arg(ap, LatValor);
+                argIdx++;
+                
+                if (typeChar == 's' || typeChar == 'S') {
+                    char* str = lat_a_cadena(arg);
+                    printf(spec, str);
+                    free(str);
+                } else if (strchr("diouxX", typeChar)) {
+                    double val = 0;
+                    if (arg.tipo == LAT_NUMERO) val = arg.como.numero;
+                    else if (arg.tipo == LAT_LOGICO) val = arg.como.logico;
+                    printf(spec, (long long)val);
+                } else if (strchr("fegEG", typeChar)) {
+                    double val = 0;
+                    if (arg.tipo == LAT_NUMERO) val = arg.como.numero;
+                    else if (arg.tipo == LAT_LOGICO) val = arg.como.logico;
+                    printf(spec, val);
+                } else {
+                    char* str = lat_a_cadena(arg);
+                    fputs(str, stdout);
+                    free(str);
+                }
+            } else {
+                fputs(spec, stdout);
+            }
+        } else {
+            putchar(*fmt);
+            fmt++;
+        }
+    }
+    va_end(ap);
+}
+
+LatValor lat_limpiar(void) {
+#ifdef _WIN32
+    system("cls");
+#else
+    system("clear");
+#endif
+    return lat_nulo();
+}
+
+LatValor lat_error(LatValor v) {
+    char* s = lat_a_cadena(v);
+    fprintf(stderr, "%s\n", s);
+    free(s);
+    exit(1);
+    return lat_nulo();
+}
+
+LatValor lat_incluir(LatValor v) {
+    (void)v;
+    return lat_nulo();
+}
+

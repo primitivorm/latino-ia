@@ -195,11 +195,27 @@ std::string GeneradorC::genLlamada(Llamada* ll) {
     if (auto* id = dynamic_cast<Identificador*>(ll->destino.get())) {
         const std::string& nombre = id->nombre;
 
-        if (nombre == "escribir" || nombre == "imprimir") {
-            std::string fn = (nombre == "escribir") ? "lat_escribir" : "lat_imprimir";
+        if (nombre == "escribir" || nombre == "imprimir" || nombre == "escribe" || nombre == "poner") {
+            std::string fn = (nombre == "imprimir") ? "lat_imprimir" : "lat_escribir";
             std::string arg =
                 ll->argumentos.empty() ? "lat_nulo()" : genExpr(ll->argumentos[0].get());
             return fn + "(" + arg + ")";
+        }
+        if (nombre == "acadena" || nombre == "alogico" || nombre == "anumero" || nombre == "tipo" || nombre == "error" || nombre == "incluir") {
+            std::string arg =
+                ll->argumentos.empty() ? "lat_nulo()" : genExpr(ll->argumentos[0].get());
+            return "lat_" + nombre + "(" + arg + ")";
+        }
+        if (nombre == "leer" || nombre == "limpiar") {
+            return "lat_" + nombre + "()";
+        }
+        if (nombre == "imprimirf") {
+            std::string s = "lat_imprimirf(" + std::to_string(ll->argumentos.size());
+            for (auto& arg : ll->argumentos) {
+                s += ", " + genExpr(arg.get());
+            }
+            s += ")";
+            return s;
         }
 
         auto it = funciones.find(nombre);

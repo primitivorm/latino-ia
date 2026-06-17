@@ -28,6 +28,7 @@ archivo .lat → Lexer → Parser (AST) → Análisis semántico → Generación
 | 6 | Biblioteca de runtime en C | ✅ Completada (PR #5) |
 | 7 | Driver / CLI | ✅ Completada (PR #6, #7) |
 | 8 | Pruebas y ejemplos | ✅ Completada (PR #8) |
+| 9 | Funciones base faltantes | ✅ Completada (PR #9) |
 
 
 ---
@@ -102,6 +103,15 @@ Archivos: [src/lexer.cpp](src/lexer.cpp), [include/lexer.h](include/lexer.h).
 - [x] Pruebas de generación de código C ([tests/test_codegen.cpp](tests/test_codegen.cpp)).
 - [x] Extremo a extremo (manual): los 11 ejemplos de [ejemplos/](ejemplos/) generan C, compilan con el runtime y se ejecutan; las salidas de `hola`, `operadores`, `si`, `funciones`, `listas`, `diccionarios`, etc. coinciden con las documentadas (`#salida:`).
 - [x] Automatizar el extremo a extremo dentro de CTest (driver portable de pruebas E2E en C++).
+
+### Fase 9 — Funciones base faltantes ✅
+- [x] Conversión de tipos: `acadena()`, `alogico()`, `anumero()`.
+- [x] Entrada estándar: `leer()`.
+- [x] Introspección de tipos: `tipo()`.
+- [x] Salida con formato: `imprimirf()`.
+- [x] Consola/pantalla y control: `limpiar()`, `error()`.
+- [x] Soporte básico para palabras clave adicionales: `escribe`, `poner` (sinónimos de escribir/imprimir), e `incluir` (stub de runtime).
+- [x] Pruebas E2E automatizadas para estas funciones.
 
 
 ---

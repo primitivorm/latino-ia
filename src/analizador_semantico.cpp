@@ -84,7 +84,10 @@ void AnalizadorSemantico::usarIdentificador(const std::string& nombre, int linea
 }
 
 bool AnalizadorSemantico::esIncorporada(const std::string& nombre) const {
-    return nombre == "escribir" || nombre == "imprimir";
+    return nombre == "escribir" || nombre == "imprimir" || nombre == "escribe" || nombre == "poner" ||
+           nombre == "acadena" || nombre == "alogico" || nombre == "anumero" ||
+           nombre == "leer" || nombre == "tipo" || nombre == "imprimirf" ||
+           nombre == "limpiar" || nombre == "error" || nombre == "incluir";
 }
 
 void AnalizadorSemantico::recolectarFunciones(Programa& programa) {
