@@ -109,6 +109,29 @@ static int rx_match(const char *str, const char *re) {
     return 0;
 }
 
+/* ================================================================
+ * Fase 19 — Bloque de cadena con contador de referencias.
+ * v.como.cadena apunta a datos[0]; el encabezado está justo antes.
+ * ================================================================ */
+typedef struct {
+    size_t refs;
+    char   datos[]; /* array flexible — C99 */
+} LatCadenaBloque;
+
+/* Crea un bloque a partir de un buffer ya procesado de longitud len. */
+static LatCadenaBloque* cadena_bloque_nuevo(const char* buf, size_t len) {
+    LatCadenaBloque* b = (LatCadenaBloque*)malloc(sizeof(LatCadenaBloque) + len + 1);
+    if (!b) return NULL;
+    b->refs = 1;
+    memcpy(b->datos, buf, len + 1);
+    return b;
+}
+
+/* Obtiene el encabezado desde el puntero almacenado en LatValor. */
+static LatCadenaBloque* cadena_encabezado(const char* p) {
+    return (LatCadenaBloque*)p - 1;
+}
+
 /* ------------------------------------------------------------------ */
 /* Utilidades internas                                                */
 /* ------------------------------------------------------------------ */
@@ -151,40 +174,41 @@ LatValor lat_numero(double n) {
 LatValor lat_cadena(const char* s) {
     LatValor v;
     v.tipo = LAT_CADENA;
-    
+
     size_t len = strlen(s);
-    char* resolved = (char*)malloc(len + 1);
-    if (!resolved) {
-        v.como.cadena = NULL;
-        return v;
-    }
+    /* Procesar secuencias de escape en buffer temporal */
+    char* tmp = (char*)malloc(len + 1);
+    if (!tmp) { v.como.cadena = NULL; return v; }
     size_t j = 0;
     for (size_t i = 0; i < len; i++) {
         if (s[i] == '\\' && i + 1 < len) {
             i++;
             switch (s[i]) {
-                case 'n': resolved[j++] = '\n'; break;
-                case 't': resolved[j++] = '\t'; break;
-                case 'r': resolved[j++] = '\r'; break;
-                case '\\': resolved[j++] = '\\'; break;
-                case '"': resolved[j++] = '"'; break;
-                case '\'': resolved[j++] = '\''; break;
+                case 'n':  tmp[j++] = '\n'; break;
+                case 't':  tmp[j++] = '\t'; break;
+                case 'r':  tmp[j++] = '\r'; break;
+                case '\\': tmp[j++] = '\\'; break;
+                case '"':  tmp[j++] = '"';  break;
+                case '\'': tmp[j++] = '\''; break;
                 default:
-                    resolved[j++] = '\\';
-                    resolved[j++] = s[i];
+                    tmp[j++] = '\\';
+                    tmp[j++] = s[i];
                     break;
             }
         } else {
-            resolved[j++] = s[i];
+            tmp[j++] = s[i];
         }
     }
-    resolved[j] = '\0';
-    v.como.cadena = resolved;
+    tmp[j] = '\0';
+    LatCadenaBloque* b = cadena_bloque_nuevo(tmp, j);
+    free(tmp);
+    v.como.cadena = b ? b->datos : NULL;
     return v;
 }
 
 static LatLista* lista_nueva(size_t capacidad) {
     LatLista* l = (LatLista*)malloc(sizeof(LatLista));
+    l->refs = 1;
     l->longitud = 0;
     l->capacidad = capacidad ? capacidad : 4;
     l->datos = (LatValor*)malloc(sizeof(LatValor) * l->capacidad);
@@ -215,6 +239,7 @@ LatValor lat_lista_de(size_t n, ...) {
 
 static LatDic* dic_nuevo(size_t capacidad) {
     LatDic* d = (LatDic*)malloc(sizeof(LatDic));
+    d->refs = 1;
     d->longitud = 0;
     d->capacidad = capacidad ? capacidad : 4;
     d->claves = (char**)malloc(sizeof(char*) * d->capacidad);
@@ -294,15 +319,18 @@ LatValor lat_concatenar(LatValor a, LatValor b) {
     char* sa = lat_a_cadena(a);
     char* sb = lat_a_cadena(b);
     size_t na = strlen(sa), nb = strlen(sb);
-    char* r = (char*)malloc(na + nb + 1);
-    memcpy(r, sa, na);
-    memcpy(r + na, sb, nb + 1);
+    LatCadenaBloque* bloque = (LatCadenaBloque*)malloc(
+        sizeof(LatCadenaBloque) + na + nb + 1);
+    if (!bloque) { free(sa); free(sb); return lat_nulo(); }
+    bloque->refs = 1;
+    memcpy(bloque->datos, sa, na);
+    memcpy(bloque->datos + na, sb, nb + 1);
     free(sa);
     free(sb);
     {
         LatValor v;
         v.tipo = LAT_CADENA;
-        v.como.cadena = r;
+        v.como.cadena = bloque->datos;
         return v;
     }
 }
@@ -655,5 +683,70 @@ LatValor lat_error(LatValor v) {
 LatValor lat_incluir(LatValor v) {
     (void)v;
     return lat_nulo();
+}
+
+/* ================================================================
+ * Fase 19 — Gestión de memoria por conteo de referencias
+ * ================================================================ */
+
+LatValor lat_valor_retener(LatValor v) {
+    switch (v.tipo) {
+        case LAT_CADENA:
+            if (v.como.cadena)
+                cadena_encabezado(v.como.cadena)->refs++;
+            break;
+        case LAT_LISTA:
+            if (v.como.lista)
+                v.como.lista->refs++;
+            break;
+        case LAT_DICCIONARIO:
+            if (v.como.dic)
+                v.como.dic->refs++;
+            break;
+        default:
+            break;
+    }
+    return v;
+}
+
+void lat_valor_liberar(LatValor v) {
+    switch (v.tipo) {
+        case LAT_CADENA: {
+            if (!v.como.cadena) break;
+            LatCadenaBloque* b = cadena_encabezado(v.como.cadena);
+            if (b->refs > 0) b->refs--;
+            if (b->refs == 0) free(b);
+            break;
+        }
+        case LAT_LISTA: {
+            LatLista* l = v.como.lista;
+            if (!l) break;
+            if (l->refs > 0) l->refs--;
+            if (l->refs == 0) {
+                for (size_t i = 0; i < l->longitud; i++)
+                    lat_valor_liberar(l->datos[i]);
+                free(l->datos);
+                free(l);
+            }
+            break;
+        }
+        case LAT_DICCIONARIO: {
+            LatDic* d = v.como.dic;
+            if (!d) break;
+            if (d->refs > 0) d->refs--;
+            if (d->refs == 0) {
+                for (size_t i = 0; i < d->longitud; i++) {
+                    free(d->claves[i]);
+                    lat_valor_liberar(d->valores[i]);
+                }
+                free(d->claves);
+                free(d->valores);
+                free(d);
+            }
+            break;
+        }
+        default:
+            break;
+    }
 }
 

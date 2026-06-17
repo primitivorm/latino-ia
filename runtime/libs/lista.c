@@ -71,6 +71,7 @@ LatValor lat_lista_concatenar(LatValor l1v, LatValor l2v) {
 
     LatLista *r = (LatLista *)malloc(sizeof(LatLista));
     if (!r) return lat_nulo();
+    r->refs      = 1;
     r->capacidad = total ? total : 4;
     r->longitud  = total;
     r->datos     = (LatValor *)malloc(sizeof(LatValor) * r->capacidad);
@@ -106,6 +107,7 @@ LatValor lat_lista_crear(LatValor nv, LatValor v) {
 
     LatLista *l = (LatLista *)malloc(sizeof(LatLista));
     if (!l) return lat_nulo();
+    l->refs      = 1;
     l->capacidad = n ? (size_t)n : 4;
     l->longitud  = (size_t)n;
     l->datos     = (LatValor *)malloc(sizeof(LatValor) * l->capacidad);

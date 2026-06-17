@@ -24,6 +24,7 @@ static const char *texto_de_valor(LatValor v) {
 static LatLista *lista_nueva(size_t cap) {
     LatLista *l = (LatLista *)malloc(sizeof(LatLista));
     if (!l) return NULL;
+    l->refs      = 1;
     l->capacidad = cap ? cap : 8;
     l->longitud  = 0;
     l->datos = (LatValor *)malloc(sizeof(LatValor) * l->capacidad);

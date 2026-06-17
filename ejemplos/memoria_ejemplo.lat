@@ -1,0 +1,51 @@
+# memoria_ejemplo.lat — Fase 19: Manejo de Memoria
+#
+# El runtime ahora gestiona cadenas, listas y diccionarios mediante
+# conteo de referencias.  La API lat_valor_retener / lat_valor_liberar
+# permite retener y liberar valores heap de forma explícita desde C.
+# Para el código Latino el ciclo de vida es transparente; este ejemplo
+# verifica que la lógica de asignación e indexación sigue funcionando
+# correctamente con los nuevos bloques ref-contados.
+
+incluir "cadena"
+incluir "lista"
+
+# --- Cadenas: concatenación produce un bloque ref-contado nuevo ---
+s1 = "Hola"
+s2 = "Mundo"
+s3 = s1 .. ", " .. s2 .. "!"
+escribir(s3)
+
+# --- Cadenas: secuencias de escape dentro del bloque ---
+escribir("tab:\tpunto")
+
+# --- Listas: creación, agregar y longitud ---
+numeros = [10, 20, 30]
+lista.agregar(numeros, 40)
+escribir(lista.longitud(numeros))
+
+# --- Listas: acceso por índice ---
+escribir(numeros[2])
+
+# --- Diccionarios: creación y acceso por clave ---
+info = {"nombre": "Latino", "fase": "19"}
+escribir(info["nombre"])
+escribir(info["fase"])
+
+# --- Cadena: operaciones de cadena sobre un valor ref-contado ---
+escribir(cadena.mayusculas("hola mundo"))
+
+# --- Lista anidada liberada en cascada ---
+sub = [1, 2]
+contenedor = [sub, sub]
+escribir(lista.longitud(contenedor))
+
+#salida:
+#Hola, Mundo!
+#tab: punto
+#4
+#30
+#Latino
+#19
+#HOLA MUNDO
+#2
