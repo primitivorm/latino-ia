@@ -1,0 +1,27 @@
+# Pruebas de funciones base (Fase 9)
+escribir(tipo(42))
+#salida: numero
+
+escribir(tipo("hola"))
+#salida: cadena
+
+escribir(tipo(cierto))
+#salida: logico
+
+escribir(tipo(nulo))
+#salida: nulo
+
+escribir(acadena(123.45))
+#salida: 123.45
+
+escribir(alogico(0))
+#salida: falso
+
+escribir(alogico("si"))
+#salida: cierto
+
+escribir(anumero("3.1416"))
+#salida: 3.1416
+
+imprimirf("Pi es %.2f y un entero %d\n", 3.14159, 100)
+#salida: Pi es 3.14 y un entero 100

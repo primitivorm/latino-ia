@@ -94,5 +94,14 @@ char* lat_a_cadena(LatValor v);
 /* --- Funciones incorporadas --- */
 LatValor lat_escribir(LatValor v);   /* imprime y añade salto de línea */
 LatValor lat_imprimir(LatValor v);   /* imprime y añade salto de línea */
+LatValor lat_acadena(LatValor v);
+LatValor lat_alogico(LatValor v);
+LatValor lat_anumero(LatValor v);
+LatValor lat_leer(void);
+LatValor lat_tipo(LatValor v);
+void lat_imprimirf(size_t n, ...);
+LatValor lat_limpiar(void);
+LatValor lat_error(LatValor v);
+LatValor lat_incluir(LatValor v);
 
 #endif /* LATINO_H */
