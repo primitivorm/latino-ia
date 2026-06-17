@@ -1,0 +1,9 @@
+# Fase 14 — Librería sis
+# sis.dormir devuelve nulo (siempre determinístico)
+escribir(sis.dormir(1))       #salida: nulo
+# Ejercitar el resto sin verificar salida (valores dependen del entorno)
+op  = sis.operativo()
+fec = sis.fecha()
+dir = sis.cwd()
+usr = sis.usuario()
+ts  = sis.tiempo()
