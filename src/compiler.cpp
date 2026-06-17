@@ -256,7 +256,7 @@ std::string GeneradorC::genLlamada(Llamada* ll) {
                 const std::string& lib = obj->nombre;
                 const std::string& fn  = am->miembro;
 
-                // cadena.formato es variádica
+                // cadena.formato es variádica (primer arg = fmt, resto = valores)
                 if (lib == "cadena" && fn == "formato") {
                     std::string s = "lat_cadena_formato(" +
                                     std::to_string(ll->argumentos.size());
@@ -278,6 +278,7 @@ std::string GeneradorC::genLlamada(Llamada* ll) {
             }
         }
     }
+
     return "lat_nulo() /* llamada dinamica no soportada */";
 }
 
