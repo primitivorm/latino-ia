@@ -64,3 +64,30 @@ add_executable(lexer_dump
   ${CMAKE_SOURCE_DIR}/src/lexer.cpp
 )
 target_include_directories(lexer_dump PRIVATE ${CMAKE_SOURCE_DIR}/include)
+
+# Pruebas extremo a extremo (E2E) (Fase 8)
+add_executable(test_e2e test_e2e.cpp)
+target_include_directories(test_e2e PRIVATE ${CMAKE_SOURCE_DIR}/include)
+
+# Obtener todos los ejemplos .lat
+file(GLOB EJEMPLOS_LAT "${CMAKE_SOURCE_DIR}/ejemplos/*.lat")
+
+foreach(EJEMPLO ${EJEMPLOS_LAT})
+  get_filename_component(EJEMPLO_NOMBRE ${EJEMPLO} NAME_WE)
+  
+  # Directorio para alojar los ejecutables generados
+  set(SALIDA_EXE "${CMAKE_CURRENT_BINARY_DIR}/e2e_${EJEMPLO_NOMBRE}")
+  if(WIN32)
+    set(SALIDA_EXE "${SALIDA_EXE}.exe")
+  endif()
+  
+  add_test(
+    NAME "e2e_${EJEMPLO_NOMBRE}"
+    COMMAND test_e2e
+            $<TARGET_FILE:latino>
+            "${EJEMPLO}"
+            "${SALIDA_EXE}"
+            "${CMAKE_SOURCE_DIR}/runtime"
+  )
+endforeach()
+
