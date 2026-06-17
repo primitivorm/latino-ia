@@ -30,6 +30,7 @@ private:
     int indentacion = 0;
     int contadorTemp = 0;
     std::unordered_map<std::string, InfoFuncion> funciones;
+    std::set<std::string> libsUsadas;  // librerías detectadas durante generación
 
     void recolectarFunciones(Programa& programa);
     void recolectarVariables(const ListaSent& cuerpo, std::set<std::string>& destino,
@@ -43,6 +44,7 @@ private:
     void genSentencia(Sentencia* s);
     void genBloque(const ListaSent& cuerpo);
     void genFuncion(FuncionDef* f);
+    void generarCuerpo(Programa& programa);  // genera funciones + main (sin preámbulo)
 
     // Utilidades
     static std::string varC(const std::string& nombre);   // v_<nombre>

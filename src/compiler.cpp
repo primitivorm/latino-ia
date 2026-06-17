@@ -241,6 +241,44 @@ std::string GeneradorC::genLlamada(Llamada* ll) {
         }
         return "lat_nulo() /* llamada no soportada: " + nombre + " */";
     }
+    // Llamada de librería: cadena.xxx(args), lista.xxx(args), etc.
+    if (auto* am = dynamic_cast<AccesoMiembro*>(ll->destino.get())) {
+        if (auto* obj = dynamic_cast<Identificador*>(am->objeto.get())) {
+            static const char* LIBS[] = {
+                "cadena", "lista", "dic", "mate", "sis", "archivo", "paquete", nullptr
+            };
+            bool esLib = false;
+            for (int i = 0; LIBS[i]; i++)
+                if (obj->nombre == LIBS[i]) { esLib = true; break; }
+
+            if (esLib) {
+                libsUsadas.insert(obj->nombre);
+                const std::string& lib = obj->nombre;
+                const std::string& fn  = am->miembro;
+
+                // cadena.formato es variádica (primer arg = fmt, resto = valores)
+                if (lib == "cadena" && fn == "formato") {
+                    std::string s = "lat_cadena_formato(" +
+                                    std::to_string(ll->argumentos.size());
+                    for (auto& arg : ll->argumentos)
+                        s += ", " + genExpr(arg.get());
+                    s += ")";
+                    return s;
+                }
+
+                // Resto de funciones de librería: args fijos
+                std::string nombre_c = "lat_" + lib + "_" + fn;
+                std::string s = nombre_c + "(";
+                for (size_t i = 0; i < ll->argumentos.size(); i++) {
+                    if (i) s += ", ";
+                    s += genExpr(ll->argumentos[i].get());
+                }
+                s += ")";
+                return s;
+            }
+        }
+    }
+
     return "lat_nulo() /* llamada dinamica no soportada */";
 }
 
@@ -398,21 +436,11 @@ void GeneradorC::genFuncion(FuncionDef* f) {
 }
 
 // ---------------------------------------------------------------------------
-// Programa completo
+// Programa completo — generación en dos fases:
+//   1. cuerpo (funciones + main) → detecta libsUsadas vía genLlamada
+//   2. preámbulo (#include) + cuerpo → salida final
 // ---------------------------------------------------------------------------
-std::string GeneradorC::generar(Programa& programa) {
-    salida.str("");
-    salida.clear();
-    indentacion = 0;
-    contadorTemp = 0;
-    funciones.clear();
-
-    recolectarFunciones(programa);
-
-    emitir("/* Generado por el compilador de Latino */");
-    emitir("#include \"latino.h\"");
-    emitir("");
-
+void GeneradorC::generarCuerpo(Programa& programa) {
     // Prototipos de las funciones de usuario.
     bool hayFunciones = false;
     for (auto& s : programa.sentencias) {
@@ -454,6 +482,31 @@ std::string GeneradorC::generar(Programa& programa) {
     emitir("return 0;");
     --indentacion;
     emitir("}");
+}
+
+std::string GeneradorC::generar(Programa& programa) {
+    salida.str("");
+    salida.clear();
+    indentacion = 0;
+    contadorTemp = 0;
+    funciones.clear();
+    libsUsadas.clear();
+
+    recolectarFunciones(programa);
+
+    // Fase 1: generar el cuerpo para detectar qué librerías se usan.
+    generarCuerpo(programa);
+    std::string cuerpo = salida.str();
+
+    // Fase 2: preámbulo con los #include correctos, seguido del cuerpo.
+    salida.str("");
+    salida.clear();
+    emitir("/* Generado por el compilador de Latino */");
+    emitir("#include \"latino.h\"");
+    for (const std::string& lib : libsUsadas)
+        emitir("#include \"libs/" + lib + ".h\"");
+    emitir("");
+    salida << cuerpo;
 
     return salida.str();
 }

@@ -20,6 +20,19 @@ std::string entrecomillar(const std::string& s) {
     return "\"" + s + "\"";
 }
 
+// Recopila todos los archivos .c en runtime/libs/ como cadena de argumentos.
+std::string libsCSources(const std::string& runtimeDir) {
+    std::string result;
+    fs::path libsDir = fs::path(runtimeDir) / "libs";
+    std::error_code ec;
+    if (!fs::exists(libsDir, ec) || !fs::is_directory(libsDir, ec)) return result;
+    for (auto& entry : fs::directory_iterator(libsDir, ec)) {
+        if (!ec && entry.path().extension() == ".c")
+            result += " " + entrecomillar(entry.path().generic_string());
+    }
+    return result;
+}
+
 // Ejecuta el comando MSVC dentro del entorno de Visual Studio escribiendo un
 // .bat temporal (evita problemas de comillas anidadas con std::system).
 int ejecutarMsvc(const std::string& archivoC, const std::string& salidaExe,
@@ -32,9 +45,12 @@ int ejecutarMsvc(const std::string& archivoC, const std::string& salidaExe,
     std::string vsdevcmd = LATINO_VSDEVCMD;
     // Barras normales y '/' final: evita que '\"' escape la comilla de cierre.
     std::string objArg = objDir.generic_string() + "/";
+    std::string libs   = libsCSources(runtimeDir);
     std::string cl =
-        "cl /nologo /utf-8 /I " + entrecomillar(runtimeDir) + " " +
-        entrecomillar(archivoC) + " " + entrecomillar(runtimeDir + "/latino.c") +
+        "cl /nologo /utf-8 /I " + entrecomillar(runtimeDir) +
+        " /I " + entrecomillar(runtimeDir + "/libs") +
+        " " + entrecomillar(archivoC) +
+        " " + entrecomillar(runtimeDir + "/latino.c") + libs +
         " /Fe:" + entrecomillar(salidaExe) + " /Fo:" + entrecomillar(objArg);
 
     fs::path bat = tmp / "latino_compilar.bat";
@@ -61,10 +77,13 @@ int ejecutarMsvc(const std::string& archivoC, const std::string& salidaExe,
 // Compila con un compilador de estilo GNU (gcc/clang/cc).
 int ejecutarGnu(const std::string& cc, const std::string& archivoC,
                 const std::string& salidaExe, const std::string& runtimeDir) {
+    std::string libs = libsCSources(runtimeDir);
     std::string comando = entrecomillar(cc) + " -std=c11 -O2 -I " +
-                          entrecomillar(runtimeDir) + " " + entrecomillar(archivoC) +
-                          " " + entrecomillar(runtimeDir + "/latino.c") + " -o " +
-                          entrecomillar(salidaExe) + " -lm";
+                          entrecomillar(runtimeDir) +
+                          " -I " + entrecomillar(runtimeDir + "/libs") +
+                          " " + entrecomillar(archivoC) +
+                          " " + entrecomillar(runtimeDir + "/latino.c") + libs +
+                          " -o " + entrecomillar(salidaExe) + " -lm";
     return std::system(comando.c_str());
 }
 
