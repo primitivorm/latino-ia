@@ -317,6 +317,15 @@ std::string GeneradorC::genAsignacionDestino(Expresion* destino,
 }
 
 void GeneradorC::genSentencia(Sentencia* s) {
+    // incluir "nombre" — registra la librería para que el preámbulo emita #include.
+    // El archivo .lat ya fue expandido por main.cpp antes de llegar aquí.
+    if (auto* inc = dynamic_cast<Incluir*>(s)) {
+        const std::string& mod = inc->modulo;
+        // Solo agregar a libsUsadas si no termina en ".lat"
+        if (mod.size() < 4 || mod.substr(mod.size() - 4) != ".lat")
+            libsUsadas.insert(mod);
+        return;
+    }
     if (auto* a = dynamic_cast<Asignacion*>(s)) {
         if (a->destinos.size() == 1 && a->valores.size() == 1) {
             emitir(genAsignacionDestino(a->destinos[0].get(),
@@ -492,7 +501,7 @@ void GeneradorC::generarCuerpo(Programa& programa) {
 
     for (auto& s : programa.sentencias)
         if (!dynamic_cast<FuncionDef*>(s.get()))
-            genSentencia(s.get());
+            genSentencia(s.get());  // genSentencia ignora Incluir internamente
 
     emitir("return 0;");
     --indentacion;
