@@ -88,6 +88,7 @@ private:
     bool estaDeclarada(const std::string& nombre) const;
     void usarIdentificador(const std::string& nombre, int linea);
     bool esIncorporada(const std::string& nombre) const;
+    bool esLibreria(const std::string& nombre) const;
     void recolectarFunciones(Programa& programa);
     void analizarBloque(ListaSent& cuerpo);
     void agregarError(int linea, const std::string& mensaje);

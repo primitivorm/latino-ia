@@ -80,6 +80,9 @@ void AnalizadorSemantico::usarIdentificador(const std::string& nombre, int linea
     if (estaDeclarada(nombre)) return;
     if (funciones.count(nombre)) return;  // nombre de función usado como valor
     if (esIncorporada(nombre)) return;
+    // Nota: los namespaces de librería (cadena, lista, etc.) se filtran en
+    // visitar(AccesoMiembro&), NO aquí, para que `lista[0]` sin declarar siga
+    // reportando error.
     agregarError(linea, "variable no declarada '" + nombre + "'");
 }
 
@@ -88,6 +91,12 @@ bool AnalizadorSemantico::esIncorporada(const std::string& nombre) const {
            nombre == "acadena" || nombre == "alogico" || nombre == "anumero" ||
            nombre == "leer" || nombre == "tipo" || nombre == "imprimirf" ||
            nombre == "limpiar" || nombre == "error" || nombre == "incluir";
+}
+
+bool AnalizadorSemantico::esLibreria(const std::string& nombre) const {
+    return nombre == "cadena" || nombre == "lista" || nombre == "dic" ||
+           nombre == "mate"   || nombre == "sis"   || nombre == "archivo" ||
+           nombre == "paquete";
 }
 
 void AnalizadorSemantico::recolectarFunciones(Programa& programa) {
@@ -149,7 +158,11 @@ void AnalizadorSemantico::visitar(AccesoIndice& n) {
 }
 
 void AnalizadorSemantico::visitar(AccesoMiembro& n) {
-    if (n.objeto) n.objeto->aceptar(*this);
+    if (!n.objeto) return;
+    // Si el objeto es el nombre de una librería, no es una variable; omitir el chequeo.
+    if (auto* id = dynamic_cast<Identificador*>(n.objeto.get()))
+        if (esLibreria(id->nombre)) return;
+    n.objeto->aceptar(*this);
 }
 
 void AnalizadorSemantico::visitar(Llamada& n) {

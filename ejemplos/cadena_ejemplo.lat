@@ -1,0 +1,72 @@
+# Ejemplo de la librería cadena — Fase 10
+
+s = "Hola Mundo"
+
+# longitud
+escribir(cadena.longitud(s))
+
+# mayusculas / minusculas
+escribir(cadena.mayusculas(s))
+escribir(cadena.minusculas(s))
+
+# contiene / inicia_con / termina_con
+escribir(cadena.contiene(s, "Mundo"))
+escribir(cadena.inicia_con(s, "Hola"))
+escribir(cadena.termina_con(s, "Mundo"))
+
+# encontrar
+escribir(cadena.encontrar(s, "Mundo"))
+
+# separar
+partes = cadena.separar(s, " ")
+escribir(partes[0])
+escribir(partes[1])
+
+# subcadena
+escribir(cadena.subcadena(s, 5, 10))
+
+# reemplazar
+escribir(cadena.reemplazar(s, "Mundo", "Latino"))
+
+# recortar
+escribir(cadena.recortar("  hola  "))
+
+# invertir
+escribir(cadena.invertir("abc"))
+
+# comparar
+escribir(cadena.comparar("abc", "abc"))
+escribir(cadena.comparar("abc", "def"))
+
+# es_alfa / es_numerico / esta_vacia
+escribir(cadena.es_alfa("hola"))
+escribir(cadena.es_numerico("3.14"))
+escribir(cadena.esta_vacia(""))
+
+# formato
+escribir(cadena.formato("Pi = %.2f", 3.14159))
+
+# regex
+escribir(cadena.regex("abc 123 def", "[0-9]+"))
+
+#salida:
+#10
+#HOLA MUNDO
+#hola mundo
+#cierto
+#cierto
+#cierto
+#5
+#Hola
+#Mundo
+#Mundo
+#Hola Latino
+#hola
+#cba
+#0
+#-1
+#cierto
+#cierto
+#cierto
+#Pi = 3.14
+#123

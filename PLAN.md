@@ -29,6 +29,7 @@ archivo .lat → Lexer → Parser (AST) → Análisis semántico → Generación
 | 7 | Driver / CLI | ✅ Completada (PR #6, #7) |
 | 8 | Pruebas y ejemplos | ✅ Completada (PR #8) |
 | 9 | Funciones base faltantes | ✅ Completada (PR #9) |
+| 10 | Librería `cadena` | ✅ Completada (PR #10) |
 
 
 ---
@@ -112,6 +113,15 @@ Archivos: [src/lexer.cpp](src/lexer.cpp), [include/lexer.h](include/lexer.h).
 - [x] Consola/pantalla y control: `limpiar()`, `error()`.
 - [x] Soporte básico para palabras clave adicionales: `escribe`, `poner` (sinónimos de escribir/imprimir), e `incluir` (stub de runtime).
 - [x] Pruebas E2E automatizadas para estas funciones.
+
+### Fase 10 — Librería `cadena` ✅ ([runtime/libs/cadena.h](runtime/libs/cadena.h), [runtime/libs/cadena.c](runtime/libs/cadena.c))
+- [x] 27 funciones de manipulación de cadenas: `longitud`, `mayusculas`, `minusculas`, `invertir`, `recortar`, `contiene`, `encontrar`/`indice`, `ultimo_indice`, `inicia_con`, `termina_con`, `comparar`, `es_igual`, `es_alfa`, `es_numerico`, `esta_vacia`, `concatenar`, `reemplazar`, `insertar`, `subcadena`, `rellenar_derecha`, `rellenar_izquierda`, `separar`, `bytes`, `char`, `formato`, `regex`, `regexl`.
+- [x] Motor de regex básico en C puro (sin POSIX): soporta `.`, `*`, `+`, `?`, `^`, `$`, `\d`, `\w`, `\s`, clases `[a-z0-9]`.
+- [x] Invocación con sintaxis `cadena.funcion(args)` — el compilador mapea a `lat_cadena_funcion(args)`.
+- [x] El generador de código detecta automáticamente el uso de librerías y emite `#include "libs/cadena.h"`.
+- [x] El driver (`invocador_c.cpp`) compila automáticamente todos los `.c` de `runtime/libs/`.
+- [x] Analizador semántico reconoce `cadena` como namespace de librería (sin reportar "no declarada").
+- [x] Ejemplo E2E: [ejemplos/cadena_ejemplo.lat](ejemplos/cadena_ejemplo.lat) — pasa en CTest (17/17).
 
 
 ---
