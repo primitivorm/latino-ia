@@ -126,6 +126,7 @@ SentPtr Parser::parseSentencia() {
         if (p == "repetir")  return parseRepetir();
         if (p == "funcion" || p == "fun")                 return parseFuncion();
         if (p == "regresar" || p == "retornar" || p == "ret") return parseRetornar();
+        if (p == "incluir") return parseIncluir();
         if (p == "romper") {
             int l = actual.line;
             avanzar();
@@ -316,6 +317,19 @@ SentPtr Parser::parseRetornar() {
     nodo->linea = l;
     if (!esFinDeLinea() && !esEOF() && !esTerminadorBloque())
         nodo->valor = parseExpresion();
+    consumirFinDeSentencia();
+    return nodo;
+}
+
+SentPtr Parser::parseIncluir() {
+    int l = actual.line;
+    avanzar();  // incluir
+    if (actual.type != TokenType::Cadena)
+        error("se esperaba el nombre del módulo o ruta entre comillas después de 'incluir'");
+    auto nodo = std::make_unique<Incluir>();
+    nodo->linea = l;
+    nodo->modulo = actual.lexeme;
+    avanzar();
     consumirFinDeSentencia();
     return nodo;
 }

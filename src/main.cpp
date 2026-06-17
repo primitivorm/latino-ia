@@ -1,6 +1,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <set>
 #include <sstream>
 #include <string>
 
@@ -12,6 +13,73 @@
 #include "parser.h"
 
 namespace fs = std::filesystem;
+
+// ---------------------------------------------------------------------------
+// 17.3: Resolución de inclusiones .lat
+// Expande recursivamente cada nodo Incluir cuyo módulo termina en ".lat",
+// insertando las sentencias del archivo incluido en el lugar del nodo.
+// Los archivos ya procesados se rastrean con 'visitados' para evitar ciclos.
+// ---------------------------------------------------------------------------
+static bool procesarInclusioneesLat(Programa& programa, const fs::path& dirBase,
+                                    std::set<std::string>& visitados) {
+    ListaSent nueva;
+    bool ok = true;
+
+    for (auto& s : programa.sentencias) {
+        auto* inc = dynamic_cast<Incluir*>(s.get());
+        if (!inc) {
+            nueva.push_back(std::move(s));
+            continue;
+        }
+
+        const std::string& mod = inc->modulo;
+        // Solo expandir archivos .lat; las librerías estándar las maneja el compilador.
+        bool esLat = mod.size() >= 4 && mod.substr(mod.size() - 4) == ".lat";
+        if (!esLat) {
+            nueva.push_back(std::move(s));
+            continue;
+        }
+
+        fs::path ruta = dirBase / mod;
+        std::string rutaStr = ruta.generic_string();
+
+        if (visitados.count(rutaStr)) {
+            // Inclusión circular o duplicada: ignorar silenciosamente.
+            continue;
+        }
+        visitados.insert(rutaStr);
+
+        std::ifstream archivo(ruta, std::ios::binary);
+        if (!archivo) {
+            std::cerr << "Error: no se pudo abrir el archivo incluido: " << ruta << std::endl;
+            ok = false;
+            continue;
+        }
+        std::stringstream ss;
+        ss << archivo.rdbuf();
+        std::string fuente = ss.str();
+
+        Lexer lexerSub(fuente);
+        Parser parserSub(lexerSub);
+        auto subProg = parserSub.parse();
+        if (!subProg) {
+            std::cerr << "Error de sintaxis en el archivo incluido: " << ruta << std::endl;
+            ok = false;
+            continue;
+        }
+
+        // Procesar recursivamente los includes del archivo incluido.
+        if (!procesarInclusioneesLat(*subProg, ruta.parent_path(), visitados))
+            ok = false;
+
+        // Insertar las sentencias del archivo incluido en lugar del nodo Incluir.
+        for (auto& ss2 : subProg->sentencias)
+            nueva.push_back(std::move(ss2));
+    }
+
+    programa.sentencias = std::move(nueva);
+    return ok;
+}
 
 static void uso() {
     std::cerr <<
@@ -72,6 +140,15 @@ int main(int argc, char** argv) {
     std::unique_ptr<Programa> programa = parser.parse();
     if (!programa)
         return 1;  // error de sintaxis (ya reportado)
+
+    // 17.3: Expansión de archivos .lat antes del análisis semántico.
+    {
+        fs::path dirBase = fs::path(ruta).parent_path();
+        std::set<std::string> visitados;
+        visitados.insert(fs::absolute(ruta).generic_string());
+        if (!procesarInclusioneesLat(*programa, dirBase, visitados))
+            return 1;
+    }
 
     // Análisis semántico.
     AnalizadorSemantico semantico;

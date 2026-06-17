@@ -133,6 +133,10 @@ void ImpresorAST::visitar(Programa& n) {
     hijos(n.sentencias);
 }
 
+void ImpresorAST::visitar(Incluir& n) {
+    linea("Incluir \"" + n.modulo + "\"");
+}
+
 void ImpresorAST::visitar(Asignacion& n) {
     linea("Asignacion (" + std::to_string(n.destinos.size()) + " = " +
           std::to_string(n.valores.size()) + ")");

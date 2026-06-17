@@ -90,7 +90,7 @@ bool AnalizadorSemantico::esIncorporada(const std::string& nombre) const {
     return nombre == "escribir" || nombre == "imprimir" || nombre == "escribe" || nombre == "poner" ||
            nombre == "acadena" || nombre == "alogico" || nombre == "anumero" ||
            nombre == "leer" || nombre == "tipo" || nombre == "imprimirf" ||
-           nombre == "limpiar" || nombre == "error" || nombre == "incluir";
+           nombre == "limpiar" || nombre == "error";
 }
 
 bool AnalizadorSemantico::esLibreria(const std::string& nombre) const {
@@ -219,6 +219,8 @@ void AnalizadorSemantico::visitar(VarArgs& n) {
 // ---------------------------------------------------------------------------
 // Sentencias
 // ---------------------------------------------------------------------------
+void AnalizadorSemantico::visitar(Incluir&) {}
+
 void AnalizadorSemantico::visitar(Programa& n) {
     entrarAmbito();
     recolectarFunciones(n);

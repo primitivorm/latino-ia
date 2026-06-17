@@ -33,6 +33,7 @@ struct DiccionarioLiteral;
 struct VarArgs;
 
 struct Programa;
+struct Incluir;
 struct Asignacion;
 struct ExprSentencia;
 struct Si;
@@ -67,6 +68,7 @@ struct Visitante {
 
     // Sentencias
     virtual void visitar(Programa&) = 0;
+    virtual void visitar(Incluir&) {}   // no-op por defecto; los visitantes que no la necesiten no deben sobreescribirla
     virtual void visitar(Asignacion&) = 0;
     virtual void visitar(ExprSentencia&) = 0;
     virtual void visitar(Si&) = 0;
@@ -207,6 +209,12 @@ struct VarArgs : Expresion {
 // Raíz del árbol: lista de sentencias del programa.
 struct Programa : Sentencia {
     ListaSent sentencias;
+    LATINO_ACEPTAR
+};
+
+// incluir "nombre"  o  incluir "archivo.lat"
+struct Incluir : Sentencia {
+    std::string modulo;  // nombre de la librería o ruta del archivo .lat
     LATINO_ACEPTAR
 };
 

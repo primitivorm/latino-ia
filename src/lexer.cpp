@@ -212,7 +212,7 @@ void Lexer::reportError(const std::string& message, int line) {
 bool Lexer::esPalabraReservada(const std::string& palabra) const {
     static const std::set<std::string> palabrasReservadas = {
         "caso", "cierto", "verdadero", "defecto", "otro", "desde", "elegir", "falso", "fin",
-        "funcion", "fun", "global", "hasta", "mientras", "nulo", "para", "repetir",
+        "funcion", "fun", "global", "hasta", "incluir", "mientras", "nulo", "para", "repetir",
         "regresar", "retornar", "ret", "romper", "si", "sino", "osi"
     };
 

@@ -1,0 +1,12 @@
+incluir "cadena"
+incluir "lista"
+
+# 17.1 / 17.2: incluir registra la librería y sus funciones quedan disponibles.
+nombre = "Latino"
+saludo = cadena.mayusculas(nombre)
+escribe saludo   # LATINO
+
+frutas = ["manzana", "pera", "uva"]
+escribe lista.longitud(frutas)   # 3
+lista.agregar(frutas, "kiwi")
+escribe lista.longitud(frutas)   # 4
