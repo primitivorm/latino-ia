@@ -26,7 +26,7 @@ archivo .lat → Lexer → Parser (AST) → Análisis semántico → Generación
 | 4 | Análisis semántico | ✅ Completada (PR #4) |
 | 5 | Generación de código C | ✅ Completada (PR #5) |
 | 6 | Biblioteca de runtime en C | ✅ Completada (PR #5) |
-| 7 | Driver / CLI | ✅ Completada (PR #6) — falta solo `--solo-c` a archivo |
+| 7 | Driver / CLI | ✅ Completada (PR #6, #7) |
 | 8 | Pruebas y ejemplos | 🟡 En curso (CTest: lexer + AST + parser + semántico + codegen; e2e manual) |
 
 ---
@@ -91,8 +91,7 @@ Archivos: [src/lexer.cpp](src/lexer.cpp), [include/lexer.h](include/lexer.h).
 - [x] Lee un archivo `.lat` pasado como argumento.
 - [x] Orquesta: fuente → Lexer → Parser (AST) → Semántico → `GeneradorC` → escribe `.c` temporal → **invoca el compilador de C** → ejecutable.
 - [x] **Invocación automática del compilador**: `config.h` generado por CMake ([src/config.h.in](src/config.h.in)) hornea la ruta del compilador, el estilo (`msvc`/`gnu`), `VsDevCmd.bat` y `LATINO_RUNTIME_DIR`. En MSVC se monta el entorno de VS vía un `.bat` temporal (con `-startdir=none`), así `latino prog.lat` produce el `.exe` desde **cualquier** shell. Fallback a `CC`/PATH (gcc/clang).
-- [x] Banderas: `-o <salida>`, `--solo-c` (emite C por stdout), `--ast`, `--runtime <dir>`.
-- [ ] Pendiente menor: `--solo-c` a un archivo (`-o`) en lugar de solo stdout.
+- [x] Banderas: `-o <salida>`, `--solo-c` (emite el C a `-o` si se indica, si no a stdout), `--ast`, `--runtime <dir>`.
 
 ### Fase 8 — Pruebas y ejemplos 🟡
 - [x] Pruebas unitarias del lexer ([tests/test_lexer.cpp](tests/test_lexer.cpp)).
