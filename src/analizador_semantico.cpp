@@ -90,6 +90,12 @@ bool AnalizadorSemantico::esIncorporada(const std::string& nombre) const {
            nombre == "limpiar" || nombre == "error" || nombre == "incluir";
 }
 
+bool AnalizadorSemantico::esLibreria(const std::string& nombre) const {
+    return nombre == "cadena" || nombre == "lista" || nombre == "dic" ||
+           nombre == "mate"   || nombre == "sis"   || nombre == "archivo" ||
+           nombre == "paquete";
+}
+
 void AnalizadorSemantico::recolectarFunciones(Programa& programa) {
     for (auto& s : programa.sentencias) {
         if (auto* f = dynamic_cast<FuncionDef*>(s.get())) {
@@ -149,6 +155,11 @@ void AnalizadorSemantico::visitar(AccesoIndice& n) {
 }
 
 void AnalizadorSemantico::visitar(AccesoMiembro& n) {
+    // Si el objeto es un identificador de librería (cadena, lista, etc.),
+    // no se valida como variable — es un namespace reservado.
+    if (auto* id = dynamic_cast<Identificador*>(n.objeto.get())) {
+        if (esLibreria(id->nombre)) return;
+    }
     if (n.objeto) n.objeto->aceptar(*this);
 }
 
