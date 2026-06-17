@@ -1,0 +1,14 @@
+incluir "paquete"
+
+# Cargar una extensión dinámica compilada en C.
+# La librería debe exportar funciones con la firma:
+#   LatValor nombre_funcion(int nargs, LatValor* args)
+#
+# Ejemplo de uso (requiere "miextension.dll" / "libmiextension.so"):
+#
+#   milib = paquete.cargar("miextension.dll")
+#   resultado = milib.mi_funcion(42)
+#   escribe resultado
+
+escribe "Librería paquete lista."
+escribe "Usa paquete.cargar(ruta) para cargar una extensión dinámica."

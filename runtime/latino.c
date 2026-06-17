@@ -247,6 +247,7 @@ int lat_es_verdadero(LatValor v) {
         case LAT_CADENA:      return v.como.cadena[0] != '\0';
         case LAT_LISTA:       return v.como.lista->longitud > 0;
         case LAT_DICCIONARIO: return v.como.dic->longitud > 0;
+        case LAT_MODULO:      return v.como.modulo != NULL;
     }
     return 0;
 }
@@ -375,6 +376,8 @@ char* lat_a_cadena(LatValor v) {
             return r;
             #undef APPEND
         }
+        case LAT_MODULO:
+            return dup_cadena("<modulo>");
     }
     return dup_cadena("");
 }
@@ -454,6 +457,7 @@ LatValor lat_tipo(LatValor v) {
         case LAT_CADENA:      return lat_cadena("cadena");
         case LAT_LISTA:       return lat_cadena("lista");
         case LAT_DICCIONARIO: return lat_cadena("dic");
+        case LAT_MODULO:      return lat_cadena("modulo");
     }
     return lat_cadena("desconocido");
 }
