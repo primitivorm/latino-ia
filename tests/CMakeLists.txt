@@ -74,13 +74,13 @@ file(GLOB EJEMPLOS_LAT "${CMAKE_SOURCE_DIR}/ejemplos/*.lat")
 
 foreach(EJEMPLO ${EJEMPLOS_LAT})
   get_filename_component(EJEMPLO_NOMBRE ${EJEMPLO} NAME_WE)
-  
+
   # Directorio para alojar los ejecutables generados
   set(SALIDA_EXE "${CMAKE_CURRENT_BINARY_DIR}/e2e_${EJEMPLO_NOMBRE}")
   if(WIN32)
     set(SALIDA_EXE "${SALIDA_EXE}.exe")
   endif()
-  
+
   add_test(
     NAME "e2e_${EJEMPLO_NOMBRE}"
     COMMAND test_e2e
@@ -90,4 +90,32 @@ foreach(EJEMPLO ${EJEMPLOS_LAT})
             "${CMAKE_SOURCE_DIR}/runtime"
   )
 endforeach()
+
+# -----------------------------------------------------------------------
+# Fase 20 — Suites de prueba de cobertura completa por librería
+#
+# Cada suite compila fragmentos .lat en tiempo de prueba, ejecuta el
+# binario generado y compara la salida con los valores esperados.
+# Argumentos: <compilador> <runtime_dir> <directorio_temporal>
+# -----------------------------------------------------------------------
+
+macro(add_suite20 TARGET)
+  add_executable(${TARGET} ${TARGET}.cpp)
+  add_test(
+    NAME ${TARGET}
+    COMMAND ${TARGET}
+            $<TARGET_FILE:latino>
+            "${CMAKE_SOURCE_DIR}/runtime"
+            "${CMAKE_CURRENT_BINARY_DIR}"
+  )
+endmacro()
+
+add_suite20(test_funciones_base)
+add_suite20(test_lib_cadena)
+add_suite20(test_lib_lista)
+add_suite20(test_lib_dic)
+add_suite20(test_lib_mate)
+add_suite20(test_lib_sis)
+add_suite20(test_lib_archivo)
+add_suite20(test_incluir)
 
