@@ -2,14 +2,14 @@
 
 ## Contexto
 
-`latino-ia` es la implementación de un **compilador para el lenguaje de programación Latino**, escrito en C++17 y construido con CMake (`generar-salida.ps1` genera la solución de Visual Studio 2022). La especificación completa del lenguaje está en [WORK.md](WORK.md): variables, constantes, operadores, estructuras de control (`si/sino/osi`, `elegir`, `desde`, `mientras`, `repetir-hasta`, `romper`), funciones (con argumentos variables), listas y diccionarios.
+`latino-ia` es la implementación de un **compilador para el lenguaje de programación Latino**, escrito en C++17 y construido con CMake (`generar-salida.ps1` genera la solución de Visual Studio 2022). La especificación completa del lenguaje está en [SINTAXIS.md](SINTAXIS.md): variables, constantes, operadores, estructuras de control (`si/sino/osi`, `elegir`, `desde`, `mientras`, `repetir-hasta`, `romper`), funciones (con argumentos variables), listas y diccionarios.
 
 **Decisiones de diseño:**
 - Modelo de ejecución: **compilador primero** (el intérprete queda fuera de alcance por ahora).
 - Alcance: **solo el lenguaje** (sin componentes de IA por el momento).
-- Estrategia de compilación: **transpilar Latino → C**, y delegar la generación del binario al compilador de C del sistema. Esto se alinea con la tabla de tipos de [WORK.md](WORK.md) que ya mapea cada tipo de Latino a un tipo de C.
+- Estrategia de compilación: **transpilar Latino → C**, y delegar la generación del binario al compilador de C del sistema. Esto se alinea con la tabla de tipos de [SINTAXIS.md](SINTAXIS.md) que ya mapea cada tipo de Latino a un tipo de C.
 
-El resultado esperado: poder escribir un archivo `.lat` con la sintaxis de WORK.md, ejecutar el compilador, obtener un `.c` y de ahí un ejecutable que produzca la salida correcta.
+El resultado esperado: poder escribir un archivo `.lat` con la sintaxis de SINTAXIS.md, ejecutar el compilador, obtener un `.c` y de ahí un ejecutable que produzca la salida correcta.
 
 ```
 archivo .lat → Lexer → Parser (AST) → Análisis semántico → Generación de código C → compilador C → ejecutable
@@ -30,6 +30,16 @@ archivo .lat → Lexer → Parser (AST) → Análisis semántico → Generación
 | 8 | Pruebas y ejemplos | ✅ Completada (PR #8) |
 | 9 | Funciones base faltantes | ✅ Completada (PR #9) |
 | 10 | Librería `cadena` | ✅ Completada (PR #10) |
+| 11 | Librería `lista` | ✅ Completada (PR #11) |
+| 12 | Librería `dic` | ✅ Completada (PR #12) |
+| 13 | Librería `mate` | ✅ Completada (PR #13) |
+| 14 | Librería `sis` | ✅ Completada (PR #14) |
+| 15 | Librería `archivo` | ✅ Completada (PR #15) |
+| 16 | Librería `paquete` | ✅ Completada (PR #16) |
+| 17 | Sistema de módulos (`incluir`) | ✅ Completada (PR #17) |
+| 18 | Operador RegEx (`~=`) | ✅ Completada (PR #18) |
+| 19 | Gestión de memoria (ref-count) | ✅ Completada (PR #19) |
+| 20 | Pruebas de cobertura completa | ✅ Completada (PR #20) |
 
 
 ---
@@ -38,7 +48,7 @@ archivo .lat → Lexer → Parser (AST) → Análisis semántico → Generación
 
 ### Fase 0 — Cimientos del proyecto ✅
 - [x] [README.md](README.md) con propósito, estrategia, estructura y cómo construir/ejecutar.
-- [x] Carpeta [ejemplos/](ejemplos/) con programas `.lat` derivados de [WORK.md](WORK.md), cada uno con su salida esperada como comentario `#salida:`.
+- [x] Carpeta [ejemplos/](ejemplos/) con programas `.lat` derivados de [SINTAXIS.md](SINTAXIS.md), cada uno con su salida esperada como comentario `#salida:`.
 - [x] Carpeta [runtime/](runtime/) (placeholder) para la biblioteca C de soporte.
 - [x] Convención de extensión de archivo (`.lat`).
 
@@ -46,7 +56,7 @@ archivo .lat → Lexer → Parser (AST) → Análisis semántico → Generación
 Archivos: [src/lexer.cpp](src/lexer.cpp), [include/lexer.h](include/lexer.h).
 - [x] Corregido el defecto de "carácter de más" (ahora se usa *lookahead* con `peekChar`).
 - [x] `TokenType` ampliado (nuevo `FinDeLinea`).
-- [x] Todos los operadores de WORK.md sección V: `+ - * / % ^`, `&& ||`, `..`, `++ --`, `== != < > <= >= ~=`, `=`, `.`, `?`, `:`, y el variádico `...`.
+- [x] Todos los operadores de SINTAXIS.md sección V: `+ - * / % ^`, `&& ||`, `..`, `++ --`, `== != < > <= >= ~=`, `=`, `.`, `?`, `:`, y el variádico `...`.
 - [x] Delimitadores `( ) [ ] { } , ;`.
 - [x] Cadenas con `"` y `'` (lexema sin comillas, escapes preservados).
 - [x] Comentarios de línea `#` y `//`, y multilínea `/* */`.
@@ -62,7 +72,7 @@ Archivos: [src/lexer.cpp](src/lexer.cpp), [include/lexer.h](include/lexer.h).
 ### Fase 3 — Parser → AST ✅ ([src/parser.cpp](src/parser.cpp), [include/parser.h](include/parser.h))
 - [x] **Descenso recursivo** que devuelve el AST (`unique_ptr<Programa>`).
 - [x] Expresiones con **precedencia** tipo C/Lua: ternario, `||`, `&&`, igualdad (`== != ~=`), relacional (`< > <= >=`), concatenación `..`, aditivo, multiplicativo, potencia `^` (asoc. derecha), unario `-`, postfijos (`++ --`, `[]`, `.`, llamada).
-- [x] Todas las sentencias de la sección VI de WORK.md, incluida la asignación múltiple (`a, b, c = 1, 2, 3`).
+- [x] Todas las sentencias de la sección VI de SINTAXIS.md, incluida la asignación múltiple (`a, b, c = 1, 2, 3`).
 - [x] Funciones: `funcion`/`fun`, `retornar`/`ret`, parámetro variádico `...` y `[...]`.
 - [x] `FinDeLinea` como terminador de sentencia; saltos ignorados dentro de `()`, `[]`, `{}` (listas/diccionarios multilínea).
 - [x] Manejo de errores con línea y mensaje claro (sin `exit()` crudo; devuelve `nullptr`).
@@ -70,7 +80,7 @@ Archivos: [src/lexer.cpp](src/lexer.cpp), [include/lexer.h](include/lexer.h).
 
 ### Fase 4 — Análisis semántico ✅ ([include/analizador_semantico.h](include/analizador_semantico.h), [src/analizador_semantico.cpp](src/analizador_semantico.cpp))
 - [x] Tabla de símbolos por ámbito (global/función) para resolver variables y funciones (con *hoisting* de definiciones).
-- [x] Reglas de WORK.md: **constantes en mayúsculas** (no reasignables). Los identificadores inválidos (empezar por número o ser palabra reservada) ya los descarta el lexer.
+- [x] Reglas de SINTAXIS.md: **constantes en mayúsculas** (no reasignables). Los identificadores inválidos (empezar por número o ser palabra reservada) ya los descarta el lexer.
 - [x] Errores semánticos **acumulados** (sin abortar al primero), ordenados por línea: variable no declarada, reasignación de constante, `romper`/`retornar`/`...` fuera de contexto, función no definida, aridad incorrecta, redefinición de función, parámetro duplicado.
 - [x] Sin chequeo de tipos (Latino es dinámico; los tipos se resuelven en el runtime, Fase 6).
 - [x] Pruebas en [tests/test_semantico.cpp](tests/test_semantico.cpp).
@@ -84,7 +94,7 @@ Archivos: [src/lexer.cpp](src/lexer.cpp), [include/lexer.h](include/lexer.h).
 - [x] Pruebas en [tests/test_codegen.cpp](tests/test_codegen.cpp).
 
 ### Fase 6 — Biblioteca de runtime en C ✅ ([runtime/latino.h](runtime/latino.h), [runtime/latino.c](runtime/latino.c))
-- [x] Tipo `LatValor` (unión etiquetada: `nulo`/lógico/`double`/cadena/lista/diccionario), acorde a la tabla de tipos de [WORK.md](WORK.md) sección IV.
+- [x] Tipo `LatValor` (unión etiquetada: `nulo`/lógico/`double`/cadena/lista/diccionario), acorde a la tabla de tipos de [SINTAXIS.md](SINTAXIS.md) sección IV.
 - [x] Aritmética, relacionales, lógicos, concatenación `..`, indexación (negativa en listas) y acceso a diccionario por clave.
 - [x] Funciones integradas: `escribir`, `imprimir`; conversión a cadena (`lat_a_cadena`) con formato `[a, b, c]` y `{clave: valor}`.
 - [x] Estrategia de memoria simple **documentada** (sin liberación por ahora; suficiente para programas cortos).
@@ -139,7 +149,7 @@ Archivos: [src/lexer.cpp](src/lexer.cpp), [include/lexer.h](include/lexer.h).
 | Driver / invocación del compilador | [src/main.cpp](src/main.cpp), [include/invocador_c.h](include/invocador_c.h), [src/invocador_c.cpp](src/invocador_c.cpp), [src/config.h.in](src/config.h.in) |
 | Pruebas | [tests/](tests/) (test_lexer, test_ast, test_parser, test_semantico, test_codegen), [tests/CMakeLists.txt](tests/CMakeLists.txt) |
 | Build | [src/CMakeLists.txt](src/CMakeLists.txt), [CMakeLists.txt](CMakeLists.txt) |
-| Especificación / fuente de verdad | [WORK.md](WORK.md) |
+| Especificación / fuente de verdad | [SINTAXIS.md](SINTAXIS.md) |
 
 > Nota: [src/interpreter.cpp](src/interpreter.cpp) e [include/interpreter.h](include/interpreter.h) quedan **sin tocar** (intérprete diferido). Se conservan como base para una fase futura que compartiría el AST de la Fase 2.
 

@@ -499,27 +499,29 @@ Conteo de referencias implementado:
 
 ---
 
-## Fase 20 — Pruebas de Cobertura Completa
+## Fase 20 — Pruebas de Cobertura Completa ✅
 
 **Archivos:** `tests/`
 
 Para cada librería agregar:
 
-| Suite de prueba              | Archivo               |
-|------------------------------|-----------------------|
-| Funciones base faltantes     | `test_funciones_base.cpp` |
-| Librería cadena              | `test_lib_cadena.cpp`     |
-| Librería lista               | `test_lib_lista.cpp`      |
-| Librería dic                 | `test_lib_dic.cpp`        |
-| Librería mate                | `test_lib_mate.cpp`       |
-| Librería sis                 | `test_lib_sis.cpp`        |
-| Librería archivo             | `test_lib_archivo.cpp`    |
-| Sistema de módulos           | `test_incluir.cpp`        |
+| Suite de prueba              | Archivo                   | Estado |
+|------------------------------|---------------------------|--------|
+| Infraestructura compartida   | `test_harness.h`          | ✅ |
+| Funciones base faltantes     | `test_funciones_base.cpp` | ✅ |
+| Librería cadena              | `test_lib_cadena.cpp`     | ✅ |
+| Librería lista               | `test_lib_lista.cpp`      | ✅ |
+| Librería dic                 | `test_lib_dic.cpp`        | ✅ |
+| Librería mate                | `test_lib_mate.cpp`       | ✅ |
+| Librería sis                 | `test_lib_sis.cpp`        | ✅ |
+| Librería archivo             | `test_lib_archivo.cpp`    | ✅ |
+| Sistema de módulos           | `test_incluir.cpp`        | ✅ |
 
-Cada suite debe:
-1. Compilar un programa `.lat` que use la librería
-2. Ejecutar el binario resultante
-3. Comparar la salida con el valor esperado
+Cada suite:
+1. Compila fragmentos `.lat` inline en el directorio temporal de CTest
+2. Ejecuta el binario generado
+3. Compara los tokens de salida con los valores esperados
+4. Reporta PASO/FALLO por caso individual
 
 ---
 
@@ -559,6 +561,6 @@ El lenguaje se considera **100% implementado** cuando:
 ## Referencias
 
 - Documentación oficial: `C:\Github\Manual-Latino\docs\`
-- Especificación del lenguaje: `C:\Github\latino-ia\WORK.md`
+- Especificación del lenguaje: `C:\Github\latino-ia\SINTAXIS.md`
 - Runtime actual: `C:\Github\latino-ia\runtime\latino.c`
 - Generador de código: `C:\Github\latino-ia\src\compiler.cpp`
