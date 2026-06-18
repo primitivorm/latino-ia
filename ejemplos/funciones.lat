@@ -1,4 +1,4 @@
-# Funciones (WORK.md sección VII)
+# Funciones (SINTAXIS.md sección VII)
 fun sumar(a, b)
     ret a + b
 fin

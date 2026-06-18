@@ -1,4 +1,4 @@
-# repetir-hasta (repeat-until) (WORK.md sección VI)
+# repetir-hasta (repeat-until) (SINTAXIS.md sección VI)
 i = 0
 repetir
     escribir(i)

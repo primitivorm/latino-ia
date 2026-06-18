@@ -1,4 +1,4 @@
-# Estructura de control si/sino (WORK.md sección VI)
+# Estructura de control si/sino (SINTAXIS.md sección VI)
 edad = 5
 si edad >= 18
     escribir("Eres mayor de edad, ya puedes votar.")

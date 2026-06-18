@@ -1,4 +1,4 @@
-# Variables y asignación múltiple (WORK.md secciones II y III)
+# Variables y asignación múltiple (SINTAXIS.md secciones II y III)
 nombre = "Juan Perez"
 calificacion = 10
 numeros = [1, 2, 3, 4, 5]                                  // lista

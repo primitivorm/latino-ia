@@ -1,4 +1,4 @@
-# desde (for loop) (WORK.md sección VI)
+# desde (for loop) (SINTAXIS.md sección VI)
 desde (i = 0; i <= 10; i++)
     escribir(i)
 fin

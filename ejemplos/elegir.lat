@@ -1,4 +1,4 @@
-# elegir (switch case) (WORK.md sección VI)
+# elegir (switch case) (SINTAXIS.md sección VI)
 calificacion = 'B'
 elegir(calificacion)
     caso 'A':
