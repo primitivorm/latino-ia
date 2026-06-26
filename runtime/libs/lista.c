@@ -228,6 +228,122 @@ LatValor lat_lista_longitud(LatValor lv) {
 /* -------------------------------------------------------------------------
  * 13. lista.separador(l, sep) — une elementos como cadena con separador
  * ---------------------------------------------------------------------- */
+/* -------------------------------------------------------------------------
+ * Fase 21 — 14. lista.ordenar(l) — ordena in-place (ascendente)
+ * Usa qsort; el comparador accede al runtime vía puntero estático.
+ * ---------------------------------------------------------------------- */
+static int comparador_qsort(const void *a, const void *b) {
+    const LatValor *va = (const LatValor *)a;
+    const LatValor *vb = (const LatValor *)b;
+    if (lat_es_verdadero(lat_igual(*va, *vb))) return 0;
+    return lat_es_verdadero(lat_menor(*va, *vb)) ? -1 : 1;
+}
+
+LatValor lat_lista_ordenar(LatValor lv) {
+    LatLista *l = lista_de_valor(lv);
+    if (!l || l->longitud < 2) return lat_nulo();
+    qsort(l->datos, l->longitud, sizeof(LatValor), comparador_qsort);
+    return lat_nulo();
+}
+
+/* -------------------------------------------------------------------------
+ * Fase 21 — 15. lista.unico(l) — nueva lista sin duplicados
+ * Mantiene el orden de primera aparición.
+ * ---------------------------------------------------------------------- */
+LatValor lat_lista_unico(LatValor lv) {
+    LatLista *src = lista_de_valor(lv);
+    size_t n = src ? src->longitud : 0;
+
+    LatLista *r = (LatLista *)malloc(sizeof(LatLista));
+    if (!r) return lat_nulo();
+    r->refs      = 1;
+    r->capacidad = n ? n : 4;
+    r->longitud  = 0;
+    r->datos     = (LatValor *)malloc(sizeof(LatValor) * r->capacidad);
+    if (!r->datos) { free(r); return lat_nulo(); }
+
+    for (size_t i = 0; i < n; i++) {
+        int ya_esta = 0;
+        for (size_t j = 0; j < r->longitud; j++) {
+            if (valores_iguales(src->datos[i], r->datos[j])) { ya_esta = 1; break; }
+        }
+        if (!ya_esta) r->datos[r->longitud++] = src->datos[i];
+    }
+
+    LatValor v;
+    v.tipo = LAT_LISTA;
+    v.como.lista = r;
+    return v;
+}
+
+/* -------------------------------------------------------------------------
+ * Fase 21 — 16. lista.rebanada(l, ini, fin) — sub-lista [ini, fin)
+ * Índices negativos se cuentan desde el final.
+ * ---------------------------------------------------------------------- */
+LatValor lat_lista_rebanada(LatValor lv, LatValor iniv, LatValor finv) {
+    LatLista *src = lista_de_valor(lv);
+    size_t n = src ? src->longitud : 0;
+
+    int ini = (int)(iniv.tipo == LAT_NUMERO ? iniv.como.numero : 0);
+    int fin = (int)(finv.tipo == LAT_NUMERO ? finv.como.numero : (int)n);
+
+    if (ini < 0) ini = (int)n + ini;
+    if (fin < 0) fin = (int)n + fin;
+    if (ini < 0) ini = 0;
+    if (fin > (int)n) fin = (int)n;
+
+    size_t tam = (fin > ini) ? (size_t)(fin - ini) : 0;
+
+    LatLista *r = (LatLista *)malloc(sizeof(LatLista));
+    if (!r) return lat_nulo();
+    r->refs      = 1;
+    r->capacidad = tam ? tam : 4;
+    r->longitud  = tam;
+    r->datos     = (LatValor *)malloc(sizeof(LatValor) * r->capacidad);
+    if (!r->datos) { free(r); return lat_nulo(); }
+
+    if (tam > 0)
+        memcpy(r->datos, src->datos + ini, sizeof(LatValor) * tam);
+
+    LatValor v;
+    v.tipo = LAT_LISTA;
+    v.como.lista = r;
+    return v;
+}
+
+/* -------------------------------------------------------------------------
+ * Fase 21 — 17. lista.primero(l) — primer elemento (nulo si vacía)
+ * ---------------------------------------------------------------------- */
+LatValor lat_lista_primero(LatValor lv) {
+    LatLista *l = lista_de_valor(lv);
+    if (!l || l->longitud == 0) return lat_nulo();
+    return l->datos[0];
+}
+
+/* -------------------------------------------------------------------------
+ * Fase 21 — 18. lista.ultimo(l) — último elemento (nulo si vacía)
+ * ---------------------------------------------------------------------- */
+LatValor lat_lista_ultimo(LatValor lv) {
+    LatLista *l = lista_de_valor(lv);
+    if (!l || l->longitud == 0) return lat_nulo();
+    return l->datos[l->longitud - 1];
+}
+
+/* -------------------------------------------------------------------------
+ * Fase 21 — 19. lista.contar(l, v) — número de ocurrencias de v
+ * ---------------------------------------------------------------------- */
+LatValor lat_lista_contar(LatValor lv, LatValor v) {
+    LatLista *l = lista_de_valor(lv);
+    if (!l) return lat_numero(0.0);
+    size_t cnt = 0;
+    for (size_t i = 0; i < l->longitud; i++)
+        if (valores_iguales(l->datos[i], v)) cnt++;
+    return lat_numero((double)cnt);
+}
+
+/* -------------------------------------------------------------------------
+ * 13. lista.separador (original)
+ * ---------------------------------------------------------------------- */
 LatValor lat_lista_separador(LatValor lv, LatValor sepv) {
     LatLista *l = lista_de_valor(lv);
     if (!l || l->longitud == 0) return lat_cadena("");

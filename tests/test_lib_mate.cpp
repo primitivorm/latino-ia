@@ -205,6 +205,49 @@ static const harness::CasoTest CASOS[] = {
       INC "r = mate.alt()\n"
           "escribir(r >= 0 && r < 1)",
       "cierto" },
+
+    // ---- Fase 25 ----
+
+    // mate.factorial
+    { "mat_factorial_cero",
+      INC "escribir(mate.factorial(0))",
+      "1" },
+
+    { "mat_factorial_cinco",
+      INC "escribir(mate.factorial(5))",
+      "120" },
+
+    // mate.mcd
+    { "mat_mcd",
+      INC "escribir(mate.mcd(12, 8))",
+      "4" },
+
+    { "mat_mcd_primos_coprimos",
+      INC "escribir(mate.mcd(7, 11))",
+      "1" },
+
+    // mate.mcm
+    { "mat_mcm",
+      INC "escribir(mate.mcm(4, 6))",
+      "12" },
+
+    // mate.es_primo
+    { "mat_es_primo_si",
+      INC "escribir(mate.es_primo(17))",
+      "cierto" },
+
+    { "mat_es_primo_no",
+      INC "escribir(mate.es_primo(4))",
+      "falso" },
+
+    // mate.fibonacci
+    { "mat_fibonacci_cero",
+      INC "escribir(mate.fibonacci(0))",
+      "0" },
+
+    { "mat_fibonacci_diez",
+      INC "escribir(mate.fibonacci(10))",
+      "55" },
 };
 
 #undef INC

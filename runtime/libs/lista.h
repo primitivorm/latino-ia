@@ -32,4 +32,18 @@ LatValor lat_lista_indice(LatValor l, LatValor v);   /* alias de encontrar */
 LatValor lat_lista_longitud(LatValor l);
 LatValor lat_lista_separador(LatValor l, LatValor sep);
 
+/* Fase 21 — Modificación in-place */
+LatValor lat_lista_ordenar(LatValor l);
+
+/* Fase 21 — Creación de nueva lista */
+LatValor lat_lista_unico(LatValor l);
+LatValor lat_lista_rebanada(LatValor l, LatValor ini, LatValor fin);
+
+/* Fase 21 — Acceso rápido */
+LatValor lat_lista_primero(LatValor l);
+LatValor lat_lista_ultimo(LatValor l);
+
+/* Fase 21 — Consulta adicional */
+LatValor lat_lista_contar(LatValor l, LatValor v);
+
 #endif /* LATINO_LISTA_H */

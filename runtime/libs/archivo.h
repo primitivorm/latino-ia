@@ -20,4 +20,9 @@ LatValor lat_archivo_leer(LatValor ruta);
 LatValor lat_archivo_lineas(LatValor ruta);
 LatValor lat_archivo_renombrar(LatValor viejo, LatValor nuevo);
 
+/* Fase 24 — Consulta de sistema de archivos */
+LatValor lat_archivo_existe(LatValor ruta);
+LatValor lat_archivo_tamanio(LatValor ruta);
+LatValor lat_archivo_listar(LatValor ruta);
+
 #endif /* LATINO_ARCHIVO_H */

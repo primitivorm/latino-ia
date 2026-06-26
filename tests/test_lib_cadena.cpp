@@ -224,6 +224,50 @@ static const harness::CasoTest CASOS[] = {
     { "cad_es_igual_no",
       INC "escribir(cadena.es_igual(\"hola\", \"mundo\"))",
       "falso" },
+
+    // ---- Fase 23 ----
+
+    // cadena.contar
+    { "cad_contar_dos",
+      INC "escribir(cadena.contar(\"abcabc\", \"bc\"))",
+      "2" },
+
+    { "cad_contar_cero",
+      INC "escribir(cadena.contar(\"hola\", \"xyz\"))",
+      "0" },
+
+    // cadena.titulo
+    { "cad_titulo_basico",
+      INC "escribir(cadena.titulo(\"hola mundo\"))",
+      "Hola Mundo" },
+
+    { "cad_titulo_una_palabra",
+      INC "escribir(cadena.titulo(\"latino\"))",
+      "Latino" },
+
+    // cadena.capitalizar
+    { "cad_capitalizar",
+      INC "escribir(cadena.capitalizar(\"hOLA MUNDO\"))",
+      "Hola mundo" },
+
+    // cadena.recortar_izq
+    { "cad_recortar_izq",
+      INC "escribir(cadena.recortar_izq(\"   hola\"))",
+      "hola" },
+
+    // cadena.recortar_der
+    { "cad_recortar_der",
+      INC "escribir(cadena.recortar_der(\"hola   \"))",
+      "hola" },
+
+    // cadena.es_espacio
+    { "cad_es_espacio_si",
+      INC "escribir(cadena.es_espacio(\"   \"))",
+      "cierto" },
+
+    { "cad_es_espacio_no",
+      INC "escribir(cadena.es_espacio(\"  a  \"))",
+      "falso" },
 };
 
 #undef INC

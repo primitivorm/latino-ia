@@ -152,6 +152,70 @@ static const harness::CasoTest CASOS[] = {
       INC "r = lista.comparar([1, 2], [1, 3])\n"
           "escribir(r != 0)",
       "cierto" },
+
+    // ---- Fase 21 ----
+
+    // lista.ordenar
+    { "lst_ordenar_numeros",
+      INC "l = [3, 1, 4, 1, 5, 9, 2]\n"
+          "lista.ordenar(l)\n"
+          "escribir(l[0])",
+      "1" },
+
+    { "lst_ordenar_resultado_ordenado",
+      INC "l = [5, 3, 1]\n"
+          "lista.ordenar(l)\n"
+          "escribir(l[2])",
+      "5" },
+
+    // lista.unico
+    { "lst_unico_elimina_duplicados",
+      INC "u = lista.unico([1, 2, 2, 3, 1])\n"
+          "escribir(lista.longitud(u))",
+      "3" },
+
+    { "lst_unico_mantiene_orden",
+      INC "u = lista.unico([3, 1, 2, 1, 3])\n"
+          "escribir(u[0])",
+      "3" },
+
+    // lista.rebanada
+    { "lst_rebanada_longitud",
+      INC "r = lista.rebanada([10, 20, 30, 40, 50], 1, 4)\n"
+          "escribir(lista.longitud(r))",
+      "3" },
+
+    { "lst_rebanada_primer_elemento",
+      INC "r = lista.rebanada([\"a\", \"b\", \"c\", \"d\"], 1, 3)\n"
+          "escribir(r[0])",
+      "b" },
+
+    // lista.primero
+    { "lst_primero",
+      INC "escribir(lista.primero([7, 8, 9]))",
+      "7" },
+
+    { "lst_primero_vacia",
+      INC "escribir(lista.primero([]))",
+      "nulo" },
+
+    // lista.ultimo
+    { "lst_ultimo",
+      INC "escribir(lista.ultimo([7, 8, 9]))",
+      "9" },
+
+    { "lst_ultimo_vacia",
+      INC "escribir(lista.ultimo([]))",
+      "nulo" },
+
+    // lista.contar
+    { "lst_contar_ocurrencias",
+      INC "escribir(lista.contar([1, 2, 2, 3, 2], 2))",
+      "3" },
+
+    { "lst_contar_sin_ocurrencias",
+      INC "escribir(lista.contar([1, 2, 3], 9))",
+      "0" },
 };
 
 #undef INC

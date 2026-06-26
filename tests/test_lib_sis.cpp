@@ -65,6 +65,25 @@ static const harness::CasoTest CASOS[] = {
     { "sis_iraxy_retorna_nulo",
       INC "escribir(sis.iraxy(0, 0))",
       "nulo" },
+
+    // ---- Fase 26 ----
+
+    // sis.args: sin argumentos adicionales → lista vacía
+    { "sis_args_es_lista",
+      INC "incluir \"lista\"\n"
+          "a = sis.args()\n"
+          "escribir(lista.longitud(a) >= 0)",
+      "cierto" },
+
+    // sis.env: variable inexistente → nulo
+    { "sis_env_inexistente",
+      INC "escribir(sis.env(\"LAT_VAR_NO_EXISTE_XYZ\"))",
+      "nulo" },
+
+    // sis.pid: PID > 0
+    { "sis_pid_positivo",
+      INC "escribir(sis.pid() > 0)",
+      "cierto" },
 };
 
 #undef INC

@@ -48,7 +48,7 @@ static void esperar(const std::string& nombre, const std::string& src,
 static void prueba_estructura_basica() {
     std::string c = generar("escribir(\"hola mundo\")\n");
     CHECK(contiene(c, "#include \"latino.h\""), "include del runtime");
-    CHECK(contiene(c, "int main(void) {"), "funcion main");
+    CHECK(contiene(c, "int main(int argc, char *argv[]) {"), "funcion main");
     CHECK(contiene(c, "lat_escribir(lat_cadena(\"hola mundo\"))"), "llamada a escribir");
 }
 

@@ -491,8 +491,9 @@ void GeneradorC::generarCuerpo(Programa& programa) {
             genFuncion(f);
 
     // main: el resto de las sentencias de nivel superior.
-    emitir("int main(void) {");
+    emitir("int main(int argc, char *argv[]) {");
     ++indentacion;
+    emitir("lat_set_args(argc, argv);");
 
     std::set<std::string> vars;
     recolectarVariables(programa.sentencias, vars, {});
