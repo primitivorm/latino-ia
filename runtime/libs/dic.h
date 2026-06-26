@@ -25,7 +25,7 @@ LatValor lat_dic_actualizar(LatValor d, LatValor d2);
 
 /* Fase 22 — Creación / consulta adicional */
 LatValor lat_dic_combinar(LatValor d1, LatValor d2);
-LatValor lat_dic_items(LatValor d);
+LatValor lat_dic_elementos(LatValor d);
 LatValor lat_dic_copiar(LatValor d);
 
 #endif /* LATINO_DIC_H */

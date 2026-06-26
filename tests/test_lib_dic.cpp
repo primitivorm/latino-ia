@@ -112,18 +112,18 @@ static const harness::CasoTest CASOS[] = {
           "escribir(c[\"x\"])",
       "99" },
 
-    // dic.items
-    { "dic_items_longitud",
+    // dic.elementos
+    { "dic_elementos_longitud",
       INC "incluir \"lista\"\n"
           "d = {\"a\": 1, \"b\": 2}\n"
-          "it = dic.items(d)\n"
+          "it = dic.elementos(d)\n"
           "escribir(lista.longitud(it))",
       "2" },
 
-    { "dic_items_par_es_lista",
+    { "dic_elementos_par_es_lista",
       INC "incluir \"lista\"\n"
           "d = {\"clave\": \"valor\"}\n"
-          "it = dic.items(d)\n"
+          "it = dic.elementos(d)\n"
           "par = it[0]\n"
           "escribir(lista.longitud(par))",
       "2" },

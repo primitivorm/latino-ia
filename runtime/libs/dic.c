@@ -170,10 +170,10 @@ LatValor lat_dic_combinar(LatValor d1v, LatValor d2v) {
 }
 
 /* -------------------------------------------------------------------------
- * Fase 22 — 7. dic.items(d)
+ * Fase 22 — 7. dic.elementos(d)
  * Devuelve una lista de listas [[clave, valor], ...].
  * ---------------------------------------------------------------------- */
-LatValor lat_dic_items(LatValor dv) {
+LatValor lat_dic_elementos(LatValor dv) {
     LatDic *d = dic_de_valor(dv);
     size_t n = d ? d->longitud : 0;
 
