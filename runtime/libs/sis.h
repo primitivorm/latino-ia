@@ -20,4 +20,9 @@ LatValor lat_sis_usuario(void);
 LatValor lat_sis_operativo(void);
 LatValor lat_sis_op(void);   /* alias de operativo */
 
+/* Fase 26 */
+LatValor lat_sis_args(void);
+LatValor lat_sis_env(LatValor nombre);
+LatValor lat_sis_pid(void);
+
 #endif /* LATINO_SIS_H */

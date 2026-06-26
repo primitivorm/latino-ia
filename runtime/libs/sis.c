@@ -12,6 +12,7 @@
 #ifdef _WIN32
 #   include <windows.h>
 #   include <direct.h>   /* _getcwd */
+#   include <process.h>  /* _getpid */
     /* popen/pclose son _popen/_pclose en MSVC */
 #   ifndef popen
 #       define popen  _popen
@@ -153,3 +154,42 @@ LatValor lat_sis_operativo(void) {
 }
 
 LatValor lat_sis_op(void) { return lat_sis_operativo(); }
+
+/* =========================================================================
+ * Fase 26 — Argumentos, entorno y PID
+ * ====================================================================== */
+
+/* sis.args() — lista de argumentos de línea de comandos del programa compilado */
+LatValor lat_sis_args(void) {
+    LatLista *l = (LatLista *)malloc(sizeof(LatLista));
+    if (!l) return lat_nulo();
+    int n = lat_argc;
+    l->refs      = 1;
+    l->longitud  = 0;
+    l->capacidad = (size_t)(n > 0 ? n : 1);
+    l->datos     = (LatValor *)malloc(sizeof(LatValor) * l->capacidad);
+    if (!l->datos) { free(l); return lat_nulo(); }
+    /* Omitir argv[0] (nombre del ejecutable); devolver solo los argumentos del usuario */
+    for (int i = 1; i < n; i++)
+        l->datos[l->longitud++] = lat_cadena(lat_argv[i]);
+    LatValor v;
+    v.tipo = LAT_LISTA;
+    v.como.lista = l;
+    return v;
+}
+
+/* sis.env(nombre) — valor de variable de entorno; nulo si no existe */
+LatValor lat_sis_env(LatValor nombre_v) {
+    if (nombre_v.tipo != LAT_CADENA || !nombre_v.como.cadena) return lat_nulo();
+    const char *val = getenv(nombre_v.como.cadena);
+    return val ? lat_cadena(val) : lat_nulo();
+}
+
+/* sis.pid() — PID del proceso actual */
+LatValor lat_sis_pid(void) {
+#ifdef _WIN32
+    return lat_numero((double)_getpid());
+#else
+    return lat_numero((double)getpid());
+#endif
+}

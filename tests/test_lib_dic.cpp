@@ -94,6 +94,66 @@ static const harness::CasoTest CASOS[] = {
           "d[\"n\"] = 99\n"
           "escribir(d[\"n\"])",
       "99" },
+
+    // ---- Fase 22 ----
+
+    // dic.combinar
+    { "dic_combinar_longitud",
+      INC "d1 = {\"a\": 1}\n"
+          "d2 = {\"b\": 2}\n"
+          "c = dic.combinar(d1, d2)\n"
+          "escribir(dic.longitud(c))",
+      "2" },
+
+    { "dic_combinar_precedencia_d2",
+      INC "d1 = {\"x\": 1}\n"
+          "d2 = {\"x\": 99}\n"
+          "c = dic.combinar(d1, d2)\n"
+          "escribir(c[\"x\"])",
+      "99" },
+
+    // dic.items
+    { "dic_items_longitud",
+      INC "incluir \"lista\"\n"
+          "d = {\"a\": 1, \"b\": 2}\n"
+          "it = dic.items(d)\n"
+          "escribir(lista.longitud(it))",
+      "2" },
+
+    { "dic_items_par_es_lista",
+      INC "incluir \"lista\"\n"
+          "d = {\"clave\": \"valor\"}\n"
+          "it = dic.items(d)\n"
+          "par = it[0]\n"
+          "escribir(lista.longitud(par))",
+      "2" },
+
+    // dic.copiar
+    { "dic_copiar_independiente",
+      INC "original = {\"k\": 1}\n"
+          "copia = dic.copiar(original)\n"
+          "copia[\"k\"] = 99\n"
+          "escribir(original[\"k\"])",
+      "1" },
+
+    { "dic_copiar_longitud",
+      INC "d = {\"a\": 1, \"b\": 2}\n"
+          "c = dic.copiar(d)\n"
+          "escribir(dic.longitud(c))",
+      "2" },
+
+    // dic.actualizar
+    { "dic_actualizar_agrega",
+      INC "d = {\"a\": 1}\n"
+          "dic.actualizar(d, {\"b\": 2})\n"
+          "escribir(dic.longitud(d))",
+      "2" },
+
+    { "dic_actualizar_sobreescribe",
+      INC "d = {\"x\": 1}\n"
+          "dic.actualizar(d, {\"x\": 99})\n"
+          "escribir(d[\"x\"])",
+      "99" },
 };
 
 #undef INC

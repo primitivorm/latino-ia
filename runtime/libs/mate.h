@@ -62,4 +62,11 @@ LatValor lat_mate_base(LatValor x, LatValor b);
 LatValor lat_mate_parte(LatValor x);   /* [parte_entera, parte_fraccionaria] */
 LatValor lat_mate_porc(LatValor v, LatValor total);
 
+/* --- Fase 25 — Combinatoria y teoría de números --- */
+LatValor lat_mate_factorial(LatValor n);
+LatValor lat_mate_mcd(LatValor a, LatValor b);
+LatValor lat_mate_mcm(LatValor a, LatValor b);
+LatValor lat_mate_es_primo(LatValor n);
+LatValor lat_mate_fibonacci(LatValor n);
+
 #endif /* LATINO_MATE_H */

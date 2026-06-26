@@ -7,6 +7,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+
+#ifdef _WIN32
+#  include <windows.h>
+#  include <io.h>
+#else
+#  include <dirent.h>
+#endif
 
 /* -------------------------------------------------------------------------
  * Utilidades internas
@@ -200,4 +208,86 @@ LatValor lat_archivo_renombrar(LatValor viejo_v, LatValor nuevo_v) {
     if (!viejo || !nuevo) return lat_nulo();
     rename(viejo, nuevo);
     return lat_nulo();
+}
+
+/* =========================================================================
+ * Fase 24 — Consulta de sistema de archivos
+ * ====================================================================== */
+
+/* -------------------------------------------------------------------------
+ * archivo.existe(ruta) — cierto si la ruta existe (archivo o directorio)
+ * ---------------------------------------------------------------------- */
+LatValor lat_archivo_existe(LatValor ruta_v) {
+    const char *ruta = ruta_de_valor(ruta_v);
+    if (!ruta) return lat_logico(0);
+#ifdef _WIN32
+    return lat_logico(GetFileAttributesA(ruta) != INVALID_FILE_ATTRIBUTES ? 1 : 0);
+#else
+    struct stat st;
+    return lat_logico(stat(ruta, &st) == 0 ? 1 : 0);
+#endif
+}
+
+/* -------------------------------------------------------------------------
+ * archivo.tamanio(ruta) — tamaño en bytes (-1 si error)
+ * ---------------------------------------------------------------------- */
+LatValor lat_archivo_tamanio(LatValor ruta_v) {
+    const char *ruta = ruta_de_valor(ruta_v);
+    if (!ruta) return lat_numero(-1.0);
+    struct stat st;
+#ifdef _WIN32
+    if (_stat(ruta, (struct _stat *)&st) != 0) return lat_numero(-1.0);
+#else
+    if (stat(ruta, &st) != 0) return lat_numero(-1.0);
+#endif
+    return lat_numero((double)st.st_size);
+}
+
+/* -------------------------------------------------------------------------
+ * archivo.listar(ruta) — lista de nombres de entradas en el directorio
+ * ---------------------------------------------------------------------- */
+LatValor lat_archivo_listar(LatValor ruta_v) {
+    const char *ruta = ruta_de_valor(ruta_v);
+
+    /* Construir lista dinámica de cadenas */
+    size_t cap = 16, count = 0;
+    LatValor *arr = (LatValor *)malloc(cap * sizeof(LatValor));
+    if (!arr) return lat_nulo();
+
+#ifdef _WIN32
+    char patron[4096];
+    if (!ruta) { free(arr); return lat_nulo(); }
+    snprintf(patron, sizeof(patron), "%s\\*", ruta);
+    WIN32_FIND_DATAA fd;
+    HANDLE h = FindFirstFileA(patron, &fd);
+    if (h == INVALID_HANDLE_VALUE) { free(arr); return lat_nulo(); }
+    do {
+        if (strcmp(fd.cFileName, ".") == 0 || strcmp(fd.cFileName, "..") == 0) continue;
+        if (count >= cap) { cap *= 2; arr = (LatValor *)realloc(arr, cap * sizeof(LatValor)); }
+        arr[count++] = lat_cadena(fd.cFileName);
+    } while (FindNextFileA(h, &fd));
+    FindClose(h);
+#else
+    if (!ruta) { free(arr); return lat_nulo(); }
+    DIR *d = opendir(ruta);
+    if (!d) { free(arr); return lat_nulo(); }
+    struct dirent *entry;
+    while ((entry = readdir(d)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
+        if (count >= cap) { cap *= 2; arr = (LatValor *)realloc(arr, cap * sizeof(LatValor)); }
+        arr[count++] = lat_cadena(entry->d_name);
+    }
+    closedir(d);
+#endif
+
+    LatLista *l = (LatLista *)malloc(sizeof(LatLista));
+    if (!l) { free(arr); return lat_nulo(); }
+    l->refs      = 1;
+    l->datos     = arr;
+    l->longitud  = count;
+    l->capacidad = cap;
+    LatValor v;
+    v.tipo = LAT_LISTA;
+    v.como.lista = l;
+    return v;
 }

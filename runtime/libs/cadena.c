@@ -624,3 +624,107 @@ LatValor lat_cadena_regexl(LatValor sv, LatValor patronv) {
     r.como.lista = lista;
     return r;
 }
+
+/* =========================================================================
+ * Fase 23 — Funciones adicionales de cadena
+ * ====================================================================== */
+
+/* -------------------------------------------------------------------------
+ * cadena.contar(s, sub) — ocurrencias no solapadas de sub en s
+ * ---------------------------------------------------------------------- */
+LatValor lat_cadena_contar(LatValor sv, LatValor subv) {
+    const char *s   = valor_cadena(sv);
+    const char *sub = valor_cadena(subv);
+    size_t sub_len  = strlen(sub);
+    if (sub_len == 0) return lat_numero(0.0);
+
+    size_t count = 0;
+    const char *p = s;
+    while ((p = strstr(p, sub)) != NULL) {
+        count++;
+        p += sub_len;
+    }
+    return lat_numero((double)count);
+}
+
+/* -------------------------------------------------------------------------
+ * cadena.titulo(s) — primera letra de cada palabra en mayúscula
+ * ---------------------------------------------------------------------- */
+LatValor lat_cadena_titulo(LatValor sv) {
+    const char *s = valor_cadena(sv);
+    size_t len = strlen(s);
+    char *r = (char *)malloc(len + 1);
+    if (!r) return lat_nulo();
+    int nueva_palabra = 1;
+    for (size_t i = 0; i < len; i++) {
+        if ((unsigned char)s[i] == ' ' || (unsigned char)s[i] == '\t' ||
+            (unsigned char)s[i] == '\n' || (unsigned char)s[i] == '\r') {
+            r[i] = s[i];
+            nueva_palabra = 1;
+        } else if (nueva_palabra) {
+            r[i] = (char)toupper((unsigned char)s[i]);
+            nueva_palabra = 0;
+        } else {
+            r[i] = (char)tolower((unsigned char)s[i]);
+        }
+    }
+    r[len] = '\0';
+    LatValor v = lat_cadena(r);
+    free(r);
+    return v;
+}
+
+/* -------------------------------------------------------------------------
+ * cadena.capitalizar(s) — primera letra mayúscula, el resto minúsculas
+ * ---------------------------------------------------------------------- */
+LatValor lat_cadena_capitalizar(LatValor sv) {
+    const char *s = valor_cadena(sv);
+    size_t len = strlen(s);
+    char *r = (char *)malloc(len + 1);
+    if (!r) return lat_nulo();
+    for (size_t i = 0; i < len; i++)
+        r[i] = (i == 0) ? (char)toupper((unsigned char)s[i])
+                        : (char)tolower((unsigned char)s[i]);
+    r[len] = '\0';
+    LatValor v = lat_cadena(r);
+    free(r);
+    return v;
+}
+
+/* -------------------------------------------------------------------------
+ * cadena.recortar_izq(s) — elimina espacios solo por la izquierda
+ * ---------------------------------------------------------------------- */
+LatValor lat_cadena_recortar_izq(LatValor sv) {
+    const char *s = valor_cadena(sv);
+    while (*s && isspace((unsigned char)*s)) s++;
+    return lat_cadena(s);
+}
+
+/* -------------------------------------------------------------------------
+ * cadena.recortar_der(s) — elimina espacios solo por la derecha
+ * ---------------------------------------------------------------------- */
+LatValor lat_cadena_recortar_der(LatValor sv) {
+    const char *s = valor_cadena(sv);
+    size_t len = strlen(s);
+    char *r = (char *)malloc(len + 1);
+    if (!r) return lat_nulo();
+    memcpy(r, s, len + 1);
+    while (len > 0 && isspace((unsigned char)r[len - 1])) len--;
+    r[len] = '\0';
+    LatValor v = lat_cadena(r);
+    free(r);
+    return v;
+}
+
+/* -------------------------------------------------------------------------
+ * cadena.es_espacio(s) — cierto si la cadena es toda espacios en blanco
+ * ---------------------------------------------------------------------- */
+LatValor lat_cadena_es_espacio(LatValor sv) {
+    const char *s = valor_cadena(sv);
+    if (*s == '\0') return lat_logico(0);
+    while (*s) {
+        if (!isspace((unsigned char)*s)) return lat_logico(0);
+        s++;
+    }
+    return lat_logico(1);
+}

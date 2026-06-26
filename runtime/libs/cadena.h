@@ -56,4 +56,16 @@ LatValor lat_cadena_formato(size_t n, ...);                       /* sprintf de 
 LatValor lat_cadena_regex(LatValor s, LatValor patron);           /* primera coincidencia o nulo */
 LatValor lat_cadena_regexl(LatValor s, LatValor patron);          /* lista de coincidencias    */
 
+/* Fase 23 — Búsqueda adicional */
+LatValor lat_cadena_contar(LatValor s, LatValor sub);             /* ocurrencias no solapadas  */
+
+/* Fase 23 — Transformación adicional */
+LatValor lat_cadena_titulo(LatValor s);                           /* primera letra de cada palabra en mayúscula */
+LatValor lat_cadena_capitalizar(LatValor s);                      /* primera letra mayúscula, resto minúscula   */
+LatValor lat_cadena_recortar_izq(LatValor s);                     /* elimina espacios a la izquierda            */
+LatValor lat_cadena_recortar_der(LatValor s);                     /* elimina espacios a la derecha              */
+
+/* Fase 23 — Inspección adicional */
+LatValor lat_cadena_es_espacio(LatValor s);                       /* cierto si todos son espacios en blanco     */
+
 #endif /* LATINO_CADENA_H */

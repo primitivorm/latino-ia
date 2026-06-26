@@ -165,3 +165,55 @@ LatValor lat_mate_porc(LatValor vv, LatValor totalv) {
     if (total == 0.0) return lat_numero(0.0);
     return lat_numero((a_numero(vv) / total) * 100.0);
 }
+
+/* =========================================================================
+ * Fase 25 — Combinatoria y teoría de números
+ * ====================================================================== */
+
+/* factorial(n) → n!  (0→1, n>170→inf por desbordamiento de double) */
+LatValor lat_mate_factorial(LatValor nv) {
+    long long n = (long long)a_numero(nv);
+    if (n < 0) return lat_numero(0.0);
+    double r = 1.0;
+    for (long long i = 2; i <= n; i++) r *= (double)i;
+    return lat_numero(r);
+}
+
+/* mcd(a, b) → máximo común divisor (algoritmo de Euclides) */
+LatValor lat_mate_mcd(LatValor av, LatValor bv) {
+    long long a = (long long)fabs(a_numero(av));
+    long long b = (long long)fabs(a_numero(bv));
+    while (b) { long long t = b; b = a % b; a = t; }
+    return lat_numero((double)a);
+}
+
+/* mcm(a, b) → mínimo común múltiplo */
+LatValor lat_mate_mcm(LatValor av, LatValor bv) {
+    long long a = (long long)fabs(a_numero(av));
+    long long b = (long long)fabs(a_numero(bv));
+    if (a == 0 || b == 0) return lat_numero(0.0);
+    long long g = a, h = b;
+    while (h) { long long t = h; h = g % h; g = t; }
+    return lat_numero((double)(a / g * b));
+}
+
+/* es_primo(n) → cierto si n es primo (prueba hasta √n) */
+LatValor lat_mate_es_primo(LatValor nv) {
+    long long n = (long long)a_numero(nv);
+    if (n < 2) return lat_logico(0);
+    if (n == 2) return lat_logico(1);
+    if (n % 2 == 0) return lat_logico(0);
+    for (long long i = 3; i * i <= n; i += 2)
+        if (n % i == 0) return lat_logico(0);
+    return lat_logico(1);
+}
+
+/* fibonacci(n) → n-ésimo número de Fibonacci (0→0, 1→1, iterativo) */
+LatValor lat_mate_fibonacci(LatValor nv) {
+    long long n = (long long)a_numero(nv);
+    if (n <= 0) return lat_numero(0.0);
+    if (n == 1) return lat_numero(1.0);
+    double a = 0.0, b = 1.0;
+    for (long long i = 2; i <= n; i++) { double t = a + b; a = b; b = t; }
+    return lat_numero(b);
+}

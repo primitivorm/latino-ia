@@ -123,4 +123,9 @@ LatValor lat_valor_retener(LatValor v);
 /* Decrementa el contador; libera la memoria cuando llega a cero. */
 void     lat_valor_liberar(LatValor v);
 
+/* --- Fase 26: argumentos de línea de comandos --- */
+extern int   lat_argc;
+extern char **lat_argv;
+void lat_set_args(int argc, char **argv);
+
 #endif /* LATINO_H */

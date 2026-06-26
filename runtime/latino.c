@@ -750,3 +750,12 @@ void lat_valor_liberar(LatValor v) {
     }
 }
 
+/* --- Fase 26: argumentos de línea de comandos --- */
+int   lat_argc = 0;
+char **lat_argv = NULL;
+
+void lat_set_args(int argc, char **argv) {
+    lat_argc = argc;
+    lat_argv = argv;
+}
+

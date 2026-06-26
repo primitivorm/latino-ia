@@ -74,6 +74,33 @@ static const harness::CasoTest CASOS[] = {
           "escribir(archivo.leer(\"_archt_cre.txt\"))\n"
           "archivo.borrar(\"_archt_cre.txt\")",
       "creado" },
+
+    // ---- Fase 24 ----
+
+    // archivo.existe
+    { "arch_existe_si",
+      INC "archivo.escribir(\"_archt_ex.txt\", \"x\")\n"
+          "escribir(archivo.existe(\"_archt_ex.txt\"))\n"
+          "archivo.borrar(\"_archt_ex.txt\")",
+      "cierto" },
+
+    { "arch_existe_no",
+      INC "escribir(archivo.existe(\"_archt_noexiste_xyz.txt\"))",
+      "falso" },
+
+    // archivo.tamanio
+    { "arch_tamanio_positivo",
+      INC "archivo.escribir(\"_archt_sz.txt\", \"hola\")\n"
+          "escribir(archivo.tamanio(\"_archt_sz.txt\") > 0)\n"
+          "archivo.borrar(\"_archt_sz.txt\")",
+      "cierto" },
+
+    // archivo.listar (verificar que devuelve una lista, longitud >= 0)
+    { "arch_listar_es_lista",
+      INC "incluir \"lista\"\n"
+          "l = archivo.listar(\".\")\n"
+          "escribir(lista.longitud(l) >= 0)",
+      "cierto" },
 };
 
 #undef INC
