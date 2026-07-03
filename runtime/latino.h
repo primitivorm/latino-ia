@@ -128,4 +128,13 @@ extern int   lat_argc;
 extern char **lat_argv;
 void lat_set_args(int argc, char **argv);
 
+/* --- Tipado gradual: verificación de tipo en asignación/parámetro ---
+ * Verifica que v.tipo == tipo_esperado (valor LatTipo).
+ * Si no coincide, imprime un mensaje de error a stderr y termina con exit(1).
+ * Devuelve v sin modificarlo si la verificación pasa.
+ * nombre_var y linea se usan solo para el mensaje de error.
+ */
+LatValor lat_verificar_tipo(LatValor v, int tipo_esperado,
+                             const char *nombre_var, int linea);
+
 #endif /* LATINO_H */

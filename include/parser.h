@@ -25,6 +25,12 @@ private:
     Lexer& lexer;
     Token actual;
 
+    // Buffer de un token para retroceder un paso (usado en la detección de
+    // anotaciones de tipo: se consume el identificador y si el ":" no va
+    // seguido de un tipo válido se devuelve al flujo).
+    bool  tieneTokenDevuelto_ = false;
+    Token tokenDevuelto_;
+
     // --- Manejo del flujo de tokens ---
     void avanzar();
     bool esEOF() const;
@@ -43,6 +49,10 @@ private:
     void consumirFinDeSentencia();
 
     [[noreturn]] void error(const std::string& mensaje) const;
+
+    // Convierte un nombre de tipo Latino ("numero", "cadena", etc.) al enum
+    // TipoAnotado. Devuelve TipoAnotado::Ninguno si no es un tipo reconocido.
+    static TipoAnotado mapearNombreTipo(const std::string& nombre);
 
     // --- Sentencias ---
     std::unique_ptr<Programa> parsePrograma();

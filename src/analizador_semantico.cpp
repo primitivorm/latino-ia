@@ -57,7 +57,8 @@ void AnalizadorSemantico::salirAmbito() {
         ambitos.pop_back();
 }
 
-void AnalizadorSemantico::declararVariable(const std::string& nombre, int linea) {
+void AnalizadorSemantico::declararVariable(const std::string& nombre,
+                                           TipoAnotado tipo, int linea) {
     if (esMayusculas(nombre)) {
         if (constantes.count(nombre)) {
             agregarError(linea, "no se puede reasignar la constante '" + nombre + "'");
@@ -66,7 +67,7 @@ void AnalizadorSemantico::declararVariable(const std::string& nombre, int linea)
         constantes.insert(nombre);
     }
     if (!ambitos.empty())
-        ambitos.back().insert(nombre);
+        ambitos.back()[nombre] = tipo;
 }
 
 bool AnalizadorSemantico::estaDeclarada(const std::string& nombre) const {
@@ -75,6 +76,32 @@ bool AnalizadorSemantico::estaDeclarada(const std::string& nombre) const {
             return true;
     return false;
 }
+
+namespace {
+static std::string nombreTipoAnotado(TipoAnotado t) {
+    switch (t) {
+        case TipoAnotado::Numero: return "numero";
+        case TipoAnotado::Cadena: return "cadena";
+        case TipoAnotado::Logico: return "logico";
+        case TipoAnotado::Lista:  return "lista";
+        case TipoAnotado::Dic:    return "dic";
+        case TipoAnotado::Nulo:   return "nulo";
+        default: return "desconocido";
+    }
+}
+
+// Devuelve el tipo anotado correspondiente a un nodo literal puro.
+// Devuelve Ninguno para expresiones dinámicas (no se puede verificar en compilación).
+static TipoAnotado tipoDelLiteral(Expresion* e) {
+    if (dynamic_cast<LitNumero*>(e))          return TipoAnotado::Numero;
+    if (dynamic_cast<LitCadena*>(e))          return TipoAnotado::Cadena;
+    if (dynamic_cast<LitLogico*>(e))          return TipoAnotado::Logico;
+    if (dynamic_cast<LitNulo*>(e))            return TipoAnotado::Nulo;
+    if (dynamic_cast<ListaLiteral*>(e))       return TipoAnotado::Lista;
+    if (dynamic_cast<DiccionarioLiteral*>(e)) return TipoAnotado::Dic;
+    return TipoAnotado::Ninguno;
+}
+}  // namespace (anon)
 
 void AnalizadorSemantico::usarIdentificador(const std::string& nombre, int linea) {
     if (estaDeclarada(nombre)) return;
@@ -234,12 +261,27 @@ void AnalizadorSemantico::visitar(Asignacion& n) {
     for (auto& v : n.valores)
         if (v) v->aceptar(*this);
 
-    for (auto& d : n.destinos) {
-        if (auto* id = dynamic_cast<Identificador*>(d.get())) {
-            declararVariable(id->nombre, id->linea);
-        } else if (d) {
+    for (size_t i = 0; i < n.destinos.size(); i++) {
+        TipoAnotado tipo = (i < n.tiposDestino.size())
+                               ? n.tiposDestino[i]
+                               : TipoAnotado::Ninguno;
+
+        if (auto* id = dynamic_cast<Identificador*>(n.destinos[i].get())) {
+            // Verificación estática: si hay anotación y el valor es un literal,
+            // detectar la incompatibilidad en compilación.
+            if (tipo != TipoAnotado::Ninguno && i < n.valores.size() && n.valores[i]) {
+                TipoAnotado real = tipoDelLiteral(n.valores[i].get());
+                if (real != TipoAnotado::Ninguno && real != tipo)
+                    agregarError(id->linea,
+                                 "tipo incompatible: se declaró '" +
+                                     nombreTipoAnotado(tipo) +
+                                     "' pero el valor es '" +
+                                     nombreTipoAnotado(real) + "'");
+            }
+            declararVariable(id->nombre, tipo, id->linea);
+        } else if (n.destinos[i]) {
             // destino tipo numeros[0] u obj.campo: se valida el objeto base.
-            d->aceptar(*this);
+            n.destinos[i]->aceptar(*this);
         }
     }
 }
@@ -301,11 +343,11 @@ void AnalizadorSemantico::visitar(FuncionDef& n) {
     entrarAmbito();
 
     std::unordered_set<std::string> vistos;
-    for (const std::string& p : n.parametros) {
-        if (!vistos.insert(p).second)
-            agregarError(n.linea, "parámetro duplicado '" + p + "' en la función '" +
+    for (const ParamFuncion& p : n.parametros) {
+        if (!vistos.insert(p.nombre).second)
+            agregarError(n.linea, "parámetro duplicado '" + p.nombre + "' en la función '" +
                                       n.nombre + "'");
-        declararVariable(p, n.linea);
+        declararVariable(p.nombre, p.tipo, n.linea);
     }
 
     ++profundidadFuncion;

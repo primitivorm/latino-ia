@@ -58,6 +58,20 @@ target_include_directories(test_codegen PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
 add_test(NAME test_codegen COMMAND test_codegen)
 
+# Pruebas de tipado gradual opcional (Fase 27).
+add_executable(test_tipado
+  test_tipado.cpp
+  ${CMAKE_SOURCE_DIR}/src/lexer.cpp
+  ${CMAKE_SOURCE_DIR}/src/parser.cpp
+  ${CMAKE_SOURCE_DIR}/src/ast.cpp
+  ${CMAKE_SOURCE_DIR}/src/ast_impresor.cpp
+  ${CMAKE_SOURCE_DIR}/src/analizador_semantico.cpp
+  ${CMAKE_SOURCE_DIR}/src/compiler.cpp
+)
+target_include_directories(test_tipado PRIVATE ${CMAKE_SOURCE_DIR}/include)
+
+add_test(NAME test_tipado COMMAND test_tipado)
+
 # Utilidad de depuración (no es una prueba): vuelca los tokens de un .lat.
 add_executable(lexer_dump
   lexer_dump.cpp

@@ -759,3 +759,31 @@ void lat_set_args(int argc, char **argv) {
     lat_argv = argv;
 }
 
+/* --- Tipado gradual: verificación de tipo --- */
+static const char *_nombre_latipo(LatTipo t) {
+    switch (t) {
+        case LAT_NULO:        return "nulo";
+        case LAT_LOGICO:      return "logico";
+        case LAT_NUMERO:      return "numero";
+        case LAT_CADENA:      return "cadena";
+        case LAT_LISTA:       return "lista";
+        case LAT_DICCIONARIO: return "dic";
+        case LAT_MODULO:      return "modulo";
+        default:              return "desconocido";
+    }
+}
+
+LatValor lat_verificar_tipo(LatValor v, int tipo_esperado,
+                             const char *nombre_var, int linea) {
+    if (v.tipo != (LatTipo)tipo_esperado) {
+        fprintf(stderr,
+                "Error de tipo en línea %d: la variable '%s' se declaró como '%s' "
+                "pero recibió un valor de tipo '%s'\n",
+                linea, nombre_var,
+                _nombre_latipo((LatTipo)tipo_esperado),
+                _nombre_latipo(v.tipo));
+        exit(1);
+    }
+    return v;
+}
+

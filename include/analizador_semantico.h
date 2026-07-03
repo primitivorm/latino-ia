@@ -9,8 +9,10 @@
 //   - funciones no definidas y número de argumentos incorrecto,
 //   - redefinición de funciones y parámetros duplicados.
 //
-// Latino es de tipado dinámico, por lo que NO se comprueban tipos: eso se
-// resuelve en tiempo de ejecución mediante el runtime (Fase 6).
+// Latino admite anotaciones de tipo opcionales (tipado gradual). Cuando una
+// variable o parámetro lleva anotación, el analizador detecta errores obvios
+// en compilación (literal incompatible); los casos dinámicos se verifican en
+// runtime mediante lat_verificar_tipo().
 //
 // Los errores no abortan el análisis: se acumulan y se reportan todos al final.
 
@@ -74,7 +76,8 @@ private:
         std::string mensaje;
     };
 
-    std::vector<std::unordered_set<std::string>> ambitos;
+    // Cada ámbito mapea nombre de variable → tipo anotado (Ninguno si sin anotación).
+    std::vector<std::unordered_map<std::string, TipoAnotado>> ambitos;
     std::unordered_map<std::string, InfoFuncion> funciones;
     std::unordered_set<std::string> constantes;
     std::vector<ErrorSemantico> errores;
@@ -85,7 +88,7 @@ private:
 
     void entrarAmbito();
     void salirAmbito();
-    void declararVariable(const std::string& nombre, int linea);
+    void declararVariable(const std::string& nombre, TipoAnotado tipo, int linea);
     bool estaDeclarada(const std::string& nombre) const;
     void usarIdentificador(const std::string& nombre, int linea);
     bool esIncorporada(const std::string& nombre) const;

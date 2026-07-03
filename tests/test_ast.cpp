@@ -147,7 +147,7 @@ static void prueba_si_sino() {
 static void prueba_funcion() {
     auto f = std::make_unique<FuncionDef>();
     f->nombre = "sumar";
-    f->parametros = {"a", "b"};
+    f->parametros = {ParamFuncion{"a"}, ParamFuncion{"b"}};
     auto r = std::make_unique<Retornar>();
     r->valor = bin("+", id("a"), id("b"));
     f->cuerpo.push_back(std::move(r));
@@ -162,7 +162,7 @@ static void prueba_funcion() {
 static void prueba_funcion_variadica() {
     auto f = std::make_unique<FuncionDef>();
     f->nombre = "varios";
-    f->parametros = {"a"};
+    f->parametros = {ParamFuncion{"a"}};
     f->variadico = true;
     std::string t = volcar(*f);
     CHECK(contiene(t, "Funcion 'varios' (a, ...)"), "firma variadica");
