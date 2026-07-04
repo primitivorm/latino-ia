@@ -22,7 +22,22 @@ Parser::Parser(Lexer& lexer) : lexer(lexer) {
 // Manejo del flujo de tokens
 // ---------------------------------------------------------------------------
 void Parser::avanzar() {
-    actual = lexer.getNextToken();
+    if (tieneTokenDevuelto_) {
+        actual = tokenDevuelto_;
+        tieneTokenDevuelto_ = false;
+    } else {
+        actual = lexer.getNextToken();
+    }
+}
+
+TipoAnotado Parser::mapearNombreTipo(const std::string& s) {
+    if (s == "numero")  return TipoAnotado::Numero;
+    if (s == "cadena")  return TipoAnotado::Cadena;
+    if (s == "logico")  return TipoAnotado::Logico;
+    if (s == "lista")   return TipoAnotado::Lista;
+    if (s == "dic")     return TipoAnotado::Dic;
+    if (s == "nulo")    return TipoAnotado::Nulo;
+    return TipoAnotado::Ninguno;
 }
 
 bool Parser::esEOF() const {
@@ -146,6 +161,41 @@ SentPtr Parser::parseSentencia() {
 
 SentPtr Parser::parseAsignacionOExpr() {
     int l = actual.line;
+
+    // Detección de anotación de tipo: "identificador : tipo = valor"
+    // Solo se intenta cuando la sentencia comienza con un identificador simple.
+    if (actual.type == TokenType::Identificador) {
+        Token tk = actual;
+        avanzar();  // actual = token siguiente al identificador
+        if (esOperador(":")) {
+            avanzar();  // consume ":"
+            TipoAnotado tipo = TipoAnotado::Ninguno;
+            if (actual.type == TokenType::Identificador)
+                tipo = mapearNombreTipo(actual.lexeme);
+            if (tipo != TipoAnotado::Ninguno) {
+                avanzar();  // consume nombre del tipo
+                esperarOperador("=");
+                auto valores = parseListaExpresiones();
+                auto id = std::make_unique<Identificador>();
+                id->nombre = tk.lexeme;
+                id->linea  = tk.line;
+                auto a = std::make_unique<Asignacion>();
+                a->linea = l;
+                a->destinos.push_back(std::move(id));
+                a->valores = std::move(valores);
+                a->tiposDestino.push_back(tipo);
+                return a;
+            }
+            // ":" existe pero lo que sigue no es un tipo válido.
+            error("se esperaba un tipo válido después de ':' "
+                  "(numero, cadena, logico, lista, dic, nulo)");
+        }
+        // No hay ":". Devolver el identificador al flujo normal.
+        tieneTokenDevuelto_ = true;
+        tokenDevuelto_ = actual;
+        actual = tk;
+    }
+
     std::vector<ExprPtr> izqs = parseListaExpresiones();
 
     if (esOperador("=")) {
@@ -155,6 +205,7 @@ SentPtr Parser::parseAsignacionOExpr() {
         a->linea = l;
         a->destinos = std::move(izqs);
         a->valores = std::move(ders);
+        // tiposDestino vacío == sin anotaciones (retrocompatible)
         return a;
     }
 
@@ -297,13 +348,35 @@ SentPtr Parser::parseFuncion() {
             }
             if (actual.type != TokenType::Identificador)
                 error("se esperaba el nombre de un parámetro");
-            nodo->parametros.push_back(actual.lexeme);
+            ParamFuncion param;
+            param.nombre = actual.lexeme;
             avanzar();
+            if (esOperador(":")) {
+                avanzar();
+                if (actual.type != TokenType::Identificador)
+                    error("se esperaba un tipo válido después de ':'");
+                param.tipo = mapearNombreTipo(actual.lexeme);
+                if (param.tipo == TipoAnotado::Ninguno)
+                    error("tipo no reconocido '" + actual.lexeme + "'");
+                avanzar();
+            }
+            nodo->parametros.push_back(std::move(param));
             if (esDelimitador(",")) { avanzar(); continue; }
             break;
         }
     }
     esperarDelimitador(")");
+
+    // Tipo de retorno opcional: ": tipo"
+    if (esOperador(":")) {
+        avanzar();
+        if (actual.type != TokenType::Identificador)
+            error("se esperaba un tipo de retorno válido");
+        nodo->tipoRetorno = mapearNombreTipo(actual.lexeme);
+        if (nodo->tipoRetorno == TipoAnotado::Ninguno)
+            error("tipo de retorno no reconocido '" + actual.lexeme + "'");
+        avanzar();
+    }
 
     nodo->cuerpo = parseBloque({"fin"});
     esperarReservada("fin");

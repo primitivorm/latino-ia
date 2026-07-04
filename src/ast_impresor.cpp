@@ -213,15 +213,31 @@ void ImpresorAST::visitar(Romper&) {
     linea("Romper");
 }
 
+static std::string nombreTipoAst(TipoAnotado t) {
+    switch (t) {
+        case TipoAnotado::Numero: return "numero";
+        case TipoAnotado::Cadena: return "cadena";
+        case TipoAnotado::Logico: return "logico";
+        case TipoAnotado::Lista:  return "lista";
+        case TipoAnotado::Dic:    return "dic";
+        case TipoAnotado::Nulo:   return "nulo";
+        default: return "";
+    }
+}
+
 void ImpresorAST::visitar(FuncionDef& n) {
     std::string firma = "Funcion '" + n.nombre + "' (";
     for (size_t i = 0; i < n.parametros.size(); ++i) {
         if (i) firma += ", ";
-        firma += n.parametros[i];
+        firma += n.parametros[i].nombre;
+        if (n.parametros[i].tipo != TipoAnotado::Ninguno)
+            firma += ":" + nombreTipoAst(n.parametros[i].tipo);
     }
     if (n.variadico)
         firma += (n.parametros.empty() ? "..." : ", ...");
     firma += ")";
+    if (n.tipoRetorno != TipoAnotado::Ninguno)
+        firma += " -> " + nombreTipoAst(n.tipoRetorno);
     linea(firma);
     linea("cuerpo:");
     hijos(n.cuerpo);

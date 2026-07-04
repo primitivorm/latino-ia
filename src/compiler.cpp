@@ -50,6 +50,18 @@ void colectar(Sentencia* s, std::set<std::string>& out) {
     // FuncionDef: no se desciende. ExprSentencia/Romper/Retornar: nada que declarar.
 }
 
+const char* tipoALatTipo(TipoAnotado t) {
+    switch (t) {
+        case TipoAnotado::Numero: return "LAT_NUMERO";
+        case TipoAnotado::Cadena: return "LAT_CADENA";
+        case TipoAnotado::Logico: return "LAT_LOGICO";
+        case TipoAnotado::Lista:  return "LAT_LISTA";
+        case TipoAnotado::Dic:    return "LAT_DICCIONARIO";
+        case TipoAnotado::Nulo:   return "LAT_NULO";
+        default: return nullptr;
+    }
+}
+
 const char* fnBinaria(const std::string& op) {
     if (op == "+")  return "lat_sumar";
     if (op == "-")  return "lat_restar";
@@ -328,8 +340,19 @@ void GeneradorC::genSentencia(Sentencia* s) {
     }
     if (auto* a = dynamic_cast<Asignacion*>(s)) {
         if (a->destinos.size() == 1 && a->valores.size() == 1) {
-            emitir(genAsignacionDestino(a->destinos[0].get(),
-                                        genExpr(a->valores[0].get())));
+            TipoAnotado tipo = a->tiposDestino.empty()
+                                   ? TipoAnotado::Ninguno
+                                   : a->tiposDestino[0];
+            std::string val = genExpr(a->valores[0].get());
+            if (tipo != TipoAnotado::Ninguno) {
+                const char* ct = tipoALatTipo(tipo);
+                std::string nombreVar;
+                if (auto* id = dynamic_cast<Identificador*>(a->destinos[0].get()))
+                    nombreVar = id->nombre;
+                val = "lat_verificar_tipo(" + val + ", " + ct +
+                      ", \"" + nombreVar + "\", " + std::to_string(a->linea) + ")";
+            }
+            emitir(genAsignacionDestino(a->destinos[0].get(), val));
             return;
         }
         std::vector<std::string> temps;
@@ -434,7 +457,7 @@ void GeneradorC::genFuncion(FuncionDef* f) {
     std::string params;
     for (size_t i = 0; i < f->parametros.size(); i++) {
         if (i) params += ", ";
-        params += "LatValor " + varC(f->parametros[i]);
+        params += "LatValor " + varC(f->parametros[i].nombre);
     }
     if (f->variadico) {
         if (!f->parametros.empty()) params += ", ";
@@ -445,11 +468,22 @@ void GeneradorC::genFuncion(FuncionDef* f) {
     emitir("static LatValor " + funC(f->nombre) + "(" + params + ") {");
     ++indentacion;
 
-    std::set<std::string> excluir(f->parametros.begin(), f->parametros.end());
+    std::set<std::string> excluir;
+    for (const auto& p : f->parametros) excluir.insert(p.nombre);
+
     std::set<std::string> vars;
     recolectarVariables(f->cuerpo, vars, excluir);
     for (const std::string& v : vars)
         emitir("LatValor " + varC(v) + " = lat_nulo();");
+
+    // Chequeos de tipo de parámetros anotados.
+    for (const auto& p : f->parametros) {
+        if (p.tipo != TipoAnotado::Ninguno) {
+            const char* ct = tipoALatTipo(p.tipo);
+            emitir("lat_verificar_tipo(" + varC(p.nombre) + ", " + ct +
+                   ", \"" + p.nombre + "\", " + std::to_string(f->linea) + ");");
+        }
+    }
 
     genBloque(f->cuerpo);
     emitir("return lat_nulo();");

@@ -15,6 +15,26 @@
 #include <string>
 #include <vector>
 
+// --- Tipado gradual opcional -----------------------------------------------
+// Tipos de anotación que el usuario puede escribir junto a una variable o
+// parámetro de función (p.ej.  n: numero = 42  ó  funcion f(a: cadena): logico).
+// Ninguno == sin anotación; la variable sigue siendo completamente dinámica.
+enum class TipoAnotado {
+    Ninguno,
+    Numero,
+    Cadena,
+    Logico,
+    Lista,
+    Dic,
+    Nulo
+};
+
+// Parámetro de función con anotación de tipo opcional.
+struct ParamFuncion {
+    std::string nombre;
+    TipoAnotado tipo = TipoAnotado::Ninguno;
+};
+
 // --- Declaraciones adelantadas de todos los nodos concretos ---------------
 struct LitNumero;
 struct LitCadena;
@@ -221,10 +241,13 @@ struct Incluir : Sentencia {
 // Asignación (posiblemente múltiple): destinos = valores
 //   a = 1                -> 1 destino, 1 valor
 //   a, b, c = 1, 2, 3    -> 3 destinos, 3 valores
+//   n: numero = 42       -> 1 destino con tipo anotado
 // Cada destino es una expresión-lvalue (Identificador, AccesoIndice, AccesoMiembro).
+// tiposDestino[i] corresponde a destinos[i]; Ninguno == sin anotación.
 struct Asignacion : Sentencia {
     std::vector<ExprPtr> destinos;
     std::vector<ExprPtr> valores;
+    std::vector<TipoAnotado> tiposDestino;
     LATINO_ACEPTAR
 };
 
@@ -294,9 +317,12 @@ struct Romper : Sentencia {
 };
 
 // funcion/fun nombre(param0, param1, ...) ... fin
+// Soporta anotaciones de tipo opcionales en parámetros y tipo de retorno:
+//   funcion suma(a: numero, b: numero): numero
 struct FuncionDef : Sentencia {
     std::string nombre;
-    std::vector<std::string> parametros;
+    std::vector<ParamFuncion> parametros;
+    TipoAnotado tipoRetorno = TipoAnotado::Ninguno;
     bool variadico = false;  // true si el último parámetro es "..."
     ListaSent cuerpo;
     LATINO_ACEPTAR
