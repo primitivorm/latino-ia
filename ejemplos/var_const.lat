@@ -1,0 +1,12 @@
+var numero = 10
+escribir(numero)
+
+const PI = 3.1416
+escribir(PI)
+
+var vacio
+escribir(vacio)
+
+# salida: 10
+# 3.1416
+# nulo

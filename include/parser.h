@@ -67,6 +67,8 @@ private:
     SentPtr parseFuncion();
     SentPtr parseRetornar();
     SentPtr parseIncluir();
+    SentPtr parseVar();
+    SentPtr parseConst();
 
     ListaSent parseBloque(std::initializer_list<const char*> terminadores);
     std::vector<ExprPtr> parseListaExpresiones();

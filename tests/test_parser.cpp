@@ -187,6 +187,29 @@ static void prueba_elegir() {
     CHECK(enOrden(t, "caso:", "defecto:"), "orden caso/defecto");
 }
 
+static void prueba_var_y_const() {
+    std::string t1 = volcar("var x = 10\n");
+    CHECK(contiene(t1, "Asignacion (1 = 1) [var]"), "var con inicializador");
+    CHECK(contiene(t1, "Identificador 'x'"), "destino de var");
+    CHECK(contiene(t1, "Numero 10"), "valor de var");
+
+    std::string t2 = volcar("var y\n");
+    CHECK(contiene(t2, "Asignacion (1 = 1) [var]"), "var sin inicializador");
+    CHECK(contiene(t2, "Identificador 'y'"), "destino de var sin inicializador");
+    CHECK(contiene(t2, "Nulo"), "valor nulo de var sin inicializador");
+
+    std::string t3 = volcar("const PI = 3.1416\n");
+    CHECK(contiene(t3, "Asignacion (1 = 1) [const]"), "const con inicializador");
+    CHECK(contiene(t3, "Identificador 'PI'"), "destino de const");
+    CHECK(contiene(t3, "Numero 3.1416"), "valor de const");
+
+    std::ostringstream cap;
+    std::streambuf* viejo = std::cerr.rdbuf(cap.rdbuf());
+    auto prog = parsear("const PI\n");
+    std::cerr.rdbuf(viejo);
+    CHECK(prog == nullptr, "const sin inicializador debe fallar");
+}
+
 static void prueba_error_de_sintaxis() {
     // 'x =' sin expresión a la derecha debe fallar y devolver nullptr.
     std::ostringstream cap;
@@ -212,6 +235,7 @@ int main() {
     prueba_diccionario_multilinea();
     prueba_elegir();
     prueba_error_de_sintaxis();
+    prueba_var_y_const();
 
     std::cout << "\nComprobaciones: " << g_checks
               << "   Fallos: " << g_fallos << std::endl;
