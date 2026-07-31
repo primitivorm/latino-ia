@@ -142,6 +142,8 @@ SentPtr Parser::parseSentencia() {
         if (p == "funcion" || p == "fun")                 return parseFuncion();
         if (p == "regresar" || p == "retornar" || p == "ret") return parseRetornar();
         if (p == "incluir") return parseIncluir();
+        if (p == "var")     return parseVar();
+        if (p == "const")   return parseConst();
         if (p == "romper") {
             int l = actual.line;
             avanzar();
@@ -405,6 +407,54 @@ SentPtr Parser::parseIncluir() {
     avanzar();
     consumirFinDeSentencia();
     return nodo;
+}
+
+SentPtr Parser::parseVar() {
+    int l = actual.line;
+    avanzar();  // consume "var"
+    auto s = parseAsignacionOExpr();
+    if (auto* a = dynamic_cast<Asignacion*>(s.get())) {
+        a->esVar = true;
+        a->esConst = false;
+        consumirFinDeSentencia();
+        return s;
+    } else if (auto* es = dynamic_cast<ExprSentencia*>(s.get())) {
+        if (auto* id = dynamic_cast<Identificador*>(es->expr.get())) {
+            auto a = std::make_unique<Asignacion>();
+            a->linea = es->linea;
+            
+            auto destId = std::make_unique<Identificador>();
+            destId->linea = id->linea;
+            destId->nombre = id->nombre;
+            a->destinos.push_back(std::move(destId));
+            
+            auto nullVal = std::make_unique<LitNulo>();
+            nullVal->linea = id->linea;
+            a->valores.push_back(std::move(nullVal));
+            
+            a->esVar = true;
+            a->esConst = false;
+            consumirFinDeSentencia();
+            return a;
+        }
+    }
+    error("se esperaba una declaración de variable o asignación válida después de 'var'");
+}
+
+SentPtr Parser::parseConst() {
+    int l = actual.line;
+    avanzar();  // consume "const"
+    auto s = parseAsignacionOExpr();
+    if (auto* a = dynamic_cast<Asignacion*>(s.get())) {
+        if (a->valores.empty()) {
+            error("las constantes deben estar inicializadas");
+        }
+        a->esVar = false;
+        a->esConst = true;
+        consumirFinDeSentencia();
+        return s;
+    }
+    error("se esperaba una asignación válida para la constante después de 'const'");
 }
 
 std::vector<ExprPtr> Parser::parseListaExpresiones() {

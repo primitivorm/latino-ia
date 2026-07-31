@@ -58,12 +58,12 @@ void AnalizadorSemantico::salirAmbito() {
 }
 
 void AnalizadorSemantico::declararVariable(const std::string& nombre,
-                                           TipoAnotado tipo, int linea) {
-    if (esMayusculas(nombre)) {
-        if (constantes.count(nombre)) {
-            agregarError(linea, "no se puede reasignar la constante '" + nombre + "'");
-            return;
-        }
+                                           TipoAnotado tipo, int linea, bool esConst) {
+    if (constantes.count(nombre)) {
+        agregarError(linea, "no se puede reasignar la constante '" + nombre + "'");
+        return;
+    }
+    if (esConst || esMayusculas(nombre)) {
         constantes.insert(nombre);
     }
     if (!ambitos.empty())
@@ -278,7 +278,7 @@ void AnalizadorSemantico::visitar(Asignacion& n) {
                                      "' pero el valor es '" +
                                      nombreTipoAnotado(real) + "'");
             }
-            declararVariable(id->nombre, tipo, id->linea);
+            declararVariable(id->nombre, tipo, id->linea, n.esConst);
         } else if (n.destinos[i]) {
             // destino tipo numeros[0] u obj.campo: se valida el objeto base.
             n.destinos[i]->aceptar(*this);

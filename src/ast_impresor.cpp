@@ -138,8 +138,11 @@ void ImpresorAST::visitar(Incluir& n) {
 }
 
 void ImpresorAST::visitar(Asignacion& n) {
+    std::string extra = "";
+    if (n.esVar) extra = " [var]";
+    else if (n.esConst) extra = " [const]";
     linea("Asignacion (" + std::to_string(n.destinos.size()) + " = " +
-          std::to_string(n.valores.size()) + ")");
+          std::to_string(n.valores.size()) + ")" + extra);
     ++nivel;
     linea("destinos:");
     for (auto& d : n.destinos)

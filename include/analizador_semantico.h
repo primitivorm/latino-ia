@@ -88,7 +88,7 @@ private:
 
     void entrarAmbito();
     void salirAmbito();
-    void declararVariable(const std::string& nombre, TipoAnotado tipo, int linea);
+    void declararVariable(const std::string& nombre, TipoAnotado tipo, int linea, bool esConst = false);
     bool estaDeclarada(const std::string& nombre) const;
     void usarIdentificador(const std::string& nombre, int linea);
     bool esIncorporada(const std::string& nombre) const;

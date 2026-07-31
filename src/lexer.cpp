@@ -213,7 +213,8 @@ bool Lexer::esPalabraReservada(const std::string& palabra) const {
     static const std::set<std::string> palabrasReservadas = {
         "caso", "cierto", "verdadero", "defecto", "otro", "desde", "elegir", "falso", "fin",
         "funcion", "fun", "global", "hasta", "incluir", "mientras", "nulo", "para", "repetir",
-        "regresar", "retornar", "ret", "romper", "si", "sino", "osi"
+        "regresar", "retornar", "ret", "romper", "si", "sino", "osi",
+        "var", "const"
     };
 
     return palabrasReservadas.count(palabra) > 0;

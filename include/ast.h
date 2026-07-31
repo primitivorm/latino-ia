@@ -248,6 +248,8 @@ struct Asignacion : Sentencia {
     std::vector<ExprPtr> destinos;
     std::vector<ExprPtr> valores;
     std::vector<TipoAnotado> tiposDestino;
+    bool esVar = false;
+    bool esConst = false;
     LATINO_ACEPTAR
 };
 
