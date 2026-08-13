@@ -21,14 +21,20 @@ typedef enum {
     LAT_CADENA,
     LAT_LISTA,
     LAT_DICCIONARIO,
+    LAT_OBJETO,
+    LAT_FUNCION,
     LAT_MODULO
 } LatTipo;
 
+typedef struct LatValor LatValor;
 typedef struct LatLista LatLista;
 typedef struct LatDic LatDic;
+typedef struct LatObjeto LatObjeto;
 typedef struct LatModulo LatModulo;
 
-typedef struct {
+typedef LatValor (*LatFnModulo)(int nargs, LatValor* args);
+
+struct LatValor {
     LatTipo tipo;
     union {
         int logico;
@@ -36,14 +42,15 @@ typedef struct {
         char* cadena;
         LatLista* lista;
         LatDic* dic;
+        LatObjeto* objeto;
+        LatFnModulo funcion;
         LatModulo* modulo;
     } como;
-} LatValor;
+};
 
 /* Tipo función exportada por módulos dinámicos:
  *   LatValor mi_funcion(int nargs, LatValor* args)
  */
-typedef LatValor (*LatFnModulo)(int nargs, LatValor* args);
 
 struct LatModulo {
     void* handle;  /* LoadLibrary / dlopen handle */
@@ -71,6 +78,20 @@ LatValor lat_numero(double n);
 LatValor lat_cadena(const char* s);
 LatValor lat_lista_de(size_t n, ...);            /* n elementos LatValor */
 LatValor lat_dic_de(size_t n, ...);              /* n pares: clave, valor (ambos LatValor) */
+
+/* --- Objetos (POO) --- */
+/* Nota: API mínima para soporte POO en el runtime. El compilador usará estas
+ * funciones para crear instancias, leer/escribir campos y registrar métodos.
+ */
+LatValor lat_obj_nuevo(const char* clase);
+LatValor lat_obj_get(LatValor objeto, const char* nombre);
+LatValor lat_obj_get_seguro(LatValor objeto, const char* nombre);
+void     lat_obj_set(LatValor objeto, const char* nombre, LatValor valor);
+void     lat_obj_set_metodo(LatValor objeto, const char* nombre, LatValor fn);
+LatValor lat_obj_llamar_metodo(LatValor objeto, const char* nombre, int nargs, ...);
+LatValor lat_funcion_nueva(LatFnModulo fn);
+void     lat_obj_set_clase(LatValor objeto, const char* clase);
+int      lat_obj_es_instancia(LatValor objeto, const char* clase);
 
 /* --- Aritmética --- */
 LatValor lat_sumar(LatValor a, LatValor b);

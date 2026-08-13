@@ -3,6 +3,7 @@
 #include "compiler.h"
 
 #include <cstdio>
+#include <functional>
 
 // ---------------------------------------------------------------------------
 // Recolección de variables locales (descendiendo en bloques, no en funciones)
@@ -58,6 +59,7 @@ const char* tipoALatTipo(TipoAnotado t) {
         case TipoAnotado::Lista:  return "LAT_LISTA";
         case TipoAnotado::Dic:    return "LAT_DICCIONARIO";
         case TipoAnotado::Nulo:   return "LAT_NULO";
+        case TipoAnotado::Objeto: return "LAT_OBJETO";
         default: return nullptr;
     }
 }
@@ -117,6 +119,20 @@ void GeneradorC::recolectarFunciones(Programa& programa) {
     for (auto& s : programa.sentencias)
         if (auto* f = dynamic_cast<FuncionDef*>(s.get()))
             funciones[f->nombre] = InfoFuncion{f->parametros.size(), f->variadico};
+}
+
+void GeneradorC::recolectarTipos(Programa& programa) {
+    clases.clear();
+    estructuras.clear();
+    interfaces.clear();
+    for (auto& s : programa.sentencias) {
+        if (auto* c = dynamic_cast<ClaseDef*>(s.get()))
+            clases[c->nombre] = c;
+        else if (auto* e = dynamic_cast<EstructuraDef*>(s.get()))
+            estructuras[e->nombre] = e;
+        else if (auto* i = dynamic_cast<InterfazDef*>(s.get()))
+            interfaces[i->nombre] = i;
+    }
 }
 
 void GeneradorC::recolectarVariables(const ListaSent& cuerpo,
@@ -181,6 +197,107 @@ std::string GeneradorC::genExpr(Expresion* e) {
     }
     if (auto* n = dynamic_cast<Llamada*>(e)) {
         return genLlamada(n);
+    }
+    if (auto* n = dynamic_cast<NuevoExpr*>(e)) {
+        std::string obj = nuevoTemp();
+
+        auto itC = clases.find(n->clase);
+        if (itC != clases.end()) {
+            ClaseDef* c = itC->second;
+
+            // Cadena de ascendencia (de la clase base a la derivada), para que
+            // lat_obj_es_instancia reconozca a los ancestros tras la herencia.
+            std::vector<std::string> cadena;
+            for (ClaseDef* t = c; t != nullptr;) {
+                cadena.push_back(t->nombre);
+                if (t->padre.empty()) break;
+                auto itPadreTipo = clases.find(t->padre);
+                t = (itPadreTipo != clases.end()) ? itPadreTipo->second : nullptr;
+            }
+            emitir("LatValor " + obj + " = lat_obj_nuevo(\"" + escaparCadena(cadena.back()) + "\");");
+            for (size_t i = cadena.size() - 1; i-- > 0;)
+                emitir("lat_obj_set_clase(" + obj + ", \"" + escaparCadena(cadena[i]) + "\");");
+
+            std::function<void(ClaseDef*)> registrarTipo = [&](ClaseDef* tipo) {
+                if (!tipo) return;
+                if (!tipo->padre.empty()) {
+                    auto itPadre = clases.find(tipo->padre);
+                    if (itPadre != clases.end()) registrarTipo(itPadre->second);
+                }
+                for (const CampoDef& campo : tipo->campos) {
+                    if (campo.valorDefecto) {
+                        std::string valor = genExpr(campo.valorDefecto.get());
+                        emitir("lat_obj_set(" + obj + ", lat_cadena(\"" + escaparCadena(campo.nombre) + "\"), " + valor + ");");
+                    }
+                }
+                for (const MetodoDef& metodo : tipo->metodos) {
+                    if (metodo.esConstructor || metodo.esEstatico || metodo.esAbstracto) continue;
+                    emitir("lat_obj_set_metodo(" + obj + ", \"" + escaparCadena(metodo.nombre) + "\", lat_funcion_nueva(" + funC(tipo->nombre + "_" + metodo.nombre) + "));" );
+                }
+            };
+            registrarTipo(c);
+
+            bool tieneCtor = false;
+            for (const MetodoDef& metodo : c->metodos) {
+                if (metodo.esConstructor) {
+                    tieneCtor = true;
+                    break;
+                }
+            }
+            if (tieneCtor) {
+                std::string argsArr = nuevoTemp();
+                size_t nargs = n->argumentos.size() + 1;
+                emitir("LatValor " + argsArr + "[" + std::to_string(nargs) + "]; ");
+                emitir(argsArr + "[0] = " + obj + ";");
+                for (size_t i = 0; i < n->argumentos.size(); i++) {
+                    std::string arg = genExpr(n->argumentos[i].get());
+                    emitir(argsArr + "[" + std::to_string(i + 1) + "] = " + arg + ";");
+                }
+                emitir(funC(n->clase + "_" + n->clase) + "(" + std::to_string(nargs) + ", " + argsArr + ");");
+            }
+        } else {
+            emitir("LatValor " + obj + " = lat_obj_nuevo(\"" + escaparCadena(n->clase) + "\");");
+            auto itE = estructuras.find(n->clase);
+            if (itE != estructuras.end()) {
+                EstructuraDef* e = itE->second;
+                for (const CampoDef& campo : e->campos) {
+                    if (campo.valorDefecto) {
+                        std::string valor = genExpr(campo.valorDefecto.get());
+                        emitir("lat_obj_set(" + obj + ", lat_cadena(\"" + escaparCadena(campo.nombre) + "\"), " + valor + ");");
+                    }
+                }
+                for (const MetodoDef& metodo : e->metodos) {
+                    if (metodo.esConstructor || metodo.esEstatico || metodo.esAbstracto) continue;
+                    emitir("lat_obj_set_metodo(" + obj + ", \"" + escaparCadena(metodo.nombre) + "\", lat_funcion_nueva(" + funC(e->nombre + "_" + metodo.nombre) + "));" );
+                }
+
+                bool tieneCtor = false;
+                for (const MetodoDef& metodo : e->metodos) {
+                    if (metodo.esConstructor) {
+                        tieneCtor = true;
+                        break;
+                    }
+                }
+                if (tieneCtor) {
+                    std::string argsArr = nuevoTemp();
+                    size_t nargs = n->argumentos.size() + 1;
+                    emitir("LatValor " + argsArr + "[" + std::to_string(nargs) + "]; ");
+                    emitir(argsArr + "[0] = " + obj + ";");
+                    for (size_t i = 0; i < n->argumentos.size(); i++) {
+                        std::string arg = genExpr(n->argumentos[i].get());
+                        emitir(argsArr + "[" + std::to_string(i + 1) + "] = " + arg + ";");
+                    }
+                    emitir(funC(e->nombre + "_" + e->nombre) + "(" + std::to_string(nargs) + ", " + argsArr + ");");
+                }
+            }
+        }
+        return obj;
+    }
+    if (auto* n = dynamic_cast<EsExpr*>(e)) {
+        return "lat_logico(lat_obj_es_instancia(" + genExpr(n->objeto.get()) + ", \"" + escaparCadena(n->clase) + "\"))";
+    }
+    if (auto* n = dynamic_cast<AccesoEste*>(e)) {
+        return "este";
     }
     if (auto* n = dynamic_cast<ListaLiteral*>(e)) {
         // "[...]" significa la lista de argumentos variádicos (lat_resto), no
@@ -289,20 +406,50 @@ std::string GeneradorC::genLlamada(Llamada* ll) {
                 return s;
             }
 
-            // Despacho dinámico sobre variable que contiene un módulo cargado.
-            // milib.fn(args)  →  lat_paquete_llamar(v_milib, "fn", nargs, arg0, ...)
+            // Método estático: NombreClase.metodo(args...) / NombreEstructura.metodo(args...)
+            std::string tipoDeclarante;
             {
-                libsUsadas.insert("paquete");
-                const std::string& varname = obj->nombre;
-                const std::string& fnname  = am->miembro;
-                std::string s = "lat_paquete_llamar(" + varC(varname) +
-                                ", lat_cadena(\"" + escaparCadena(fnname) + "\"), " +
-                                std::to_string(ll->argumentos.size());
-                for (auto& arg : ll->argumentos)
-                    s += ", " + genExpr(arg.get());
-                s += ")";
-                return s;
+                auto itC = clases.find(obj->nombre);
+                for (ClaseDef* t = (itC != clases.end()) ? itC->second : nullptr; t;) {
+                    bool encontrado = false;
+                    for (const MetodoDef& m : t->metodos)
+                        if (m.nombre == am->miembro && m.esEstatico) { encontrado = true; break; }
+                    if (encontrado) { tipoDeclarante = t->nombre; break; }
+                    if (t->padre.empty()) break;
+                    auto itPadre = clases.find(t->padre);
+                    t = (itPadre != clases.end()) ? itPadre->second : nullptr;
+                }
+                if (tipoDeclarante.empty()) {
+                    auto itE = estructuras.find(obj->nombre);
+                    if (itE != estructuras.end()) {
+                        for (const MetodoDef& m : itE->second->metodos)
+                            if (m.nombre == am->miembro && m.esEstatico) { tipoDeclarante = itE->second->nombre; break; }
+                    }
+                }
             }
+            if (!tipoDeclarante.empty()) {
+                size_t nargs = ll->argumentos.size();
+                std::string argsArr;
+                if (nargs > 0) {
+                    argsArr = nuevoTemp();
+                    emitir("LatValor " + argsArr + "[" + std::to_string(nargs) + "];");
+                    for (size_t i = 0; i < nargs; i++)
+                        emitir(argsArr + "[" + std::to_string(i) + "] = " + genExpr(ll->argumentos[i].get()) + ";");
+                }
+                return funC(tipoDeclarante + "_" + am->miembro) + "(" + std::to_string(nargs) +
+                       ", " + (nargs > 0 ? argsArr : "NULL") + ")";
+            }
+        }
+
+        // Llamada a método de objeto, módulo dinámico o valor invocable.
+        {
+            std::string s = "lat_obj_llamar_metodo(" + genExpr(am->objeto.get()) +
+                            ", \"" + escaparCadena(am->miembro) + "\", " +
+                            std::to_string(ll->argumentos.size());
+            for (auto& arg : ll->argumentos)
+                s += ", " + genExpr(arg.get());
+            s += ")";
+            return s;
         }
     }
 
@@ -437,6 +584,28 @@ void GeneradorC::genSentencia(Sentencia* s) {
         emitir("} while (!lat_es_verdadero(" + genExpr(re->condicionHasta.get()) + "));");
         return;
     }
+    if (auto* b = dynamic_cast<LlamadaBase*>(s)) {
+        std::string argsArr = nuevoTemp();
+        size_t nargs = b->argumentos.size() + 1;
+        emitir("LatValor " + argsArr + "[" + std::to_string(nargs) + "]; ");
+        emitir(argsArr + "[0] = este;");
+        for (size_t i = 0; i < b->argumentos.size(); i++) {
+            emitir(argsArr + "[" + std::to_string(i + 1) + "] = " + genExpr(b->argumentos[i].get()) + ";");
+        }
+        bool padreTieneCtor = false;
+        if (!actualPadre.empty()) {
+            auto itPadre = clases.find(actualPadre);
+            if (itPadre != clases.end())
+                for (const MetodoDef& m : itPadre->second->metodos)
+                    if (m.esConstructor) { padreTieneCtor = true; break; }
+        }
+        if (!padreTieneCtor) {
+            emitir("/* base() sin constructor de clase base que ejecutar */");
+        } else {
+            emitir(funC(actualPadre + "_" + actualPadre) + "(" + std::to_string(nargs) + ", " + argsArr + ");");
+        }
+        return;
+    }
     if (dynamic_cast<Romper*>(s)) {
         emitir("break;");
         return;
@@ -493,6 +662,85 @@ void GeneradorC::genFuncion(FuncionDef* f) {
     emitir("");
 }
 
+void GeneradorC::genMetodo(const std::string& claseNombre, MetodoDef* metodo,
+                           const std::string& padreNombre) {
+    if (metodo->esAbstracto) return;
+
+    emitir("static LatValor " + funC(claseNombre + "_" + metodo->nombre) + "(int nargs, LatValor* args) {");
+    ++indentacion;
+
+    bool instancia = !metodo->esEstatico;
+    if (instancia) {
+        emitir("LatValor este = (nargs > 0) ? args[0] : lat_nulo();");
+    }
+
+    size_t offset = instancia ? 1 : 0;
+    for (size_t i = 0; i < metodo->parametros.size(); i++) {
+        const std::string& nombre = metodo->parametros[i].nombre;
+        std::string idx = std::to_string(i + offset);
+        std::string expr = "(nargs > " + idx + ") ? args[" + idx + "] : lat_nulo()";
+        emitir("LatValor " + varC(nombre) + " = " + expr + ";");
+    }
+
+    std::set<std::string> excluir;
+    if (instancia) excluir.insert("este");
+    for (const auto& p : metodo->parametros) excluir.insert(p.nombre);
+
+    std::set<std::string> vars;
+    recolectarVariables(metodo->cuerpo, vars, excluir);
+    for (const std::string& v : vars)
+        emitir("LatValor " + varC(v) + " = lat_nulo();");
+
+    for (const auto& p : metodo->parametros) {
+        if (p.tipo != TipoAnotado::Ninguno) {
+            const char* ct = tipoALatTipo(p.tipo);
+            emitir("lat_verificar_tipo(" + varC(p.nombre) + ", " + ct +
+                   ", \"" + p.nombre + "\", " + std::to_string(metodo->linea) + ");");
+        }
+    }
+
+    if (!metodo->cuerpo.empty()) {
+        std::string anteriorClase = actualClase;
+        std::string anteriorPadre = actualPadre;
+        actualClase = claseNombre;
+        actualPadre = padreNombre;
+        genBloque(metodo->cuerpo);
+        actualClase = anteriorClase;
+        actualPadre = anteriorPadre;
+    }
+    emitir("return lat_nulo();");
+
+    --indentacion;
+    emitir("}");
+    emitir("");
+}
+
+void GeneradorC::genClase(ClaseDef* c) {
+    std::string anteriorClase = actualClase;
+    std::string anteriorPadre = actualPadre;
+    actualClase = c->nombre;
+    actualPadre = c->padre;
+    for (MetodoDef& metodo : c->metodos)
+        genMetodo(c->nombre, &metodo, c->padre);
+    actualClase = anteriorClase;
+    actualPadre = anteriorPadre;
+}
+
+void GeneradorC::genEstructura(EstructuraDef* e) {
+    std::string anteriorClase = actualClase;
+    std::string anteriorPadre = actualPadre;
+    actualClase = e->nombre;
+    actualPadre.clear();
+    for (MetodoDef& metodo : e->metodos)
+        genMetodo(e->nombre, &metodo, "");
+    actualClase = anteriorClase;
+    actualPadre = anteriorPadre;
+}
+
+void GeneradorC::genInterfaz(InterfazDef* i) {
+    (void)i;
+}
+
 // ---------------------------------------------------------------------------
 // Programa completo — generación en dos fases:
 //   1. cuerpo (funciones + main) → detecta libsUsadas vía genLlamada
@@ -517,12 +765,32 @@ void GeneradorC::generarCuerpo(Programa& programa) {
             hayFunciones = true;
         }
     }
+
+    // Prototipos de métodos de clases y estructuras.
+    for (auto& [nombre, c] : clases) {
+        for (const MetodoDef& m : c->metodos) {
+            emitir("static LatValor " + funC(nombre + "_" + m.nombre) + "(int nargs, LatValor* args);");
+            hayFunciones = true;
+        }
+    }
+    for (auto& [nombre, e] : estructuras) {
+        for (const MetodoDef& m : e->metodos) {
+            emitir("static LatValor " + funC(nombre + "_" + m.nombre) + "(int nargs, LatValor* args);");
+            hayFunciones = true;
+        }
+    }
     if (hayFunciones) emitir("");
 
     // Definiciones de las funciones de usuario.
     for (auto& s : programa.sentencias)
         if (auto* f = dynamic_cast<FuncionDef*>(s.get()))
             genFuncion(f);
+
+    // Definiciones de métodos de clases y estructuras.
+    for (auto& [nombre, c] : clases)
+        genClase(c);
+    for (auto& [nombre, e] : estructuras)
+        genEstructura(e);
 
     // main: el resto de las sentencias de nivel superior.
     emitir("int main(int argc, char *argv[]) {");
@@ -552,6 +820,7 @@ std::string GeneradorC::generar(Programa& programa) {
     libsUsadas.clear();
 
     recolectarFunciones(programa);
+    recolectarTipos(programa);
 
     // Fase 1: generar el cuerpo para detectar qué librerías se usan.
     generarCuerpo(programa);

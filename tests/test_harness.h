@@ -12,6 +12,7 @@
 
 #pragma once
 
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -60,6 +61,26 @@ static std::vector<std::string> tokenizar(const std::string& s) {
     std::string t;
     while (ss >> t) v.push_back(t);
     return v;
+}
+
+// Quita secuencias de escape ANSI CSI (ESC '[' ... letra), como las que
+// emiten funciones de control de cursor/color, antes de comparar la salida.
+// En una terminal real son invisibles; al capturarlas por tubería quedan
+// como bytes literales que romperían la comparación por tokens.
+static std::string limpiarAnsi(const std::string& s) {
+    std::string r;
+    r.reserve(s.size());
+    for (size_t i = 0; i < s.size(); ++i) {
+        if (s[i] == '\033' && i + 1 < s.size() && s[i + 1] == '[') {
+            size_t j = i + 2;
+            while (j < s.size() && !std::isalpha(static_cast<unsigned char>(s[j])))
+                ++j;
+            i = j;  // salta también la letra final de la secuencia
+            continue;
+        }
+        r += s[i];
+    }
+    return r;
 }
 
 // ---------------------------------------------------------------------------
@@ -126,7 +147,7 @@ public:
         }
 
         // 4. Comparar tokens
-        auto real     = tokenizar(out_exec);
+        auto real     = tokenizar(limpiarAnsi(out_exec));
         auto esperado = tokenizar(std::string(tc.esperado));
         if (real == esperado) {
             std::cout << "[PASO] " << nombre << "\n";

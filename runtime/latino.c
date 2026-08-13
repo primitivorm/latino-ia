@@ -1,6 +1,7 @@
 /* latino.c — implementación del runtime de Latino. Ver latino.h. */
 
 #include "latino.h"
+#include "libs/paquete.h"
 
 #include <ctype.h>
 #include <math.h>
@@ -285,6 +286,164 @@ LatValor lat_dic_de(size_t n, ...) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Utilitarios para dic y objetos (POO)                                */
+/* ------------------------------------------------------------------ */
+
+static LatValor dic_obtener(LatDic* d, const char* clave) {
+    if (!d) return lat_nulo();
+    size_t i;
+    for (i = 0; i < d->longitud; i++) {
+        if (strcmp(d->claves[i], clave) == 0) {
+            return d->valores[i];
+        }
+    }
+    return lat_nulo();
+}
+
+static void liberar_dic(LatDic* d) {
+    if (!d) return;
+    for (size_t i = 0; i < d->longitud; i++) {
+        free(d->claves[i]);
+        lat_valor_liberar(d->valores[i]);
+    }
+    free(d->claves);
+    free(d->valores);
+    free(d);
+}
+
+/* Representación mínima de objetos en runtime. Cada objeto contiene un
+ * nombre de clase y dos diccionarios: campos y metodos. Los metodos son
+ * almacenados como LatValor (por ahora, el compilador decidirá la forma).
+ */
+struct LatObjeto {
+    size_t refs;
+    char* clase;          /* alias (no propietario) a ascendencia[n_ascendencia - 1] */
+    char** ascendencia;   /* nombres de clase desde la base hasta la más derivada */
+    size_t n_ascendencia;
+    LatDic* campos;   /* diccionario de valores */
+    LatDic* metodos;  /* diccionario de "callables" (LatValor) */
+};
+
+LatValor lat_obj_nuevo(const char* clase) {
+    LatObjeto* o = (LatObjeto*)malloc(sizeof(LatObjeto));
+    if (!o) return lat_nulo();
+    o->refs = 1;
+    o->ascendencia = (char**)malloc(sizeof(char*));
+    o->ascendencia[0] = dup_cadena(clase ? clase : "");
+    o->n_ascendencia = 1;
+    o->clase = o->ascendencia[0];
+    o->campos = dic_nuevo(0);
+    o->metodos = dic_nuevo(0);
+    LatValor v;
+    v.tipo = LAT_OBJETO;
+    v.como.objeto = o;
+    return v;
+}
+
+LatValor lat_obj_get(LatValor objeto, const char* nombre) {
+    if (objeto.tipo != LAT_OBJETO || !objeto.como.objeto) return lat_nulo();
+    LatValor val = dic_obtener(objeto.como.objeto->campos, nombre);
+    return val;
+}
+
+LatValor lat_obj_get_seguro(LatValor objeto, const char* nombre) {
+    /* Igual que lat_obj_get; API por compatibilidad futura */
+    return lat_obj_get(objeto, nombre);
+}
+
+void lat_obj_set(LatValor objeto, const char* nombre, LatValor valor) {
+    if (objeto.tipo != LAT_OBJETO || !objeto.como.objeto) return;
+    dic_poner(objeto.como.objeto->campos, nombre, valor);
+}
+
+void lat_obj_set_metodo(LatValor objeto, const char* nombre, LatValor fn) {
+    if (objeto.tipo != LAT_OBJETO || !objeto.como.objeto) return;
+    dic_poner(objeto.como.objeto->metodos, nombre, fn);
+}
+
+LatValor lat_obj_llamar_metodo(LatValor objeto, const char* nombre, int nargs, ...) {
+    if (objeto.tipo == LAT_OBJETO) {
+        if (!objeto.como.objeto) return lat_nulo();
+        LatValor metodo = dic_obtener(objeto.como.objeto->metodos, nombre);
+        if (metodo.tipo == LAT_NULO) {
+            fprintf(stderr, "objeto: método '%s' no encontrado en la clase '%s'\n",
+                    nombre, objeto.como.objeto->clase);
+            return lat_nulo();
+        }
+        if (metodo.tipo != LAT_FUNCION) {
+            fprintf(stderr, "objeto: el miembro '%s' de la clase '%s' no es invocable\n",
+                    nombre, objeto.como.objeto->clase);
+            return lat_nulo();
+        }
+
+        LatValor* args = (LatValor*)malloc(sizeof(LatValor) * (size_t)(nargs + 1));
+        if (!args) return lat_nulo();
+        args[0] = objeto;
+
+        va_list ap;
+        va_start(ap, nargs);
+        for (int i = 0; i < nargs; i++)
+            args[i + 1] = va_arg(ap, LatValor);
+        va_end(ap);
+
+        LatFnModulo fn = metodo.como.funcion;
+        LatValor resultado = fn(nargs + 1, args);
+        free(args);
+        return resultado;
+    }
+
+    if (objeto.tipo == LAT_MODULO) {
+        LatValor nombreCad = lat_cadena(nombre);
+        LatValor* args = (LatValor*)malloc(sizeof(LatValor) * (size_t)nargs);
+        if (!args) {
+            lat_valor_liberar(nombreCad);
+            return lat_nulo();
+        }
+        va_list ap;
+        va_start(ap, nargs);
+        for (int i = 0; i < nargs; i++)
+            args[i] = va_arg(ap, LatValor);
+        va_end(ap);
+        LatValor resultado = lat_paquete_llamar_args(objeto, nombreCad, nargs, args);
+        free(args);
+        lat_valor_liberar(nombreCad);
+        return resultado;
+    }
+
+    fprintf(stderr, "objeto: invocar métodos sólo es compatible con objetos y módulos\n");
+    return lat_nulo();
+}
+
+LatValor lat_funcion_nueva(LatFnModulo fn) {
+    LatValor v;
+    v.tipo = LAT_FUNCION;
+    v.como.funcion = fn;
+    return v;
+}
+
+void lat_obj_set_clase(LatValor objeto, const char* clase) {
+    if (objeto.tipo != LAT_OBJETO || !objeto.como.objeto) return;
+    LatObjeto* o = objeto.como.objeto;
+    /* Reclasificar añade la nueva clase a la cadena de ascendencia en vez de
+     * reemplazarla, para que 'es' siga reconociendo a los ancestros tras
+     * varios niveles de herencia (A <- B <- C). */
+    char** nueva = (char**)realloc(o->ascendencia, sizeof(char*) * (o->n_ascendencia + 1));
+    if (!nueva) return;
+    o->ascendencia = nueva;
+    o->ascendencia[o->n_ascendencia] = dup_cadena(clase ? clase : "");
+    o->n_ascendencia++;
+    o->clase = o->ascendencia[o->n_ascendencia - 1];
+}
+
+int lat_obj_es_instancia(LatValor objeto, const char* clase) {
+    if (objeto.tipo != LAT_OBJETO || !objeto.como.objeto) return 0;
+    LatObjeto* o = objeto.como.objeto;
+    for (size_t i = 0; i < o->n_ascendencia; i++)
+        if (strcmp(o->ascendencia[i], clase) == 0) return 1;
+    return 0;
+}
+
+/* ------------------------------------------------------------------ */
 /* Aritmética                                                         */
 /* ------------------------------------------------------------------ */
 static double num(LatValor v) {
@@ -358,6 +517,8 @@ static int son_iguales(LatValor a, LatValor b) {
     if ((a.tipo == LAT_NUMERO || a.tipo == LAT_LOGICO) &&
         (b.tipo == LAT_NUMERO || b.tipo == LAT_LOGICO))
         return num(a) == num(b);
+    if (a.tipo == LAT_OBJETO && b.tipo == LAT_OBJETO)
+        return a.como.objeto == b.como.objeto; /* igualdad por identidad */
     return 0;
 }
 
@@ -376,6 +537,7 @@ int lat_es_verdadero(LatValor v) {
         case LAT_CADENA:      return v.como.cadena[0] != '\0';
         case LAT_LISTA:       return v.como.lista->longitud > 0;
         case LAT_DICCIONARIO: return v.como.dic->longitud > 0;
+        case LAT_OBJETO:      return v.como.objeto != NULL; /* objetos son truthy */
         case LAT_MODULO:      return v.como.modulo != NULL;
     }
     return 0;
@@ -422,6 +584,12 @@ LatValor lat_obtener_indice(LatValor cont, LatValor indice) {
         free(k);
         return lat_nulo();
     }
+    if (cont.tipo == LAT_OBJETO) {
+        char* k = lat_a_cadena(indice);
+        LatValor val = lat_obj_get(cont, k);
+        free(k);
+        return val;
+    }
     abortar("el valor no admite indexación");
     return lat_nulo();
 }
@@ -444,6 +612,12 @@ void lat_asignar_indice(LatValor cont, LatValor indice, LatValor valor) {
         free(k);
         return;
     }
+    if (cont.tipo == LAT_OBJETO) {
+        char* k = lat_a_cadena(indice);
+        lat_obj_set(cont, k, valor);
+        free(k);
+        return;
+    }
     abortar("el valor no admite asignación por índice");
 }
 
@@ -458,7 +632,7 @@ char* lat_a_cadena(LatValor v) {
             return dup_cadena(v.como.logico ? "cierto" : "falso");
         case LAT_NUMERO: {
             char buf[64];
-            snprintf(buf, sizeof(buf), "%g", v.como.numero);
+            snprintf(buf, sizeof(buf), "%.15g", v.como.numero);
             return dup_cadena(buf);
         }
         case LAT_CADENA:
@@ -507,6 +681,17 @@ char* lat_a_cadena(LatValor v) {
             return r;
             #undef APPEND
         }
+        case LAT_OBJETO: {
+            LatObjeto* o = v.como.objeto;
+            const char* cname = (o && o->clase) ? o->clase : "<anon>";
+            size_t need = strlen(cname) + 16;
+            char* r = (char*)malloc(need);
+            if (!r) return dup_cadena("");
+            snprintf(r, need, "<obj %s>", cname);
+            return r;
+        }
+        case LAT_FUNCION:
+            return dup_cadena("<funcion>");
         case LAT_MODULO:
             return dup_cadena("<modulo>");
     }
@@ -588,6 +773,8 @@ LatValor lat_tipo(LatValor v) {
         case LAT_CADENA:      return lat_cadena("cadena");
         case LAT_LISTA:       return lat_cadena("lista");
         case LAT_DICCIONARIO: return lat_cadena("dic");
+        case LAT_OBJETO:      return lat_cadena(v.como.objeto && v.como.objeto->clase ? v.como.objeto->clase : "objeto");
+        case LAT_FUNCION:     return lat_cadena("funcion");
         case LAT_MODULO:      return lat_cadena("modulo");
     }
     return lat_cadena("desconocido");
@@ -703,6 +890,12 @@ LatValor lat_valor_retener(LatValor v) {
             if (v.como.dic)
                 v.como.dic->refs++;
             break;
+        case LAT_OBJETO:
+            if (v.como.objeto)
+                v.como.objeto->refs++;
+            break;
+        case LAT_FUNCION:
+            break;
         default:
             break;
     }
@@ -745,6 +938,22 @@ void lat_valor_liberar(LatValor v) {
             }
             break;
         }
+        case LAT_OBJETO: {
+            LatObjeto* o = v.como.objeto;
+            if (!o) break;
+            if (o->refs > 0) o->refs--;
+            if (o->refs == 0) {
+                for (size_t i = 0; i < o->n_ascendencia; i++)
+                    free(o->ascendencia[i]);
+                free(o->ascendencia);
+                liberar_dic(o->campos);
+                liberar_dic(o->metodos);
+                free(o);
+            }
+            break;
+        }
+        case LAT_FUNCION:
+            break;
         default:
             break;
     }
@@ -768,6 +977,7 @@ static const char *_nombre_latipo(LatTipo t) {
         case LAT_CADENA:      return "cadena";
         case LAT_LISTA:       return "lista";
         case LAT_DICCIONARIO: return "dic";
+        case LAT_OBJETO:      return "objeto";
         case LAT_MODULO:      return "modulo";
         default:              return "desconocido";
     }

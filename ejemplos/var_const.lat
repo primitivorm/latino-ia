@@ -1,12 +1,8 @@
 var numero = 10
-escribir(numero)
+escribir(numero)   #salida: 10
 
 const PI = 3.1416
-escribir(PI)
+escribir(PI)   #salida: 3.1416
 
 var vacio
-escribir(vacio)
-
-# salida: 10
-# 3.1416
-# nulo
+escribir(vacio)   #salida: nulo

@@ -112,6 +112,22 @@ static void prueba_funcion_variadica() {
           "empaquetado de varargs en la llamada");
 }
 
+static void prueba_poo_gen_metodo() {
+    std::string src =
+        "clase Persona\n"
+        "  funcion saludar()\n"
+        "    escribir(este.nombre)\n"
+        "  fin\n"
+        "fin\n"
+        "p = nuevo Persona()\n"
+        "p.saludar()\n";
+    std::string c = generar(src);
+    CHECK(contiene(c, "lat_obj_set_metodo(_t0, \"saludar\", lat_funcion_nueva(lat_fn_Persona_saludar));"),
+          "registro de método en la instancia");
+    CHECK(contiene(c, "lat_obj_llamar_metodo(v_p, \"saludar\", 0)"),
+          "llamada de método de objeto");
+}
+
 static void prueba_lista_y_diccionario() {
     esperar("lista", "n = [1, 2, 3]\n",
             "lat_lista_de(3, lat_numero(1), lat_numero(2), lat_numero(3))");
@@ -167,6 +183,7 @@ int main() {
     prueba_desde();
     prueba_funcion();
     prueba_funcion_variadica();
+    prueba_poo_gen_metodo();
     prueba_lista_y_diccionario();
     prueba_indices();
     prueba_ternario();

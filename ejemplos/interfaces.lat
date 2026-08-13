@@ -1,0 +1,36 @@
+# POO — Interfaces: contrato de métodos implementado por varias clases.
+interfaz IImprimible
+    funcion aCadena(): cadena
+fin
+
+clase Producto implementa IImprimible
+    publico nombre: cadena
+    publico precio: numero
+
+    funcion Producto(nombre: cadena, precio: numero)
+        este.nombre = nombre
+        este.precio = precio
+    fin
+
+    publico funcion aCadena(): cadena
+        retornar este.nombre .. ": $" .. este.precio
+    fin
+fin
+
+clase Empleado implementa IImprimible
+    publico nombre: cadena
+
+    funcion Empleado(nombre: cadena)
+        este.nombre = nombre
+    fin
+
+    publico funcion aCadena(): cadena
+        retornar "Empleado " .. este.nombre
+    fin
+fin
+
+producto = nuevo Producto("Pan", 10)
+empleado = nuevo Empleado("Ana")
+
+escribir(producto.aCadena())   #salida: Pan: $10
+escribir(empleado.aCadena())   #salida: Empleado Ana

@@ -1,0 +1,22 @@
+# POO — Estructuras: tipos con campos y métodos, sin herencia.
+estructura Punto
+    x: numero
+    y: numero
+
+    funcion Punto(x: numero, y: numero)
+        este.x = x
+        este.y = y
+    fin
+
+    funcion suma(): numero
+        retornar este.x + este.y
+    fin
+fin
+
+p1 = nuevo Punto(3, 4)
+p2 = nuevo Punto(1, 1)
+
+escribir(p1.suma())   #salida: 7
+escribir(p2.suma())   #salida: 2
+escribir(p1.x)        #salida: 3
+escribir(p1.y)        #salida: 4

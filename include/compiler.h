@@ -30,9 +30,16 @@ private:
     int indentacion = 0;
     int contadorTemp = 0;
     std::unordered_map<std::string, InfoFuncion> funciones;
+    std::unordered_map<std::string, ClaseDef*> clases;
+    std::unordered_map<std::string, EstructuraDef*> estructuras;
+    std::unordered_map<std::string, InterfazDef*> interfaces;
+    std::string actualClase;
+    std::string actualPadre;
+    bool enConstructor = false;
     std::set<std::string> libsUsadas;  // librerías detectadas durante generación
 
     void recolectarFunciones(Programa& programa);
+    void recolectarTipos(Programa& programa);
     void recolectarVariables(const ListaSent& cuerpo, std::set<std::string>& destino,
                              const std::set<std::string>& excluir);
 
@@ -44,6 +51,11 @@ private:
     void genSentencia(Sentencia* s);
     void genBloque(const ListaSent& cuerpo);
     void genFuncion(FuncionDef* f);
+    void genClase(ClaseDef* c);
+    void genEstructura(EstructuraDef* e);
+    void genInterfaz(InterfazDef* i);
+    void genMetodo(const std::string& claseNombre, MetodoDef* metodo,
+                   const std::string& padreNombre);
     void generarCuerpo(Programa& programa);  // genera funciones + main (sin preámbulo)
 
     // Utilidades

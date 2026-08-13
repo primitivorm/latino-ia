@@ -37,7 +37,7 @@ TipoAnotado Parser::mapearNombreTipo(const std::string& s) {
     if (s == "lista")   return TipoAnotado::Lista;
     if (s == "dic")     return TipoAnotado::Dic;
     if (s == "nulo")    return TipoAnotado::Nulo;
-    return TipoAnotado::Ninguno;
+    return TipoAnotado::Objeto;
 }
 
 bool Parser::esEOF() const {
@@ -152,8 +152,23 @@ SentPtr Parser::parseSentencia() {
             r->linea = l;
             return r;
         }
-        // cierto/verdadero/falso/nulo son expresiones válidas como sentencia.
-        if (p == "cierto" || p == "verdadero" || p == "falso" || p == "nulo")
+        // nuevo: declaraciones de tipos POO
+        if (p == "clase")    return parseClase();
+        if (p == "estructura") return parseEstructura();
+        if (p == "interfaz")  return parseInterfaz();
+        if (p == "abstracto") {
+            // lookahead: abstracto clase ...
+            avanzar();
+            if (!esReservada("clase"))
+                error("se esperaba 'clase' después de 'abstracto'");
+            return parseClase(true);
+        }
+        if (p == "base") {
+            return parseLlamadaBase();
+        }
+        // Expresiones válidas como sentencia: nuevos tipos, instancias y literales.
+        if (p == "nuevo" || p == "este" || p == "cierto" || p == "verdadero" ||
+            p == "falso" || p == "nulo")
             return parseSentenciaSimple();
 
         error("palabra reservada inesperada '" + p + "'");
@@ -360,6 +375,8 @@ SentPtr Parser::parseFuncion() {
                 param.tipo = mapearNombreTipo(actual.lexeme);
                 if (param.tipo == TipoAnotado::Ninguno)
                     error("tipo no reconocido '" + actual.lexeme + "'");
+                if (param.tipo == TipoAnotado::Objeto)
+                    param.tipoClase = actual.lexeme;
                 avanzar();
             }
             nodo->parametros.push_back(std::move(param));
@@ -377,6 +394,8 @@ SentPtr Parser::parseFuncion() {
         nodo->tipoRetorno = mapearNombreTipo(actual.lexeme);
         if (nodo->tipoRetorno == TipoAnotado::Ninguno)
             error("tipo de retorno no reconocido '" + actual.lexeme + "'");
+        if (nodo->tipoRetorno == TipoAnotado::Objeto)
+            nodo->tipoRetornoClase = actual.lexeme;
         avanzar();
     }
 
@@ -529,6 +548,18 @@ ExprPtr Parser::parseRelacional() {
         avanzar();
         e = mkBinaria(op, std::move(e), parseConcatenacion());
     }
+    // Operador "es": expr es NombreClase
+    if (esReservada("es")) {
+        avanzar();
+        if (actual.type != TokenType::Identificador)
+            error("se esperaba un nombre de clase después de 'es'");
+        std::string clase = actual.lexeme;
+        avanzar();
+        auto n = std::make_unique<EsExpr>();
+        n->objeto = std::move(e);
+        n->clase = clase;
+        e = std::move(n);
+    }
     return e;
 }
 
@@ -596,7 +627,10 @@ ExprPtr Parser::parsePostfijo() {
             e = std::move(a);
         } else if (esOperador(".")) {
             avanzar();
-            if (actual.type != TokenType::Identificador)
+            // Tras '.', el nombre de miembro se acepta aunque coincida con una
+            // palabra reservada de POO (p. ej. "mate.base"): el contexto ya
+            // desambigua que es un nombre de campo/método, no la palabra clave.
+            if (actual.type != TokenType::Identificador && actual.type != TokenType::PalabraReservada)
                 error("se esperaba un nombre de miembro después de '.'");
             auto m = std::make_unique<AccesoMiembro>();
             m->objeto = std::move(e);
@@ -655,6 +689,15 @@ ExprPtr Parser::parsePrimario() {
         if (tk.lexeme == "nulo") {
             avanzar();
             auto n = std::make_unique<LitNulo>();
+            n->linea = tk.line;
+            return n;
+        }
+        if (tk.lexeme == "nuevo") {
+            return parseNuevo();
+        }
+        if (tk.lexeme == "este") {
+            avanzar();
+            auto n = std::make_unique<AccesoEste>();
             n->linea = tk.line;
             return n;
         }
@@ -743,4 +786,294 @@ ExprPtr Parser::parseDiccionario() {
     }
     esperarDelimitador("}");
     return d;
+}
+
+// ---------------------------------------------------------------------------
+// Nuevos parseos para POO
+// ---------------------------------------------------------------------------
+
+ExprPtr Parser::parseNuevo() {
+    int l = actual.line;
+    avanzar(); // consume 'nuevo'
+    if (actual.type != TokenType::Identificador)
+        error("se esperaba el nombre de la clase después de 'nuevo'");
+    auto nodo = std::make_unique<NuevoExpr>();
+    nodo->linea = l;
+    nodo->clase = actual.lexeme;
+    avanzar();
+    esperarDelimitador("(");
+    saltarNuevasLineas();
+    if (!esDelimitador(")")) {
+        for (;;) {
+            nodo->argumentos.push_back(parseExpresion());
+            saltarNuevasLineas();
+            if (esDelimitador(",")) { avanzar(); saltarNuevasLineas(); continue; }
+            break;
+        }
+    }
+    esperarDelimitador(")");
+    return nodo;
+}
+
+SentPtr Parser::parseLlamadaBase() {
+    int l = actual.line;
+    avanzar(); // consume 'base'
+    auto nodo = std::make_unique<LlamadaBase>();
+    nodo->linea = l;
+    esperarDelimitador("(");
+    saltarNuevasLineas();
+    if (!esDelimitador(")")) {
+        for (;;) {
+            nodo->argumentos.push_back(parseExpresion());
+            saltarNuevasLineas();
+            if (esDelimitador(",")) { avanzar(); saltarNuevasLineas(); continue; }
+            break;
+        }
+    }
+    esperarDelimitador(")");
+    consumirFinDeSentencia();
+    return nodo;
+}
+
+CampoDef Parser::parseCampoDef() {
+    if (actual.type != TokenType::Identificador)
+        error("se esperaba el nombre del campo");
+    CampoDef c;
+    c.nombre = actual.lexeme;
+    c.linea = actual.line;
+    avanzar();
+    esperarOperador(":");
+    // Leer tipo: puede ser nombre de tipo primitivo o nombre de clase
+    if (actual.type != TokenType::Identificador)
+        error("se esperaba un tipo después de ':' en la declaración de campo");
+    std::string tipoLex = actual.lexeme;
+    c.tipoAnotado = mapearNombreTipo(tipoLex);
+    if (c.tipoAnotado == TipoAnotado::Objeto)
+        c.tipoClase = tipoLex;
+    avanzar();
+    if (esOperador("=")) {
+        avanzar();
+        c.valorDefecto = parseExpresion();
+    }
+    consumirFinDeSentencia();
+    return c;
+}
+
+MetodoDef Parser::parseMetodoDef(const std::string& nombreClase, bool fuerzaAbstracto) {
+    int l = actual.line;
+    // Consume 'funcion' o 'fun'
+    if (!(esReservada("funcion") || esReservada("fun")))
+        error("se esperaba 'funcion' en la definición de método");
+    avanzar();
+    if (actual.type != TokenType::Identificador)
+        error("se esperaba el nombre del método");
+    MetodoDef m;
+    m.linea = l;
+    m.nombre = actual.lexeme;
+    m.esConstructor = (m.nombre == nombreClase);
+    m.esAbstracto = fuerzaAbstracto;
+    avanzar();
+
+    esperarDelimitador("(");
+    if (!esDelimitador(")")) {
+        for (;;) {
+            if (esOperador("...")) {
+                // variádico no soportado en métodos por ahora; tratar como parámetro especial
+                avanzar();
+                break;
+            }
+            if (actual.type != TokenType::Identificador)
+                error("se esperaba el nombre de un parámetro");
+            ParamFuncion param;
+            param.nombre = actual.lexeme;
+            avanzar();
+            if (esOperador(":")) {
+                avanzar();
+                if (actual.type != TokenType::Identificador)
+                    error("se esperaba un tipo de parámetro válido");
+                param.tipo = mapearNombreTipo(actual.lexeme);
+                if (param.tipo == TipoAnotado::Ninguno)
+                    error("tipo no reconocido '" + actual.lexeme + "'");
+                if (param.tipo == TipoAnotado::Objeto)
+                    param.tipoClase = actual.lexeme;
+                avanzar();
+            }
+            m.parametros.push_back(std::move(param));
+            if (esDelimitador(",")) { avanzar(); continue; }
+            break;
+        }
+    }
+    esperarDelimitador(")");
+
+    // Tipo de retorno opcional
+    if (esOperador(":")) {
+        avanzar();
+        if (actual.type != TokenType::Identificador)
+            error("se esperaba un tipo de retorno válido");
+        m.tipoRetorno = mapearNombreTipo(actual.lexeme);
+        if (m.tipoRetorno == TipoAnotado::Objeto)
+            m.tipoRetornoClase = actual.lexeme;
+        avanzar();
+    }
+
+    // Marcador 'sobreescribir' opcional
+    if (esReservada("sobreescribir")) {
+        m.esSobreescritura = true;
+        avanzar();
+    }
+
+    if (m.esAbstracto) {
+        // si está marcado como abstracto, no habrá cuerpo
+        m.cuerpo = ListaSent();
+        consumirFinDeSentencia();
+    } else {
+        m.cuerpo = parseBloque({"fin"});
+        esperarReservada("fin");
+    }
+    return m;
+}
+
+SentPtr Parser::parseClase(bool esAbstracta) {
+    int l = actual.line;
+    avanzar(); // consume 'clase'
+    if (actual.type != TokenType::Identificador)
+        error("se esperaba el nombre de la clase");
+    std::string nombre = actual.lexeme;
+    avanzar();
+
+    std::string padre = "";
+    std::vector<std::string> interfaces;
+
+    if (esReservada("extiende")) {
+        avanzar();
+        if (actual.type != TokenType::Identificador)
+            error("se esperaba el nombre de la clase padre después de 'extiende'");
+        padre = actual.lexeme;
+        avanzar();
+    }
+
+    if (esReservada("implementa")) {
+        avanzar();
+        for (;;) {
+            if (actual.type != TokenType::Identificador)
+                error("se esperaba un nombre de interfaz después de 'implementa'");
+            interfaces.push_back(actual.lexeme);
+            avanzar();
+            if (esDelimitador(",")) { avanzar(); continue; }
+            break;
+        }
+    }
+
+    saltarNuevasLineas();
+    std::vector<CampoDef> campos;
+    std::vector<MetodoDef> metodos;
+
+    while (!esReservada("fin")) {
+        ModificadorAcceso acceso = ModificadorAcceso::Publico;
+        bool esEstatico = false;
+        bool esAbstractoMiembro = false;
+
+        if (esReservada("publico")) { acceso = ModificadorAcceso::Publico; avanzar(); }
+        else if (esReservada("privado")) { acceso = ModificadorAcceso::Privado; avanzar(); }
+        else if (esReservada("protegido")) { acceso = ModificadorAcceso::Protegido; avanzar(); }
+
+        if (esReservada("estatico")) { esEstatico = true; avanzar(); }
+        if (esReservada("abstracto")) { esAbstractoMiembro = true; avanzar(); }
+
+        if (esReservada("funcion") || esReservada("fun")) {
+            MetodoDef m = parseMetodoDef(nombre, esAbstractoMiembro);
+            m.acceso = acceso;
+            m.esEstatico = esEstatico;
+            metodos.push_back(std::move(m));
+        } else if (actual.type == TokenType::Identificador) {
+            CampoDef c = parseCampoDef();
+            c.acceso = acceso;
+            c.esEstatico = esEstatico;
+            campos.push_back(std::move(c));
+        } else {
+            error("se esperaba un campo o método dentro de la clase");
+        }
+
+        saltarNuevasLineas();
+    }
+
+    esperarReservada("fin");
+    auto nodo = std::make_unique<ClaseDef>();
+    nodo->linea = l;
+    nodo->nombre = nombre;
+    nodo->padre = padre;
+    nodo->interfaces = interfaces;
+    nodo->esAbstracta = esAbstracta;
+    nodo->campos = std::move(campos);
+    nodo->metodos = std::move(metodos);
+    return nodo;
+}
+
+SentPtr Parser::parseEstructura() {
+    int l = actual.line;
+    avanzar(); // consume 'estructura'
+    if (actual.type != TokenType::Identificador)
+        error("se esperaba el nombre de la estructura");
+    std::string nombre = actual.lexeme;
+    avanzar();
+    saltarNuevasLineas();
+    std::vector<CampoDef> campos;
+    std::vector<MetodoDef> metodos;
+    while (!esReservada("fin")) {
+        // No admite 'protegido' ni 'abstracto' por diseño
+        ModificadorAcceso acceso = ModificadorAcceso::Publico;
+        bool esEstatico = false;
+        if (esReservada("publico")) { acceso = ModificadorAcceso::Publico; avanzar(); }
+        else if (esReservada("privado")) { acceso = ModificadorAcceso::Privado; avanzar(); }
+        if (esReservada("estatico")) { esEstatico = true; avanzar(); }
+
+        if (esReservada("funcion") || esReservada("fun")) {
+            MetodoDef m = parseMetodoDef(nombre);
+            m.acceso = acceso;
+            m.esEstatico = esEstatico;
+            metodos.push_back(std::move(m));
+        } else if (actual.type == TokenType::Identificador) {
+            CampoDef c = parseCampoDef();
+            c.acceso = acceso;
+            c.esEstatico = esEstatico;
+            campos.push_back(std::move(c));
+        } else {
+            error("se esperaba un campo o método dentro de la estructura");
+        }
+        saltarNuevasLineas();
+    }
+    esperarReservada("fin");
+    auto nodo = std::make_unique<EstructuraDef>();
+    nodo->linea = l;
+    nodo->nombre = nombre;
+    nodo->campos = std::move(campos);
+    nodo->metodos = std::move(metodos);
+    return nodo;
+}
+
+SentPtr Parser::parseInterfaz() {
+    int l = actual.line;
+    avanzar(); // consume 'interfaz'
+    if (actual.type != TokenType::Identificador)
+        error("se esperaba el nombre de la interfaz");
+    std::string nombre = actual.lexeme;
+    avanzar();
+    saltarNuevasLineas();
+    std::vector<MetodoDef> metodos;
+    while (!esReservada("fin")) {
+        if (esReservada("funcion") || esReservada("fun")) {
+            MetodoDef m = parseMetodoDef(nombre, /*fuerzaAbstracto=*/true);
+            m.acceso = ModificadorAcceso::Publico;
+            metodos.push_back(std::move(m));
+        } else {
+            error("las interfaces solo pueden contener firmas de métodos");
+        }
+        saltarNuevasLineas();
+    }
+    esperarReservada("fin");
+    auto nodo = std::make_unique<InterfazDef>();
+    nodo->linea = l;
+    nodo->nombre = nombre;
+    nodo->metodos = std::move(metodos);
+    return nodo;
 }
