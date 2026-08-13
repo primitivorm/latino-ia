@@ -250,3 +250,106 @@ void ImpresorAST::visitar(Retornar& n) {
     linea("Retornar");
     if (n.valor) hijo(*n.valor);
 }
+
+// --- POO ---------------------------------------------------------------
+
+static std::string accesoATexto(ModificadorAcceso a) {
+    switch (a) {
+        case ModificadorAcceso::Publico:   return "publico";
+        case ModificadorAcceso::Privado:   return "privado";
+        case ModificadorAcceso::Protegido: return "protegido";
+    }
+    return "publico";
+}
+
+// Nombre del tipo anotado de un campo/retorno/parámetro POO, incluyendo el
+// nombre de clase cuando el tipo es un objeto definido por el usuario.
+static std::string tipoPooATexto(TipoAnotado t, const std::string& clase) {
+    if (t == TipoAnotado::Objeto) return clase;
+    return nombreTipoAst(t);
+}
+
+void ImpresorAST::campo(const CampoDef& c) {
+    std::string firma = "Campo '" + c.nombre + "' [" + accesoATexto(c.acceso) + "]";
+    if (c.esEstatico) firma += " [estatico]";
+    std::string tipo = tipoPooATexto(c.tipoAnotado, c.tipoClase);
+    if (!tipo.empty()) firma += ": " + tipo;
+    linea(firma);
+    if (c.valorDefecto) hijo(*c.valorDefecto);
+}
+
+void ImpresorAST::metodo(MetodoDef& m) {
+    std::string firma = "Metodo '" + m.nombre + "' [" + accesoATexto(m.acceso) + "] (";
+    for (size_t i = 0; i < m.parametros.size(); ++i) {
+        if (i) firma += ", ";
+        firma += m.parametros[i].nombre;
+        std::string tipoParam = tipoPooATexto(m.parametros[i].tipo, m.parametros[i].tipoClase);
+        if (!tipoParam.empty()) firma += ":" + tipoParam;
+    }
+    firma += ")";
+    std::string tipoRet = tipoPooATexto(m.tipoRetorno, m.tipoRetornoClase);
+    if (!tipoRet.empty()) firma += " -> " + tipoRet;
+    if (m.esEstatico) firma += " [estatico]";
+    if (m.esAbstracto) firma += " [abstracto]";
+    if (m.esSobreescritura) firma += " [sobreescribir]";
+    if (m.esConstructor) firma += " [constructor]";
+    linea(firma);
+    if (!m.cuerpo.empty()) {
+        linea("cuerpo:");
+        hijos(m.cuerpo);
+    }
+}
+
+void ImpresorAST::visitar(ClaseDef& n) {
+    std::string firma = "Clase '" + n.nombre + "'";
+    if (n.esAbstracta) firma += " [abstracta]";
+    if (!n.padre.empty()) firma += " extiende " + n.padre;
+    if (!n.interfaces.empty()) {
+        firma += " implementa ";
+        for (size_t i = 0; i < n.interfaces.size(); ++i) {
+            if (i) firma += ", ";
+            firma += n.interfaces[i];
+        }
+    }
+    linea(firma);
+    ++nivel;
+    for (const CampoDef& c : n.campos) campo(c);
+    for (MetodoDef& m : n.metodos) metodo(m);
+    --nivel;
+}
+
+void ImpresorAST::visitar(EstructuraDef& n) {
+    linea("Estructura '" + n.nombre + "'");
+    ++nivel;
+    for (const CampoDef& c : n.campos) campo(c);
+    for (MetodoDef& m : n.metodos) metodo(m);
+    --nivel;
+}
+
+void ImpresorAST::visitar(InterfazDef& n) {
+    linea("Interfaz '" + n.nombre + "'");
+    ++nivel;
+    for (MetodoDef& m : n.metodos) metodo(m);
+    --nivel;
+}
+
+void ImpresorAST::visitar(NuevoExpr& n) {
+    linea("Nuevo '" + n.clase + "' (" + std::to_string(n.argumentos.size()) + " args)");
+    for (auto& a : n.argumentos)
+        if (a) hijo(*a);
+}
+
+void ImpresorAST::visitar(EsExpr& n) {
+    linea("Es '" + n.clase + "'");
+    if (n.objeto) hijo(*n.objeto);
+}
+
+void ImpresorAST::visitar(AccesoEste&) {
+    linea("Este");
+}
+
+void ImpresorAST::visitar(LlamadaBase& n) {
+    linea("LlamadaBase (" + std::to_string(n.argumentos.size()) + " args)");
+    for (auto& a : n.argumentos)
+        if (a) hijo(*a);
+}

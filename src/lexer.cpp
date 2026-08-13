@@ -211,10 +211,18 @@ void Lexer::reportError(const std::string& message, int line) {
 
 bool Lexer::esPalabraReservada(const std::string& palabra) const {
     static const std::set<std::string> palabrasReservadas = {
+        // Existentes
         "caso", "cierto", "verdadero", "defecto", "otro", "desde", "elegir", "falso", "fin",
         "funcion", "fun", "global", "hasta", "incluir", "mientras", "nulo", "para", "repetir",
         "regresar", "retornar", "ret", "romper", "si", "sino", "osi",
-        "var", "const"
+        "var", "const",
+        // Nuevas palabras reservadas para POO (PLAN_POO.md)
+        "clase", "estructura", "interfaz",
+        "nuevo", "este", "base",
+        "extiende", "implementa",
+        "publico", "privado", "protegido",
+        "abstracto", "estatico", "sobreescribir",
+        "es"
     };
 
     return palabrasReservadas.count(palabra) > 0;

@@ -90,8 +90,33 @@ LatValor lat_paquete_llamar(LatValor modulo_v, LatValor nombre_v,
         va_end(ap);
     }
 
+    LatValor resultado = lat_paquete_llamar_args(modulo_v, nombre_v, nargs, args);
+    free(args);
+    return resultado;
+}
+
+LatValor lat_paquete_llamar_args(LatValor modulo_v, LatValor nombre_v,
+                                 int nargs, LatValor* args) {
+    if (modulo_v.tipo != LAT_MODULO || !modulo_v.como.modulo) {
+        fprintf(stderr, "paquete: el objeto no es un módulo cargado\n");
+        return lat_nulo();
+    }
+    if (nombre_v.tipo != LAT_CADENA || !nombre_v.como.cadena) {
+        fprintf(stderr, "paquete: nombre de función inválido\n");
+        return lat_nulo();
+    }
+
+    HandleLib h = (HandleLib)modulo_v.como.modulo->handle;
+    const char* nombre = nombre_v.como.cadena;
+
+    void* sym = buscar_sym(h, nombre);
+    if (!sym) {
+        fprintf(stderr, "paquete: función '%s' no encontrada en el módulo\n",
+                nombre);
+        return lat_nulo();
+    }
+
     LatFnModulo fn = (LatFnModulo)(size_t)sym;
     LatValor resultado = fn(nargs, args);
-    free(args);
     return resultado;
 }

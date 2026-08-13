@@ -50,6 +50,9 @@ public:
     void visitar(ListaLiteral&) override;
     void visitar(DiccionarioLiteral&) override;
     void visitar(VarArgs&) override;
+    void visitar(NuevoExpr&) override;
+    void visitar(EsExpr&) override;
+    void visitar(AccesoEste&) override;
 
     // Sentencias
     void visitar(Programa&) override;
@@ -63,6 +66,10 @@ public:
     void visitar(Repetir&) override;
     void visitar(Romper&) override;
     void visitar(FuncionDef&) override;
+    void visitar(LlamadaBase&) override;
+    void visitar(ClaseDef&) override;
+    void visitar(EstructuraDef&) override;
+    void visitar(InterfazDef&) override;
     void visitar(Retornar&) override;
 
 private:
@@ -82,6 +89,37 @@ private:
     std::unordered_set<std::string> constantes;
     std::vector<ErrorSemantico> errores;
 
+    enum class TipoInfoKind { Clase, Estructura, Interfaz };
+
+    struct InfoMetodo {
+        std::string nombre;
+        std::vector<TipoAnotado> parametros;
+        std::vector<std::string> parametrosClase;
+        TipoAnotado tipoRetorno = TipoAnotado::Ninguno;
+        std::string tipoRetornoClase;
+        bool esConstructor = false;
+        bool esAbstracto = false;
+        bool esEstatico = false;
+        bool esSobreescritura = false;
+        int linea = 0;
+    };
+
+    struct InfoTipo {
+        TipoInfoKind tipo = TipoInfoKind::Clase;
+        bool esAbstracta = false;
+        std::string padre;
+        std::vector<std::string> interfaces;
+        std::unordered_set<std::string> campos;
+        std::unordered_map<std::string, InfoMetodo> metodos;
+        int linea = 0;
+    };
+
+    std::unordered_map<std::string, InfoTipo> tipos;
+    std::string tipoActual;
+    bool enClase = false;
+    bool enMetodoInstancia = false;
+    bool enConstructor = false;
+
     int profundidadBucle;
     int profundidadFuncion;
     int profundidadVariadica;
@@ -94,7 +132,12 @@ private:
     bool esIncorporada(const std::string& nombre) const;
     bool esLibreria(const std::string& nombre) const;
     void recolectarFunciones(Programa& programa);
+    void recolectarTipos(Programa& programa);
     void analizarBloque(ListaSent& cuerpo);
+    void analizarMetodo(MetodoDef& metodo);
+    void validarTipoObjeto(TipoAnotado tipo, const std::string& clase, int linea);
+    bool estaTipoDefinido(const std::string& nombre) const;
+    const InfoTipo* obtenerTipo(const std::string& nombre) const;
     void agregarError(int linea, const std::string& mensaje);
 };
 

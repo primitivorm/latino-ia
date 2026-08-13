@@ -190,6 +190,58 @@ static void prueba_semantico_var_y_const() {
                "no se puede reasignar la constante 'PI'");
 }
 
+static void prueba_poo_nuevo_clase_ok() {
+  esperarOK("poo_nuevo_ok",
+            "clase Persona\n"
+            "  funcion Persona(nombre)\n"
+            "    este.nombre = nombre\n"
+            "  fin\n"
+            "fin\n"
+            "persona = nuevo Persona(\"Ana\")\n");
+}
+
+static void prueba_poo_este_fuera_de_metodo() {
+  esperarError("poo_este_fuera",
+               "clase A\n"
+               "  funcion A()\n"
+               "  fin\n"
+               "fin\n"
+               "x = este\n",
+               "'este' sólo puede usarse dentro de un método de instancia");
+}
+
+static void prueba_poo_nuevo_interfaz_error() {
+  esperarError("poo_nuevo_interfaz",
+               "interfaz I\n"
+               "  funcion f()\n"
+               "fin\n"
+               "x = nuevo I()\n",
+               "no se puede instanciar la interfaz 'I'");
+}
+
+static void prueba_poo_base_fuera_constructor() {
+  esperarError("poo_base_fuera",
+               "clase Padre\n"
+               "  funcion Padre()\n"
+               "  fin\n"
+               "fin\n"
+               "clase Hijo extiende Padre\n"
+               "  funcion metodo()\n"
+               "    base()\n"
+               "  fin\n"
+               "fin\n",
+               "'base' sólo puede llamarse dentro de un constructor");
+}
+
+static void prueba_poo_nuevo_clase_abstracta_error() {
+  esperarError("poo_nuevo_abstracta",
+               "abstracto clase Figura\n"
+               "  abstracto funcion area(): numero\n"
+               "fin\n"
+               "x = nuevo Figura()\n",
+               "no se puede instanciar la clase abstracta 'Figura'");
+}
+
 int main() {
   prueba_programa_valido();
   prueba_variable_no_declarada();
@@ -208,6 +260,11 @@ int main() {
   prueba_acceso_indice_variable_declarada();
   prueba_acceso_indice_no_declarada();
   prueba_semantico_var_y_const();
+  prueba_poo_nuevo_clase_ok();
+  prueba_poo_este_fuera_de_metodo();
+  prueba_poo_nuevo_interfaz_error();
+  prueba_poo_base_fuera_constructor();
+  prueba_poo_nuevo_clase_abstracta_error();
 
   std::cout << "\nComprobaciones: " << g_checks << "   Fallos: " << g_fallos
             << std::endl;

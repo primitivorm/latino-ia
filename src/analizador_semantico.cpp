@@ -27,6 +27,7 @@ AnalizadorSemantico::AnalizadorSemantico()
 bool AnalizadorSemantico::analizar(Programa& programa) {
     ambitos.clear();
     funciones.clear();
+    tipos.clear();
     constantes.clear();
     errores.clear();
     profundidadBucle = profundidadFuncion = profundidadVariadica = 0;
@@ -144,8 +145,199 @@ void AnalizadorSemantico::analizarBloque(ListaSent& cuerpo) {
         if (s) s->aceptar(*this);
 }
 
+void AnalizadorSemantico::analizarMetodo(MetodoDef& metodo) {
+    validarTipoObjeto(metodo.tipoRetorno, metodo.tipoRetornoClase, metodo.linea);
+
+    entrarAmbito();
+
+    std::unordered_set<std::string> vistos;
+    for (const ParamFuncion& p : metodo.parametros) {
+        if (!vistos.insert(p.nombre).second)
+            agregarError(metodo.linea,
+                         "parámetro duplicado '" + p.nombre + "' en el método '" + metodo.nombre + "'");
+        validarTipoObjeto(p.tipo, p.tipoClase, metodo.linea);
+        declararVariable(p.nombre, p.tipo, metodo.linea);
+    }
+
+    ++profundidadFuncion;
+    analizarBloque(metodo.cuerpo);
+    --profundidadFuncion;
+
+    salirAmbito();
+}
+
 void AnalizadorSemantico::agregarError(int linea, const std::string& mensaje) {
     errores.push_back(ErrorSemantico{linea, mensaje});
+}
+
+bool AnalizadorSemantico::estaTipoDefinido(const std::string& nombre) const {
+    return tipos.count(nombre) > 0;
+}
+
+const AnalizadorSemantico::InfoTipo* AnalizadorSemantico::obtenerTipo(
+    const std::string& nombre) const {
+    auto it = tipos.find(nombre);
+    return it != tipos.end() ? &it->second : nullptr;
+}
+
+void AnalizadorSemantico::validarTipoObjeto(TipoAnotado tipo,
+                                            const std::string& clase,
+                                            int linea) {
+    if (tipo == TipoAnotado::Objeto && !estaTipoDefinido(clase))
+        agregarError(linea, "tipo de objeto desconocido '" + clase + "'");
+}
+
+void AnalizadorSemantico::recolectarTipos(Programa& programa) {
+    tipos.clear();
+
+    for (auto& s : programa.sentencias) {
+        if (auto* c = dynamic_cast<ClaseDef*>(s.get())) {
+            if (tipos.count(c->nombre)) {
+                agregarError(c->linea, "el tipo '" + c->nombre + "' ya está definido");
+                continue;
+            }
+
+            InfoTipo info;
+            info.tipo = TipoInfoKind::Clase;
+            info.esAbstracta = c->esAbstracta;
+            info.padre = c->padre;
+            info.interfaces = c->interfaces;
+            info.linea = c->linea;
+
+            std::unordered_set<std::string> nombresCampos;
+            std::unordered_set<std::string> nombresMetodos;
+            bool tieneConstructor = false;
+
+            for (const CampoDef& campo : c->campos) {
+                if (!nombresCampos.insert(campo.nombre).second)
+                    agregarError(campo.linea,
+                                 "campo duplicado '" + campo.nombre + "' en la clase '" + c->nombre + "'");
+                info.campos.insert(campo.nombre);
+            }
+
+            for (const MetodoDef& metodo : c->metodos) {
+                if (!nombresMetodos.insert(metodo.nombre).second) {
+                    agregarError(metodo.linea,
+                                 "método duplicado '" + metodo.nombre + "' en la clase '" + c->nombre + "'");
+                    continue;
+                }
+                if (metodo.esConstructor) {
+                    if (tieneConstructor)
+                        agregarError(metodo.linea,
+                                     "constructor duplicado en la clase '" + c->nombre + "'");
+                    tieneConstructor = true;
+                }
+
+                InfoMetodo infoMetodo;
+                infoMetodo.nombre = metodo.nombre;
+                infoMetodo.tipoRetorno = metodo.tipoRetorno;
+                infoMetodo.tipoRetornoClase = metodo.tipoRetornoClase;
+                infoMetodo.esConstructor = metodo.esConstructor;
+                infoMetodo.esAbstracto = metodo.esAbstracto;
+                infoMetodo.esEstatico = metodo.esEstatico;
+                infoMetodo.esSobreescritura = metodo.esSobreescritura;
+                infoMetodo.linea = metodo.linea;
+                for (const ParamFuncion& parametro : metodo.parametros) {
+                    infoMetodo.parametros.push_back(parametro.tipo);
+                    infoMetodo.parametrosClase.push_back(parametro.tipoClase);
+                }
+
+                info.metodos[metodo.nombre] = std::move(infoMetodo);
+            }
+
+            tipos[c->nombre] = std::move(info);
+        } else if (auto* e = dynamic_cast<EstructuraDef*>(s.get())) {
+            if (tipos.count(e->nombre)) {
+                agregarError(e->linea, "el tipo '" + e->nombre + "' ya está definido");
+                continue;
+            }
+
+            InfoTipo info;
+            info.tipo = TipoInfoKind::Estructura;
+            info.esAbstracta = false;
+            info.linea = e->linea;
+
+            std::unordered_set<std::string> nombresCampos;
+            std::unordered_set<std::string> nombresMetodos;
+            bool tieneConstructor = false;
+
+            for (const CampoDef& campo : e->campos) {
+                if (!nombresCampos.insert(campo.nombre).second)
+                    agregarError(campo.linea,
+                                 "campo duplicado '" + campo.nombre + "' en la estructura '" + e->nombre + "'");
+                info.campos.insert(campo.nombre);
+            }
+
+            for (const MetodoDef& metodo : e->metodos) {
+                if (!nombresMetodos.insert(metodo.nombre).second) {
+                    agregarError(metodo.linea,
+                                 "método duplicado '" + metodo.nombre + "' en la estructura '" + e->nombre + "'");
+                    continue;
+                }
+                if (metodo.esConstructor) {
+                    if (tieneConstructor)
+                        agregarError(metodo.linea,
+                                     "constructor duplicado en la estructura '" + e->nombre + "'");
+                    tieneConstructor = true;
+                }
+
+                InfoMetodo infoMetodo;
+                infoMetodo.nombre = metodo.nombre;
+                infoMetodo.tipoRetorno = metodo.tipoRetorno;
+                infoMetodo.tipoRetornoClase = metodo.tipoRetornoClase;
+                infoMetodo.esConstructor = metodo.esConstructor;
+                infoMetodo.esAbstracto = metodo.esAbstracto;
+                infoMetodo.esEstatico = metodo.esEstatico;
+                infoMetodo.esSobreescritura = metodo.esSobreescritura;
+                infoMetodo.linea = metodo.linea;
+                for (const ParamFuncion& parametro : metodo.parametros) {
+                    infoMetodo.parametros.push_back(parametro.tipo);
+                    infoMetodo.parametrosClase.push_back(parametro.tipoClase);
+                }
+
+                info.metodos[metodo.nombre] = std::move(infoMetodo);
+            }
+
+            tipos[e->nombre] = std::move(info);
+        } else if (auto* i = dynamic_cast<InterfazDef*>(s.get())) {
+            if (tipos.count(i->nombre)) {
+                agregarError(i->linea, "el tipo '" + i->nombre + "' ya está definido");
+                continue;
+            }
+
+            InfoTipo info;
+            info.tipo = TipoInfoKind::Interfaz;
+            info.esAbstracta = true;
+            info.linea = i->linea;
+
+            std::unordered_set<std::string> nombresMetodos;
+            for (const MetodoDef& metodo : i->metodos) {
+                if (!nombresMetodos.insert(metodo.nombre).second) {
+                    agregarError(metodo.linea,
+                                 "método duplicado '" + metodo.nombre + "' en la interfaz '" + i->nombre + "'");
+                    continue;
+                }
+
+                InfoMetodo infoMetodo;
+                infoMetodo.nombre = metodo.nombre;
+                infoMetodo.tipoRetorno = metodo.tipoRetorno;
+                infoMetodo.tipoRetornoClase = metodo.tipoRetornoClase;
+                infoMetodo.esConstructor = false;
+                infoMetodo.esAbstracto = true;
+                infoMetodo.esEstatico = metodo.esEstatico;
+                infoMetodo.esSobreescritura = false;
+                infoMetodo.linea = metodo.linea;
+                for (const ParamFuncion& parametro : metodo.parametros) {
+                    infoMetodo.parametros.push_back(parametro.tipo);
+                    infoMetodo.parametrosClase.push_back(parametro.tipoClase);
+                }
+
+                info.metodos[metodo.nombre] = std::move(infoMetodo);
+            }
+
+            tipos[i->nombre] = std::move(info);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -186,9 +378,10 @@ void AnalizadorSemantico::visitar(AccesoIndice& n) {
 
 void AnalizadorSemantico::visitar(AccesoMiembro& n) {
     if (!n.objeto) return;
-    // Si el objeto es el nombre de una librería, no es una variable; omitir el chequeo.
+    // Si el objeto es el nombre de una librería o de un tipo POO (acceso a un
+    // miembro estático), no es una variable; omitir el chequeo.
     if (auto* id = dynamic_cast<Identificador*>(n.objeto.get()))
-        if (esLibreria(id->nombre)) return;
+        if (esLibreria(id->nombre) || estaTipoDefinido(id->nombre)) return;
     n.objeto->aceptar(*this);
 }
 
@@ -226,6 +419,82 @@ void AnalizadorSemantico::visitar(Llamada& n) {
     }
 }
 
+void AnalizadorSemantico::visitar(NuevoExpr& n) {
+    for (auto& a : n.argumentos)
+        if (a) a->aceptar(*this);
+
+    const InfoTipo* tipo = obtenerTipo(n.clase);
+    if (!tipo) {
+        agregarError(n.linea, "tipo de objeto desconocido '" + n.clase + "'");
+        return;
+    }
+    if (tipo->tipo == TipoInfoKind::Interfaz) {
+        agregarError(n.linea, "no se puede instanciar la interfaz '" + n.clase + "'");
+        return;
+    }
+    if (tipo->esAbstracta) {
+        agregarError(n.linea, "no se puede instanciar la clase abstracta '" + n.clase + "'");
+        return;
+    }
+
+    auto it = tipo->metodos.find(n.clase);
+    if (it != tipo->metodos.end()) {
+        if (it->second.parametros.size() != n.argumentos.size()) {
+            agregarError(n.linea,
+                         "constructor de '" + n.clase + "' espera " +
+                             std::to_string(it->second.parametros.size()) +
+                             " argumento(s), se pasaron " + std::to_string(n.argumentos.size()));
+        }
+    } else if (!n.argumentos.empty()) {
+        agregarError(n.linea,
+                     "la clase/estructura '" + n.clase + "' no tiene constructor que reciba " +
+                         std::to_string(n.argumentos.size()) + " argumento(s)");
+    }
+}
+
+void AnalizadorSemantico::visitar(EsExpr& n) {
+    if (n.objeto) n.objeto->aceptar(*this);
+    if (!estaTipoDefinido(n.clase))
+        agregarError(n.linea, "tipo desconocido '" + n.clase + "' en la expresión 'es'");
+}
+
+void AnalizadorSemantico::visitar(AccesoEste& n) {
+    if (!enClase || !enMetodoInstancia)
+        agregarError(n.linea, "'este' sólo puede usarse dentro de un método de instancia");
+}
+
+void AnalizadorSemantico::visitar(LlamadaBase& n) {
+    for (auto& a : n.argumentos)
+        if (a) a->aceptar(*this);
+
+    if (!enConstructor) {
+        agregarError(n.linea, "'base' sólo puede llamarse dentro de un constructor");
+        return;
+    }
+    const InfoTipo* actual = obtenerTipo(tipoActual);
+    if (!actual) return;
+    if (actual->padre.empty()) {
+        agregarError(n.linea, "la clase '" + tipoActual + "' no tiene clase base");
+        return;
+    }
+    const InfoTipo* padre = obtenerTipo(actual->padre);
+    if (!padre) return;
+
+    auto it = padre->metodos.find(actual->padre);
+    if (it != padre->metodos.end()) {
+        if (it->second.parametros.size() != n.argumentos.size()) {
+            agregarError(n.linea,
+                         "constructor de la clase base '" + actual->padre + "' espera " +
+                             std::to_string(it->second.parametros.size()) +
+                             " argumento(s), se pasaron " + std::to_string(n.argumentos.size()));
+        }
+    } else if (!n.argumentos.empty()) {
+        agregarError(n.linea,
+                     "la clase base '" + actual->padre + "' no tiene constructor que reciba " +
+                         std::to_string(n.argumentos.size()) + " argumento(s)");
+    }
+}
+
 void AnalizadorSemantico::visitar(ListaLiteral& n) {
     for (auto& e : n.elementos)
         if (e) e->aceptar(*this);
@@ -248,9 +517,155 @@ void AnalizadorSemantico::visitar(VarArgs& n) {
 // ---------------------------------------------------------------------------
 void AnalizadorSemantico::visitar(Incluir&) {}
 
+void AnalizadorSemantico::visitar(ClaseDef& n) {
+    const InfoTipo* tipo = obtenerTipo(n.nombre);
+    if (!tipo) return;
+
+    if (!n.padre.empty()) {
+        if (n.padre == n.nombre)
+            agregarError(n.linea, "una clase no puede heredar de sí misma");
+        else if (!estaTipoDefinido(n.padre))
+            agregarError(n.linea, "tipo base desconocido '" + n.padre + "'");
+        else if (obtenerTipo(n.padre)->tipo != TipoInfoKind::Clase)
+            agregarError(n.linea, "la clase base de '" + n.nombre + "' debe ser otra clase");
+    }
+
+    for (const std::string& interfaz : n.interfaces) {
+        if (!estaTipoDefinido(interfaz))
+            agregarError(n.linea, "interfaz desconocida '" + interfaz + "'");
+        else if (obtenerTipo(interfaz)->tipo != TipoInfoKind::Interfaz)
+            agregarError(n.linea, "'" + interfaz + "' no es una interfaz");
+    }
+
+    const InfoTipo* padre = n.padre.empty() ? nullptr : obtenerTipo(n.padre);
+    for (const MetodoDef& metodo : n.metodos) {
+        if (metodo.esAbstracto) {
+            if (!n.esAbstracta)
+                agregarError(metodo.linea,
+                             "la clase '" + n.nombre + "' no puede contener métodos abstractos sin declarar 'abstracto'");
+        }
+        if (metodo.esSobreescritura) {
+            if (n.padre.empty()) {
+                agregarError(metodo.linea,
+                             "el método '" + metodo.nombre + "' declara 'sobreescribir' pero '" + n.nombre + "' no hereda de ninguna clase");
+            } else if (padre) {
+                auto it = padre->metodos.find(metodo.nombre);
+                if (it == padre->metodos.end())
+                    agregarError(metodo.linea,
+                                 "el método '" + metodo.nombre + "' declara 'sobreescribir' pero no existe en la clase base '" + n.padre + "'");
+                else if (it->second.parametros.size() != metodo.parametros.size())
+                    agregarError(metodo.linea,
+                                 "el método '" + metodo.nombre + "' no coincide con la firma del método de la clase base '" + n.padre + "'");
+            }
+        }
+    }
+    if (padre && !n.esAbstracta) {
+        for (const auto& [nombre, infoMetodo] : padre->metodos) {
+            if (infoMetodo.esAbstracto) {
+                auto it = tipo->metodos.find(nombre);
+                if (it == tipo->metodos.end() ||
+                    it->second.parametros.size() != infoMetodo.parametros.size()) {
+                    agregarError(n.linea,
+                                 "la clase '" + n.nombre + "' debe implementar el método abstracto '" + nombre +
+                                     "' de la clase base '" + n.padre + "' o declararse abstracto");
+                }
+            }
+        }
+    }
+
+    for (const std::string& interfaz : n.interfaces) {
+        const InfoTipo* infoInterfaz = obtenerTipo(interfaz);
+        if (!infoInterfaz || infoInterfaz->tipo != TipoInfoKind::Interfaz)
+            continue;
+        if (!n.esAbstracta) {
+            for (const auto& [nombre, metodoInterface] : infoInterfaz->metodos) {
+                auto it = tipo->metodos.find(nombre);
+                if (it == tipo->metodos.end() ||
+                    it->second.parametros.size() != metodoInterface.parametros.size()) {
+                    agregarError(n.linea,
+                                 "la clase '" + n.nombre + "' no implementa el método '" + nombre +
+                                     "' de la interfaz '" + interfaz + "'");
+                }
+            }
+        }
+    }
+
+    for (const CampoDef& campo : n.campos) {
+        validarTipoObjeto(campo.tipoAnotado, campo.tipoClase, campo.linea);
+        if (campo.valorDefecto) campo.valorDefecto->aceptar(*this);
+    }
+
+    bool anteriorEnClase = enClase;
+    bool anteriorEnMetodoInstancia = enMetodoInstancia;
+    bool anteriorEnConstructor = enConstructor;
+    std::string anteriorTipoActual = tipoActual;
+
+    enClase = true;
+    tipoActual = n.nombre;
+    for (MetodoDef& metodo : n.metodos) {
+        enMetodoInstancia = !metodo.esEstatico;
+        enConstructor = metodo.esConstructor;
+        analizarMetodo(metodo);
+    }
+
+    enClase = anteriorEnClase;
+    enMetodoInstancia = anteriorEnMetodoInstancia;
+    enConstructor = anteriorEnConstructor;
+    tipoActual = anteriorTipoActual;
+}
+
+void AnalizadorSemantico::visitar(EstructuraDef& n) {
+    const InfoTipo* tipo = obtenerTipo(n.nombre);
+    if (!tipo) return;
+
+    for (const CampoDef& campo : n.campos) {
+        validarTipoObjeto(campo.tipoAnotado, campo.tipoClase, campo.linea);
+        if (campo.valorDefecto) campo.valorDefecto->aceptar(*this);
+    }
+
+    bool anteriorEnClase = enClase;
+    bool anteriorEnMetodoInstancia = enMetodoInstancia;
+    bool anteriorEnConstructor = enConstructor;
+    std::string anteriorTipoActual = tipoActual;
+
+    enClase = true;
+    tipoActual = n.nombre;
+    for (MetodoDef& metodo : n.metodos) {
+        if (metodo.esSobreescritura)
+            agregarError(metodo.linea,
+                         "las estructuras no pueden declarar métodos con 'sobreescribir'");
+        if (metodo.esAbstracto)
+            agregarError(metodo.linea,
+                         "las estructuras no pueden declarar métodos abstractos");
+        enMetodoInstancia = !metodo.esEstatico;
+        enConstructor = metodo.esConstructor;
+        analizarMetodo(metodo);
+    }
+
+    enClase = anteriorEnClase;
+    enMetodoInstancia = anteriorEnMetodoInstancia;
+    enConstructor = anteriorEnConstructor;
+    tipoActual = anteriorTipoActual;
+}
+
+void AnalizadorSemantico::visitar(InterfazDef& n) {
+    for (const MetodoDef& metodo : n.metodos) {
+        if (!metodo.esAbstracto)
+            agregarError(metodo.linea,
+                         "los métodos de una interfaz deben ser abstractos");
+        if (!metodo.cuerpo.empty())
+            agregarError(metodo.linea,
+                         "los métodos de una interfaz no pueden tener implementación");
+        validarTipoObjeto(metodo.tipoRetorno, metodo.tipoRetornoClase, metodo.linea);
+        for (const ParamFuncion& parametro : metodo.parametros)
+            validarTipoObjeto(parametro.tipo, parametro.tipoClase, metodo.linea);
+    }
+}
+
 void AnalizadorSemantico::visitar(Programa& n) {
     entrarAmbito();
     recolectarFunciones(n);
+    recolectarTipos(n);
     for (auto& s : n.sentencias)
         if (s) s->aceptar(*this);
     salirAmbito();
@@ -340,6 +755,7 @@ void AnalizadorSemantico::visitar(Romper& n) {
 }
 
 void AnalizadorSemantico::visitar(FuncionDef& n) {
+    validarTipoObjeto(n.tipoRetorno, n.tipoRetornoClase, n.linea);
     entrarAmbito();
 
     std::unordered_set<std::string> vistos;
@@ -347,6 +763,7 @@ void AnalizadorSemantico::visitar(FuncionDef& n) {
         if (!vistos.insert(p.nombre).second)
             agregarError(n.linea, "parámetro duplicado '" + p.nombre + "' en la función '" +
                                       n.nombre + "'");
+        validarTipoObjeto(p.tipo, p.tipoClase, n.linea);
         declararVariable(p.nombre, p.tipo, n.linea);
     }
 

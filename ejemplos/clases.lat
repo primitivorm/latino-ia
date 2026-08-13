@@ -1,0 +1,30 @@
+# POO — Clases: campos, constructor, métodos y métodos estáticos.
+clase Persona
+    publico nombre: cadena
+    privado _edad: numero
+
+    funcion Persona(nombre: cadena, edad: numero)
+        este.nombre = nombre
+        este._edad = edad
+    fin
+
+    publico funcion saludar(): cadena
+        retornar "Hola, soy " .. este.nombre
+    fin
+
+    publico funcion edad(): numero
+        retornar este._edad
+    fin
+
+    estatico funcion crear(nombre: cadena): Persona
+        retornar nuevo Persona(nombre, 0)
+    fin
+fin
+
+p = nuevo Persona("Juan", 30)
+escribir(p.saludar())      #salida: Hola, soy Juan
+escribir(p.edad())         #salida: 30
+
+recienNacido = Persona.crear("Ana")
+escribir(recienNacido.saludar())   #salida: Hola, soy Ana
+escribir(recienNacido.edad())      #salida: 0

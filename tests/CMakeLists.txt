@@ -72,6 +72,21 @@ target_include_directories(test_tipado PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
 add_test(NAME test_tipado COMMAND test_tipado)
 
+# Pruebas de Programación Orientada a Objetos: clases, estructuras,
+# interfaces, herencia, `nuevo`, `este`, `base` y el operador `es`.
+add_executable(test_poo
+  test_poo.cpp
+  ${CMAKE_SOURCE_DIR}/src/lexer.cpp
+  ${CMAKE_SOURCE_DIR}/src/parser.cpp
+  ${CMAKE_SOURCE_DIR}/src/ast.cpp
+  ${CMAKE_SOURCE_DIR}/src/ast_impresor.cpp
+  ${CMAKE_SOURCE_DIR}/src/analizador_semantico.cpp
+  ${CMAKE_SOURCE_DIR}/src/compiler.cpp
+)
+target_include_directories(test_poo PRIVATE ${CMAKE_SOURCE_DIR}/include)
+
+add_test(NAME test_poo COMMAND test_poo)
+
 # Utilidad de depuración (no es una prueba): vuelca los tokens de un .lat.
 add_executable(lexer_dump
   lexer_dump.cpp
@@ -132,4 +147,5 @@ add_suite20(test_lib_mate)
 add_suite20(test_lib_sis)
 add_suite20(test_lib_archivo)
 add_suite20(test_incluir)
+add_suite20(test_poo_e2e)
 

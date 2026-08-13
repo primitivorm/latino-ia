@@ -26,13 +26,15 @@ enum class TipoAnotado {
     Logico,
     Lista,
     Dic,
-    Nulo
+    Nulo,
+    Objeto  // NUEVO: tipo personalizado (clase/estructura/interfaz)
 };
 
 // Parámetro de función con anotación de tipo opcional.
 struct ParamFuncion {
     std::string nombre;
     TipoAnotado tipo = TipoAnotado::Ninguno;
+    std::string tipoClase;        // nombre de clase si tipo == Objeto
 };
 
 // --- Declaraciones adelantadas de todos los nodos concretos ---------------
@@ -52,6 +54,11 @@ struct ListaLiteral;
 struct DiccionarioLiteral;
 struct VarArgs;
 
+// Nuevos nodos POO
+struct NuevoExpr;
+struct EsExpr;
+struct AccesoEste;
+
 struct Programa;
 struct Incluir;
 struct Asignacion;
@@ -64,6 +71,12 @@ struct Repetir;
 struct Romper;
 struct FuncionDef;
 struct Retornar;
+
+// Declaraciones adelantadas para definiciones de tipos (clase/estructura/interfaz)
+struct ClaseDef;
+struct EstructuraDef;
+struct InterfazDef;
+struct LlamadaBase;
 
 // --- Interfaz del Visitante -----------------------------------------------
 struct Visitante {
@@ -85,6 +98,15 @@ struct Visitante {
     virtual void visitar(ListaLiteral&) = 0;
     virtual void visitar(DiccionarioLiteral&) = 0;
     virtual void visitar(VarArgs&) = 0;
+
+    // Visitantes por defecto para nodos POO (no-op aquí para no romper visitantes existentes)
+    virtual void visitar(ClaseDef&) {}
+    virtual void visitar(EstructuraDef&) {}
+    virtual void visitar(InterfazDef&) {}
+    virtual void visitar(NuevoExpr&) {}
+    virtual void visitar(EsExpr&) {}
+    virtual void visitar(AccesoEste&) {}
+    virtual void visitar(LlamadaBase&) {}
 
     // Sentencias
     virtual void visitar(Programa&) = 0;
@@ -114,6 +136,39 @@ struct Sentencia : Nodo {};
 using ExprPtr = std::unique_ptr<Expresion>;
 using SentPtr = std::unique_ptr<Sentencia>;
 using ListaSent = std::vector<SentPtr>;
+
+// Modificadores de acceso para campos y métodos (publico/privado/protegido)
+enum class ModificadorAcceso {
+    Publico,
+    Privado,
+    Protegido
+};
+
+// Declaración de un campo (propiedad) dentro de una clase/estructura
+struct CampoDef {
+    std::string nombre;
+    TipoAnotado tipoAnotado = TipoAnotado::Ninguno;
+    std::string tipoClase;        // nombre de clase si tipoAnotado == Objeto
+    ModificadorAcceso acceso = ModificadorAcceso::Publico;
+    bool esEstatico = false;
+    ExprPtr valorDefecto;         // valor por defecto (opcional)
+    int linea = 0;
+};
+
+// Declaración de un método dentro de una clase/estructura/interfaz
+struct MetodoDef {
+    std::string nombre;
+    std::vector<ParamFuncion> parametros;
+    TipoAnotado tipoRetorno = TipoAnotado::Ninguno;
+    std::string tipoRetornoClase;  // nombre de clase como tipo retorno
+    ModificadorAcceso acceso = ModificadorAcceso::Publico;
+    bool esEstatico = false;
+    bool esAbstracto = false;
+    bool esSobreescritura = false; // marcado con `sobreescribir`
+    bool esConstructor = false;    // nombre == nombre de la clase
+    ListaSent cuerpo;              // vacío si es abstracto o de interfaz
+    int linea = 0;
+};
 
 // Macro de conveniencia para implementar `aceptar` en cada nodo concreto.
 #define LATINO_ACEPTAR \
@@ -325,6 +380,7 @@ struct FuncionDef : Sentencia {
     std::string nombre;
     std::vector<ParamFuncion> parametros;
     TipoAnotado tipoRetorno = TipoAnotado::Ninguno;
+    std::string tipoRetornoClase;  // nombre de clase si tipoRetorno == Objeto
     bool variadico = false;  // true si el último parámetro es "..."
     ListaSent cuerpo;
     LATINO_ACEPTAR
@@ -333,6 +389,67 @@ struct FuncionDef : Sentencia {
 // regresar/retornar/ret  [valor]
 struct Retornar : Sentencia {
     ExprPtr valor;  // puede ser nulo (retornar sin valor)
+    LATINO_ACEPTAR
+};
+
+// --- Nodos añadidos para POO ----------------------------------------------
+
+// clase NombreClase [extiende Padre] [implementa I1, I2, ...]
+//     campos...
+//     metodos...
+// fin
+struct ClaseDef : Sentencia {
+    std::string nombre;
+    std::string padre;                           // "" si no hereda
+    std::vector<std::string> interfaces;         // interfaces implementadas
+    bool esAbstracta = false;
+    std::vector<CampoDef> campos;
+    std::vector<MetodoDef> metodos;
+    LATINO_ACEPTAR
+};
+
+// estructura NombreEstructura
+//     campos...
+//     metodos...
+// fin
+struct EstructuraDef : Sentencia {
+    std::string nombre;
+    std::vector<CampoDef> campos;
+    std::vector<MetodoDef> metodos;
+    LATINO_ACEPTAR
+};
+
+// interfaz NombreInterfaz
+//     firmas de metodos...
+// fin
+struct InterfazDef : Sentencia {
+    std::string nombre;
+    std::vector<MetodoDef> metodos;  // todos sin cuerpo
+    LATINO_ACEPTAR
+};
+
+// nuevo NombreClase(arg1, arg2, ...)
+struct NuevoExpr : Expresion {
+    std::string clase;
+    std::vector<ExprPtr> argumentos;
+    LATINO_ACEPTAR
+};
+
+// expr es NombreClase
+struct EsExpr : Expresion {
+    ExprPtr objeto;
+    std::string clase;
+    LATINO_ACEPTAR
+};
+
+// este  (referencia a la instancia actual dentro de un método)
+struct AccesoEste : Expresion {
+    LATINO_ACEPTAR
+};
+
+// base(args...)  (llamada al constructor padre)
+struct LlamadaBase : Sentencia {
+    std::vector<ExprPtr> argumentos;
     LATINO_ACEPTAR
 };
 

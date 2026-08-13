@@ -70,6 +70,17 @@ private:
     SentPtr parseVar();
     SentPtr parseConst();
 
+    // Nuevos parseos para POO
+    SentPtr parseClase(bool esAbstracta = false);
+    SentPtr parseEstructura();
+    SentPtr parseInterfaz();
+    SentPtr parseLlamadaBase();
+
+    // Auxiliares para parseo dentro de clases
+    ModificadorAcceso parseModificadorAcceso();
+    MetodoDef parseMetodoDef(const std::string& nombreClase, bool fuerzaAbstracto = false);
+    CampoDef parseCampoDef();
+
     ListaSent parseBloque(std::initializer_list<const char*> terminadores);
     std::vector<ExprPtr> parseListaExpresiones();
 
@@ -87,6 +98,7 @@ private:
     ExprPtr parsePotencia();
     ExprPtr parsePostfijo();
     ExprPtr parsePrimario();
+    ExprPtr parseNuevo();
 
     ExprPtr parseLlamada(ExprPtr destino);
     ExprPtr parseLista();

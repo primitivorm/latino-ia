@@ -1,0 +1,42 @@
+# POO — Herencia, sobreescritura de métodos, base() y el operador es.
+clase Animal
+    publico nombre: cadena
+
+    funcion Animal(nombre: cadena)
+        este.nombre = nombre
+    fin
+
+    publico funcion hablar(): cadena
+        retornar este.nombre .. " hace un sonido"
+    fin
+fin
+
+clase Perro extiende Animal
+    funcion Perro(nombre: cadena)
+        base(nombre)
+    fin
+
+    publico funcion hablar(): cadena sobreescribir
+        retornar este.nombre .. " dice: Guau"
+    fin
+fin
+
+perro = nuevo Perro("Rex")
+gato = nuevo Animal("Gato")
+
+escribir(perro.hablar())   #salida: Rex dice: Guau
+escribir(gato.hablar())    #salida: Gato hace un sonido
+
+si perro es Animal
+    escribir("El perro es un animal")   #salida: El perro es un animal
+fin
+
+si perro es Perro
+    escribir("El perro es un perro")    #salida: El perro es un perro
+fin
+
+si gato es Perro
+    escribir("El gato es un perro")
+sino
+    escribir("El gato no es un perro")  #salida: El gato no es un perro
+fin
