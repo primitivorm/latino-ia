@@ -32,15 +32,19 @@ target_include_directories(latino PRIVATE
 # Backend LLVM (ver input/PLAN_LLVM.md). Solo se agrega si el CMakeLists raíz
 # encontró una instalación de LLVM 17.x compatible (LATINO_LLVM_BACKEND).
 if(LATINO_LLVM_BACKEND)
-  target_sources(latino PRIVATE compiler_llvm.cpp invocador_llvm.cpp)
+  target_sources(latino PRIVATE compiler_llvm.cpp invocador_llvm.cpp runtime_abi_llvm.cpp)
   target_compile_definitions(latino PRIVATE LATINO_CON_LLVM)
 
-  # Componentes mínimos para la Fase L1 (construir un Module y emitir un
-  # objeto nativo vía TargetMachine). Fases futuras añadirán componentes:
-  # 'irreader' en la Fase L2 (importar runtime_abi.ll), 'orcjit' en la
-  # Fase L10 (modo --jit).
+  # generated/runtime_abi.ll (Fase L2) debe existir antes de que latino.exe
+  # lo importe en tiempo de ejecución (RuntimeAbiLLVM); no es una dependencia
+  # de compilación de latino.exe, pero sí de su ejecución/pruebas.
+  add_dependencies(latino latino_runtime_abi)
+
+  # Componentes: los de la Fase L1 (construir un Module y emitir un objeto
+  # nativo vía TargetMachine) + 'irreader' de la Fase L2 (importar
+  # runtime_abi.ll). 'orcjit' llega en la Fase L10 (modo --jit).
   llvm_map_components_to_libnames(LATINO_LLVM_LIBS
-    core support nativecodegen native mc object target)
+    core support nativecodegen native mc object target irreader)
 
   target_include_directories(latino PRIVATE ${LLVM_INCLUDE_DIRS})
   separate_arguments(LATINO_LLVM_DEFS NATIVE_COMMAND "${LLVM_DEFINITIONS}")

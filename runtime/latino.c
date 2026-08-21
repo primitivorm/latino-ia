@@ -997,3 +997,22 @@ LatValor lat_verificar_tipo(LatValor v, int tipo_esperado,
     return v;
 }
 
+/* --- Backend LLVM: verificación de ABI (Fase L2 de input/PLAN_LLVM.md) --- */
+void lat_abi_verificar(size_t tam_esperado, size_t alineacion_esperada,
+                        size_t offset_tipo_esperado) {
+    if (sizeof(LatValor) != tam_esperado ||
+        _Alignof(LatValor) != alineacion_esperada ||
+        offsetof(LatValor, tipo) != offset_tipo_esperado) {
+        fprintf(stderr,
+                "Error interno: el ABI de LatValor derivado por Clang "
+                "(generated/runtime_abi.ll) no coincide con el que usó el "
+                "compilador de C que construyó este runtime. Regenerar "
+                "runtime_abi.ll y recompilar latino.\n"
+                "  esperado (Clang): tam=%zu alineacion=%zu offset_tipo=%zu\n"
+                "  real (este runtime): tam=%zu alineacion=%zu offset_tipo=%zu\n",
+                tam_esperado, alineacion_esperada, offset_tipo_esperado,
+                sizeof(LatValor), _Alignof(LatValor), offsetof(LatValor, tipo));
+        exit(1);
+    }
+}
+
