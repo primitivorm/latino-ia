@@ -158,4 +158,17 @@ void lat_set_args(int argc, char **argv);
 LatValor lat_verificar_tipo(LatValor v, int tipo_esperado,
                              const char *nombre_var, int linea);
 
+/* --- Backend LLVM: verificación de ABI (Fase L2 de input/PLAN_LLVM.md) ---
+ * GeneradorLLVM deriva el tamaño, la alineación y el offset del campo
+ * 'tipo' de LatValor a partir de generated/runtime_abi.ll (generado por
+ * Clang) y los incrusta como constantes en el 'main' de cada programa
+ * compilado con --backend=llvm. lat_abi_verificar() comprueba en runtime
+ * que ese ABI derivado por Clang coincide con el que usó el compilador de C
+ * que construyó ESTE runtime.c (pueden ser toolchains distintos). Si no
+ * coinciden, termina con un mensaje claro en vez de corromper memoria en
+ * silencio.
+ */
+void lat_abi_verificar(size_t tam_esperado, size_t alineacion_esperada,
+                        size_t offset_tipo_esperado);
+
 #endif /* LATINO_H */

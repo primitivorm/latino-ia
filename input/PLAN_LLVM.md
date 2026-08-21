@@ -307,22 +307,92 @@ ejemplos/hola.lat -o hola_llvm.exe --runtime runtime` compila sin errores y
 con LLVM habilitado (`hola mundo`), y que la suite CTest completa (43/43)
 sigue pasando con `LATINO_LLVM_BACKEND=OFF` (build sin LLVM instalado).
 
-### Fase L2 — Mecanismo de ABI
+### Fase L2 — Mecanismo de ABI ✅ verificada con LLVM real
 
 **Archivos:** `tools/abi_probe.c` (nuevo), `CMakeLists.txt` (nuevo
-`add_custom_command`), `runtime/latino.h`/`.c` (agregar
-`lat_abi_verificar()`), `src/compiler_llvm.cpp`.
+`add_custom_command` + `find_program(clang)`), `src/CMakeLists.txt`
+(dependencia de `latino` sobre el target `latino_runtime_abi`, componente
+`irreader`), `src/config.h.in`/`config.h` (nueva macro
+`LATINO_RUNTIME_ABI_LL`), `runtime/latino.h`/`.c` (agregada
+`lat_abi_verificar()`), `include/runtime_abi_llvm.h` + `src/runtime_abi_llvm.cpp`
+(nuevo, clase `RuntimeAbiLLVM`), `tests/test_codegen_llvm.cpp` (nuevo),
+`tests/CMakeLists.txt` (registro condicional bajo `LATINO_LLVM_BACKEND`).
 
-- Implementar el mecanismo descrito en la Decisión 2 completo.
-- `GeneradorLLVM` importa `%LatValor` y las declaraciones de las ~146
-  funciones del runtime desde `generated/runtime_abi.ll` en vez de
-  construirlas a mano.
+- [x] Implementado el mecanismo descrito en la Decisión 2 completo.
+- [x] `tools/abi_probe.c` incluye `latino.h` + los 7 headers de
+  `runtime/libs/` y referencia (sin llamar, `(void)fn;`) las 185 funciones
+  `lat_*` declaradas ahí, para forzar a Clang a emitir un `declare` de cada
+  una — un `#include` por sí solo **no** genera IR para símbolos nunca
+  referenciados (hallazgo real, no anticipado explícitamente en el plan
+  original).
+- [x] `CMakeLists.txt` (raíz): dentro del bloque que ya localizaba LLVM,
+  `find_program(LATINO_CLANG_EXECUTABLE clang HINTS ${LLVM_TOOLS_BINARY_DIR})`
+  — el mismo Clang que trae el feature `clang` del puerto de vcpkg (ver
+  `install_llvm.ps1`, Fase L0/L1). Si no se encuentra, apaga
+  `LATINO_LLVM_BACKEND` con un `WARNING`, igual que cuando LLVM mismo no
+  aparece. Un `add_custom_command` invoca
+  `clang -S -emit-llvm -target x86_64-pc-windows-msvc -I<runtime> abi_probe.c
+  -o <build>/generated/runtime_abi.ll` (target fijo en Windows/MSVC per
+  Decisión 2; en otras plataformas se usa el triple por defecto del
+  Clang/GCC de sistema), envuelto en `add_custom_target(latino_runtime_abi)`
+  del que depende el target `latino`.
+- [x] `RuntimeAbiLLVM` (`runtime_abi_llvm.h`/`.cpp`) parsea
+  `generated/runtime_abi.ll` con `llvm::parseIRFile` en el mismo
+  `LLVMContext` que use el módulo destino — los tipos LLVM son propiedad del
+  `LLVMContext`, no del `Module`, así que `tipoLatValor()` (el
+  `%struct.LatValor` real, tal como Clang lo clasificó) y las
+  `llvm::FunctionType*` de `declarar()` se reutilizan directamente sin
+  reconstruirlos a mano. `declarar()` también copia `AttributeList` y
+  `CallingConv` del origen — necesario porque el atributo `sret` del
+  retorno indirecto de `LatValor` no es parte del `FunctionType`, es un
+  atributo aparte, y sin copiarlo el módulo sigue siendo IR válido pero
+  pierde la anotación que documenta la clasificación ABI real.
+- [x] `lat_abi_verificar(tam, alineacion, offset_tipo)` agregada al runtime:
+  compara `sizeof/alignof/offsetof(LatValor, tipo)` reales (según el
+  compilador de C que construyó `latino.c`) contra los valores que
+  `GeneradorLLVM` habrá derivado de `runtime_abi.ll`; términa el programa
+  con un mensaje claro si no coinciden. Queda lista para invocarse desde el
+  `main` generado a partir de la Fase L3+ (aún no hay recorrido de AST real
+  en `GeneradorLLVM` que la use).
 
-**Criterio de aceptación:** `llvm::verifyModule` pasa sobre un módulo que solo
-hace `declare` de todo el runtime + una función trivial que llama a
-`lat_numero`/`lat_sumar` y retorna el resultado; un test C++ standalone
-confirma que `sizeof(LatValor)` calculado por el compilador del proyecto
-coincide con el tamaño del `StructType` importado desde IR.
+**Hallazgo real (no anticipado en el plan original) — ABI real observada para
+Windows x64/MSVC:** para `LatValor lat_sumar(LatValor a, LatValor b)`, Clang
+NO pasa los parámetros por valor como un tipo struct de LLVM ni usa el
+atributo `byval` — genera `declare void @lat_sumar(ptr sret(%struct.LatValor)
+align 8, ptr noundef, ptr noundef)`: tanto el retorno como **ambos
+parámetros** de tipo `LatValor` se pasan como punteros simples (el ABI de
+paso-por-referencia ya está resuelto en el IR que emite el frontend de
+Clang, no queda ninguna clasificación adicional para que un backend genérico
+de LLVM decida). Los escalares (`double`, `int`, `char*`) sí se pasan
+directamente sin indirección (ver `lat_numero(double n)`). Esto confirma en
+la práctica el riesgo que motivó toda la Decisión 2: construir estas firmas
+a mano fácilmente habría asumido "pasar `%struct.LatValor` por valor
+directamente", que es exactamente incorrecto para este target — de ahí que
+importar el `FunctionType` real de Clang (en vez de reconstruirlo) sea la
+única vía segura. Implicación directa para la Fase L3+: toda "LatValue SSA"
+del generador debe modelarse como un puntero a una celda de memoria
+(`alloca %LatValor`), nunca como un valor LLVM de tipo struct por registro —
+es el único modelo consistente con esta ABI en ambas direcciones (llamar al
+runtime y, más adelante, generar los métodos/funciones de usuario con la
+misma convención).
+
+**Criterio de aceptación — cumplido:** `tests/test_codegen_llvm.cpp`
+construye un módulo que declara `lat_numero`/`lat_sumar` vía `RuntimeAbiLLVM`
+y una función trivial (`sumar_5_y_3`) que llama a `lat_numero(5)`,
+`lat_numero(3)`, `lat_sumar(...)`, lee el campo `numero` del resultado por
+`CreateStructGEP` sobre el `%struct.LatValor` importado, y lo retorna como
+`i32`; `llvm::verifyModule` pasa sin errores. Además de la comparación de
+`sizeof`, el test compara alineación (`alignof`) y el offset del campo
+`tipo` (`offsetof`) entre lo que ve el compilador de C++ del proyecto y lo
+que derivó Clang — las tres coinciden. Verificación extra manual (fuera del
+test, para confirmar corrección semántica real y no solo validez sintáctica
+de IR): un `.ll` equivalente escrito a mano, compilado con `llc
+-filetype=obj` y enlazado con `runtime/latino.c` + `runtime/libs/*.c` vía
+`cl.exe`, produce un ejecutable que imprime `resultado=8` — confirma que la
+convención de llamada generada es *ejecutablemente* correcta, no solo válida
+para el verificador de LLVM. Suite completa (`ctest -C Release`) sigue
+pasando con `LATINO_LLVM_BACKEND=ON` (43 suites existentes + la nueva
+`test_codegen_llvm`).
 
 ### Fase L3 — Tipos, literales y esqueleto de expresión
 

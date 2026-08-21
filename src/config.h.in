@@ -20,4 +20,9 @@
 // programa generado.
 #define LATINO_RUNTIME_DIR "@LATINO_RUNTIME_DIR@"
 
+// Ruta al IR de LLVM con el ABI real de LatValor, derivado por Clang a
+// partir de tools/abi_probe.c (Fase L2 de input/PLAN_LLVM.md). Cadena vacía
+// si el build no tiene el backend LLVM habilitado.
+#define LATINO_RUNTIME_ABI_LL "@LATINO_RUNTIME_ABI_LL@"
+
 #endif  // LATINO_CONFIG_H

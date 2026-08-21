@@ -87,6 +87,29 @@ target_include_directories(test_poo PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
 add_test(NAME test_poo COMMAND test_poo)
 
+# Pruebas del mecanismo de ABI del backend LLVM (Fase L2 de
+# input/PLAN_LLVM.md). Solo se registran si el build tiene LLVM habilitado;
+# las máquinas sin LLVM instalado siguen corriendo el resto de la suite sin
+# fallos por ausencia de LLVM (ver Decisión 1 del plan).
+if(LATINO_LLVM_BACKEND)
+  add_executable(test_codegen_llvm
+    test_codegen_llvm.cpp
+    ${CMAKE_SOURCE_DIR}/src/runtime_abi_llvm.cpp
+  )
+  target_include_directories(test_codegen_llvm PRIVATE
+    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/runtime
+    ${CMAKE_BINARY_DIR}/src
+    ${LLVM_INCLUDE_DIRS})
+  separate_arguments(LATINO_LLVM_DEFS NATIVE_COMMAND "${LLVM_DEFINITIONS}")
+  target_compile_definitions(test_codegen_llvm PRIVATE ${LATINO_LLVM_DEFS})
+  llvm_map_components_to_libnames(LATINO_LLVM_TEST_LIBS core support irreader)
+  target_link_libraries(test_codegen_llvm PRIVATE ${LATINO_LLVM_TEST_LIBS})
+  add_dependencies(test_codegen_llvm latino_runtime_abi)
+
+  add_test(NAME test_codegen_llvm COMMAND test_codegen_llvm)
+endif()
+
 # Utilidad de depuración (no es una prueba): vuelca los tokens de un .lat.
 add_executable(lexer_dump
   lexer_dump.cpp
