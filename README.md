@@ -4,11 +4,15 @@ Compilador para el lenguaje de programación **Latino**, escrito en C++17.
 
 La especificación del lenguaje está en [SINTAXIS.md](SINTAXIS.md).
 
-## Estado actual — 100 % implementado ✅
+## Estado actual — backend de C 100 % implementado ✅ · backend LLVM en desarrollo 🚧
 
-El compilador transpila código `.lat` → C → ejecutable nativo. Todas las
-librerías estándar documentadas en el [Manual-Latino](https://github.com/lenguaje-latino/Manual-Latino)
-están implementadas y cubiertas por pruebas E2E.
+El compilador transpila código `.lat` → C → ejecutable nativo (backend
+`--backend=c`, predeterminado). Todas las librerías estándar documentadas en
+el [Manual-Latino](https://github.com/lenguaje-latino/Manual-Latino) están
+implementadas y cubiertas por pruebas E2E, incluyendo tipado gradual
+opcional y Programación Orientada a Objetos (clases, herencia, interfaces,
+estructuras). Un segundo backend basado en LLVM está en desarrollo activo —
+ver [Backend LLVM](#backend-llvm-en-desarrollo) más abajo.
 
 | Fase | Descripción | PR |
 |------|-------------|-----|
@@ -31,6 +35,10 @@ están implementadas y cubiertas por pruebas E2E.
 | 18   | Operador RegEx (`~=`) | #18 |
 | 19   | Gestión de memoria por conteo de referencias | #19 |
 | 20   | Suites de prueba de cobertura completa | #20 |
+| 21–26 | 26 funciones nuevas en librerías estándar | #21, #22 |
+| 27   | Tipado gradual opcional (`var`/`const`, anotaciones de tipo) | #24, #25 |
+| 28   | Programación Orientada a Objetos (clases, herencia, interfaces, estructuras) | #26 |
+| 29   | Backend LLVM — en desarrollo, ver abajo (L0-L1 y L2 completas) | #27, #28 |
 
 ## Estrategia
 
@@ -153,6 +161,36 @@ escribir(sis.operativo())                 # "windows" | "linux" | "macos"
 archivo.escribir("out.txt", "contenido")
 ```
 
+### Programación Orientada a Objetos
+
+```latino
+clase Animal
+    publico nombre: cadena
+
+    funcion Animal(nombre: cadena)
+        este.nombre = nombre
+    fin
+
+    publico funcion hablar(): cadena
+        retornar este.nombre .. " hace un sonido"
+    fin
+fin
+
+clase Perro extiende Animal
+    publico funcion hablar(): cadena sobreescribir
+        retornar este.nombre .. " dice: ¡Guau!"
+    fin
+fin
+
+p = nuevo Perro("Rex")
+escribir(p.hablar())      # Rex dice: ¡Guau!
+escribir(p es Animal)     # cierto
+```
+
+También hay soporte para `interfaz` (implementación múltiple) y
+`estructura` (tipos valor). Detalle completo en
+[input/PLAN_POO.md](input/PLAN_POO.md).
+
 ### Operadores
 
 ```latino
@@ -172,17 +210,31 @@ ctest --output-on-failure
 ```
 
 Las pruebas incluyen:
-- Unitarias para lexer, AST, parser, análisis semántico y generación de código.
-- E2E para cada programa de `ejemplos/` (compila, ejecuta y compara salida).
+- Unitarias para lexer, AST, parser, análisis semántico y generación de código
+  (incluye tipado gradual y POO: `test_tipado`, `test_poo`).
+- E2E para cada programa de `ejemplos/` (compila, ejecuta y compara salida),
+  incluyendo `test_poo_e2e`.
 - Suites de cobertura por librería: `test_lib_cadena`, `test_lib_lista`, `test_lib_dic`,
   `test_lib_mate`, `test_lib_sis`, `test_lib_archivo`, `test_funciones_base`, `test_incluir`.
+- `test_codegen_llvm`: mecanismo de ABI del backend LLVM (Fase L2, solo se
+  registra si el build tiene `LATINO_LLVM_BACKEND` habilitado).
 
 ## Backend LLVM (en desarrollo)
 
-Hay un plan en marcha para agregar un segundo backend de generación de código
-basado en LLVM (`--backend=llvm`), que convivirá con el backend actual de C
-(`--backend=c`, que sigue siendo el predeterminado). Detalle completo en
+Segundo backend de generación de código basado en LLVM (`--backend=llvm`),
+que convive con el backend actual de C (`--backend=c`, que sigue siendo el
+predeterminado). Plan completo con las 13 fases (L0-L13) en
 [input/PLAN_LLVM.md](input/PLAN_LLVM.md).
+
+**Estado:** L0 y L1 completas y verificadas con LLVM real (plumbing de
+build + enlace: `latino --backend llvm ejemplos/hola.lat` produce un
+ejecutable funcional). L2 completa y verificada: el layout real de
+`LatValor` y las firmas del runtime se derivan de IR generado por Clang
+(`tools/abi_probe.c` → `generated/runtime_abi.ll`) en vez de reconstruirse a
+mano — necesario porque, en Windows x64/MSVC, `LatValor` se pasa/retorna por
+puntero, no por valor. Los recorridos reales del AST (literales, control de
+flujo, funciones, FFI, POO) llegan en las fases L3-L8, todavía no
+implementadas.
 
 **Versión objetivo: LLVM 18.x.** Este backend usa la API C++ nativa de LLVM
 (`IRBuilder`), por lo que las bibliotecas de LLVM deben compilarse con el

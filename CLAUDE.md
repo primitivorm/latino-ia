@@ -57,6 +57,9 @@ Suites de prueba disponibles:
 | `test_ast` | Nodos del AST |
 | `test_semantico` | Análisis semántico |
 | `test_codegen` | Generación de código C |
+| `test_tipado` | Tipado gradual opcional (Fase 27) |
+| `test_poo` | Parser/semántico/codegen de POO: clases, herencia, interfaces (Fase 28) |
+| `test_poo_e2e` | Programas POO completos (Fase 28) |
 | `test_e2e` | Programas completos en `ejemplos/` |
 | `test_funciones_base` | Funciones built-in (`tipo`, `acadena`, etc.) |
 | `test_incluir` | Sistema de módulos |
@@ -66,6 +69,7 @@ Suites de prueba disponibles:
 | `test_lib_mate` | Librería `mate` |
 | `test_lib_sis` | Librería `sis` |
 | `test_lib_archivo` | Librería `archivo` |
+| `test_codegen_llvm` | ABI del backend LLVM (Fase L2 de `PLAN_LLVM.md`); solo se registra si `LATINO_LLVM_BACKEND` está habilitado |
 
 ## Convenciones del código
 
@@ -163,6 +167,20 @@ de C++ (API C++ nativa de LLVM, no la API-C):
 | Windows | `.\install_llvm.ps1` (ver aviso de espacio en disco en README.md) |
 | Linux | `apt install llvm-18-dev` (o el paquete equivalente de la distro) |
 | macOS | `brew install llvm@18` (apuntar `CMAKE_PREFIX_PATH`) |
+
+**Estado (fases de `PLAN_LLVM.md`):** L0-L1 completas (plumbing de build +
+enlace end-to-end, verificado con LLVM real). L2 completa (mecanismo de
+ABI): `tools/abi_probe.c` fuerza a Clang a emitir `declare` de todo el
+runtime; el `add_custom_command` de `CMakeLists.txt` genera
+`generated/runtime_abi.ll` en cada build; `RuntimeAbiLLVM`
+(`include/runtime_abi_llvm.h` / `src/runtime_abi_llvm.cpp`) lo importa y
+expone `%struct.LatValor` y las firmas reales del runtime a
+`GeneradorLLVM`, en vez de reconstruirlas a mano. Hallazgo clave: en
+Windows x64/MSVC, `LatValor` se pasa/retorna **por puntero** (`sret` +
+`ptr`), nunca por valor — cualquier codegen futuro (L3+) debe modelar cada
+valor Latino como un puntero a una celda `alloca %LatValor`, nunca como un
+struct LLVM por registro. L3-L13 (recorrido real del AST, control de flujo,
+funciones, FFI, POO, driver, JIT, tests, paridad) siguen pendientes.
 
 ## Ramas y PRs
 
