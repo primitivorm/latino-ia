@@ -52,7 +52,7 @@ El código C generado enlaza con `runtime/latino.c` y las librerías de
 | `runtime/libs/`   | Librerías estándar en C: `cadena`, `lista`, `dic`, `mate`, `sis`, `archivo`, `paquete`. |
 | `ejemplos/`       | Programas `.lat` de ejemplo con anotaciones `#salida:` para pruebas E2E. |
 | `tests/`          | Suites de prueba unitarias y E2E (CTest). |
-| `input/`          | Plan de trabajo ([PLAN_BASE.md](input/PLAN_BASE.md), [PLAN_LIBS.md](input/PLAN_LIBS.md)). |
+| `input/`          | Planes de trabajo ([PLAN_BASE.md](input/PLAN_BASE.md), [PLAN_LIBS.md](input/PLAN_LIBS.md), [PLAN_POO.md](input/PLAN_POO.md), [PLAN_LLVM.md](input/PLAN_LLVM.md)). |
 | `SINTAXIS.md`     | Especificación completa del lenguaje (fuente de verdad). |
 
 ## Construir
@@ -176,3 +176,41 @@ Las pruebas incluyen:
 - E2E para cada programa de `ejemplos/` (compila, ejecuta y compara salida).
 - Suites de cobertura por librería: `test_lib_cadena`, `test_lib_lista`, `test_lib_dic`,
   `test_lib_mate`, `test_lib_sis`, `test_lib_archivo`, `test_funciones_base`, `test_incluir`.
+
+## Backend LLVM (en desarrollo)
+
+Hay un plan en marcha para agregar un segundo backend de generación de código
+basado en LLVM (`--backend=llvm`), que convivirá con el backend actual de C
+(`--backend=c`, que sigue siendo el predeterminado). Detalle completo en
+[input/PLAN_LLVM.md](input/PLAN_LLVM.md).
+
+**Versión objetivo: LLVM 18.x.** Este backend usa la API C++ nativa de LLVM
+(`IRBuilder`), por lo que las bibliotecas de LLVM deben compilarse con el
+mismo toolchain que compila `latino.exe` para evitar problemas de ABI de
+C++. Instalación recomendada por plataforma:
+
+| Plataforma | Cómo obtener LLVM 18.x |
+|---|---|
+| Windows | `.\install_llvm.ps1` (clona/arranca vcpkg si hace falta e instala `llvm[core,clang,target-x86]:x64-windows-release`; el triplet `-release` evita compilar también la variante Debug) |
+| Linux | Paquete `llvm-18-dev` de la distro (ej. `apt install llvm-18-dev`) |
+| macOS | `brew install llvm@18` (Homebrew no lo pone en el `PATH` por defecto; hay que apuntar `CMAKE_PREFIX_PATH`) |
+
+No se recomienda usar binarios de LLVM prebuilt de fuentes genéricas
+(distintas al toolchain del proyecto) — ver "Retos técnicos" en
+[input/PLAN_LLVM.md](input/PLAN_LLVM.md) para el razonamiento completo.
+
+**Aviso de espacio en disco (Windows/vcpkg):** el feature set completo por
+defecto del puerto `llvm` de vcpkg (`clang,default-targets,enable-bindings,
+enable-terminfo,enable-zlib,enable-zstd,lld,tools`) construyendo además la
+variante Debug puede consumir más de 100 GB en `vcpkg/buildtrees` antes de
+fallar por falta de espacio. El comando de arriba (features acotadas +
+triplet `-release`) usó ~24 GB y tardó ~2.1 h en esta máquina.
+
+Para configurar el proyecto con esa instalación:
+```powershell
+cmake -B build-llvm -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-windows-release
+cmake --build build-llvm --config Release
+```
+(`CMAKE_TOOLCHAIN_FILE` debe fijarse en la primera configuración de un
+directorio de build — no se puede inyectar en un `build/` ya configurado sin
+LLVM, de ahí el directorio separado `build-llvm`.)

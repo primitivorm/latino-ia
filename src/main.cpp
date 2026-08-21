@@ -12,6 +12,13 @@
 #include "lexer.h"
 #include "parser.h"
 
+#ifdef LATINO_CON_LLVM
+#include <llvm/IR/Module.h>
+
+#include "compiler_llvm.h"
+#include "invocador_llvm.h"
+#endif
+
 namespace fs = std::filesystem;
 
 // ---------------------------------------------------------------------------
@@ -88,13 +95,17 @@ static void uso() {
         "  -o <ruta>          ruta de salida (ejecutable, o el .c con --solo-c)\n"
         "  --solo-c           emite el código C (a -o si se indica, si no a stdout)\n"
         "  --ast              vuelca el AST (depuración)\n"
-        "  --runtime <dir>    carpeta del runtime (latino.h/latino.c)\n";
+        "  --runtime <dir>    carpeta del runtime (latino.h/latino.c)\n"
+        "  --backend <c|llvm> backend de generación de código (por defecto: c)\n"
+        "                     'llvm' requiere un build con LATINO_LLVM_BACKEND\n"
+        "                     (ver input/PLAN_LLVM.md)\n";
 }
 
 int main(int argc, char** argv) {
     std::string ruta;
     std::string salida;
     std::string runtimeDir;
+    std::string backend = "c";
     bool modoAst = false;
     bool soloC = false;
 
@@ -110,6 +121,13 @@ int main(int argc, char** argv) {
         } else if (arg == "--runtime") {
             if (i + 1 >= argc) { uso(); return 2; }
             runtimeDir = argv[++i];
+        } else if (arg == "--backend") {
+            if (i + 1 >= argc) { uso(); return 2; }
+            backend = argv[++i];
+            if (backend != "c" && backend != "llvm") {
+                std::cerr << "Backend desconocido: " << backend << " (use 'c' o 'llvm')\n";
+                return 2;
+            }
         } else if (!arg.empty() && arg[0] == '-') {
             std::cerr << "Opción desconocida: " << arg << std::endl;
             uso();
@@ -160,6 +178,47 @@ int main(int argc, char** argv) {
         ImpresorAST impresor(std::cout);
         impresor.imprimir(*programa);
         return 0;
+    }
+
+    if (backend == "llvm") {
+#ifdef LATINO_CON_LLVM
+        if (soloC) {
+            std::cerr << "--solo-c no es válido con --backend llvm "
+                         "(--solo-ir llega en la Fase L9 de PLAN_LLVM.md)\n";
+            return 2;
+        }
+        if (salida.empty()) {
+            fs::path p(ruta);
+            salida = p.stem().string();
+#ifdef _WIN32
+            salida += ".exe";
+#endif
+        }
+        std::string salidaAbs = fs::absolute(salida).string();
+
+        // Fase L1 (ver input/PLAN_LLVM.md): GeneradorLLVM todavía no recorre
+        // el AST real, solo valida el plumbing de compilación + enlace.
+        GeneradorLLVM generadorLlvm;
+        std::unique_ptr<llvm::Module> modulo = generadorLlvm.generar(*programa);
+        if (!modulo) {
+            std::cerr << "Error: el generador LLVM produjo un módulo inválido." << std::endl;
+            return 1;
+        }
+
+        OpcionesLLVM opcLlvm;
+        opcLlvm.runtimeDir = runtimeDir;
+        int codigo = compilarLLVMAEjecutable(*modulo, salidaAbs, opcLlvm);
+        if (codigo != 0)
+            return 1;
+
+        std::cerr << "Ejecutable generado (backend LLVM): " << salida << std::endl;
+        return 0;
+#else
+        std::cerr << "Este build de latino no incluye el backend LLVM "
+                     "(LATINO_LLVM_BACKEND estaba OFF al configurar CMake). "
+                     "Ver input/PLAN_LLVM.md para instalar LLVM 17.x.\n";
+        return 2;
+#endif
     }
 
     // Generación de código C.

@@ -25,7 +25,7 @@ El código C generado enlaza con `runtime/latino.c` y las librerías de `runtime
 | `runtime/libs/` | Librerías estándar en C: `cadena`, `lista`, `dic`, `mate`, `sis`, `archivo`, `paquete` |
 | `ejemplos/` | Programas `.lat` con anotación `#salida:` para pruebas E2E |
 | `tests/` | Suites de prueba unitarias y E2E (CTest) |
-| `input/` | Planes de trabajo (`PLAN_BASE.md`, `PLAN_LIBS.md`) |
+| `input/` | Planes de trabajo (`PLAN_BASE.md`, `PLAN_LIBS.md`, `PLAN_POO.md`, `PLAN_LLVM.md`) |
 
 ## Cómo construir
 
@@ -149,6 +149,20 @@ cadena.mayusculas("hola")   # "HOLA"
 "~="   # coincidencia con RegEx
 "?"    # ternario: cond ? a : b
 ```
+
+## Backend LLVM (en desarrollo)
+
+Plan completo en [input/PLAN_LLVM.md](input/PLAN_LLVM.md). Agrega un segundo
+backend (`--backend=llvm`) que convive con el actual de C (`--backend=c`,
+sigue siendo el predeterminado). Versión objetivo: **LLVM 18.x**, obtenido
+con el mismo toolchain que compila `latino.exe` para evitar problemas de ABI
+de C++ (API C++ nativa de LLVM, no la API-C):
+
+| Plataforma | Cómo obtener LLVM 18.x |
+|---|---|
+| Windows | `.\install_llvm.ps1` (ver aviso de espacio en disco en README.md) |
+| Linux | `apt install llvm-18-dev` (o el paquete equivalente de la distro) |
+| macOS | `brew install llvm@18` (apuntar `CMAKE_PREFIX_PATH`) |
 
 ## Ramas y PRs
 
