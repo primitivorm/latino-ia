@@ -94,6 +94,8 @@ add_test(NAME test_poo COMMAND test_poo)
 if(LATINO_LLVM_BACKEND)
   add_executable(test_codegen_llvm
     test_codegen_llvm.cpp
+    ${CMAKE_SOURCE_DIR}/src/ast.cpp
+    ${CMAKE_SOURCE_DIR}/src/compiler_llvm.cpp
     ${CMAKE_SOURCE_DIR}/src/runtime_abi_llvm.cpp
   )
   target_include_directories(test_codegen_llvm PRIVATE
