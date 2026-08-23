@@ -394,20 +394,57 @@ para el verificador de LLVM. Suite completa (`ctest -C Release`) sigue
 pasando con `LATINO_LLVM_BACKEND=ON` (43 suites existentes + la nueva
 `test_codegen_llvm`).
 
-### Fase L3 — Tipos, literales y esqueleto de expresión
+### Fase L3 — Tipos, literales y esqueleto de expresión ✅ verificada con LLVM real
 
-**Archivos:** `src/compiler_llvm.cpp`, `tests/test_codegen_llvm.cpp` (nuevo).
+**Archivos:** `include/compiler_llvm.h` / `src/compiler_llvm.cpp` (nuevo método
+`GeneradorLLVM::genExpr`), `tests/test_codegen_llvm.cpp` (ampliado con las
+pruebas de esta fase; ya existía desde la Fase L2), `tests/CMakeLists.txt`
+(agrega `src/ast.cpp` y `src/compiler_llvm.cpp` a las fuentes del target).
 
-- `LitNumero`/`LitCadena`/`LitLogico`/`LitNulo` → `CreateCall` a
-  `lat_numero`/`lat_cadena`/`lat_logico`/`lat_nulo`, mapeo 1:1 con lo que hoy
-  hace `GeneradorC::genExpr`.
-- `Identificador` → `CreateLoad` desde el `alloca` correspondiente (la
-  infraestructura de `alloca`s llega en la Fase L4; aquí se asume ya
-  disponible vía una tabla `nombre → AllocaInst*` del ámbito de función
-  actual).
-- Nuevo arnés de test: `IRPrinter`/`Module::print` a `std::string` +
-  comprobación de subcadenas (equivalente a `contiene(...)` de
-  `test_codegen.cpp`), más `verifyModule` en cada caso.
+- [x] `LitNumero`/`LitCadena`/`LitLogico`/`LitNulo` → `CreateCall` a
+  `lat_numero`/`lat_cadena`/`lat_logico`/`lat_nulo` (declaradas vía
+  `RuntimeAbiLLVM::declarar`, Fase L2), mapeo 1:1 con lo que hoy hace
+  `GeneradorC::genExpr`.
+- [x] `Identificador` → devuelve directamente el puntero de su celda ya
+  declarada (tabla `nombre → llvm::Value*` que arma quien llama; la
+  infraestructura real de declaración de variables llega en la Fase L4).
+- [x] Arnés de test ampliado en `test_codegen_llvm.cpp`: `Module::print` a
+  `std::string` + comprobación de subcadenas (equivalente a `contiene(...)`
+  de `test_codegen.cpp`), más `verifyModule` en cada caso.
+
+**Decisión de esta fase — representación uniforme por puntero (ajusta la
+redacción original "`Identificador` → `CreateLoad`"):** el texto original de
+esta fase asumía que un identificador se lee con `CreateLoad` (produciendo
+un valor `%struct.LatValor` de primera clase, "por registro"). Se optó en
+cambio por que **toda** "LatValue" que maneja `GeneradorLLVM` sea siempre un
+`llvm::Value*` que apunta a una celda `%struct.LatValor` -- nunca un valor
+cargado por registro -- y que `genExpr` de un identificador devuelva el
+puntero de su celda tal cual, sin `CreateLoad`. Motivo: el hallazgo de ABI
+de la Fase L2 (en Windows x64/MSVC, `LatValor` se pasa/retorna **siempre**
+por puntero al cruzar hacia una función del runtime real) y el hecho de que
+las funciones/métodos de usuario de la Fase L8 usarán la misma firma
+uniforme por puntero (`%LatValor* @lat_fn_<Clase>_<metodo>(i32, %LatValor*)`)
+hacen que cargar a un valor por registro solo para volver a escribirlo a una
+celda temporal antes de cada llamada al runtime sea trabajo puro sin
+beneficio -- mantener el puntero de punta a punta es más simple y evita esa
+ida y vuelta en cada expresión.
+
+**Criterio de aceptación — cumplido:** cinco pruebas nuevas
+(`prueba_l3_lit_numero`, `_lit_cadena`, `_lit_logico`, `_lit_nulo`,
+`_identificador`) construyen cada una un módulo aislado, invocan
+`GeneradorLLVM::genExpr` sobre un nodo de AST construido directamente (sin
+pasar por el parser), verifican por subcadena de IR que se emitió la llamada
+esperada (`call void @lat_numero(`, el literal `c"hola\00"` incrustado,
+`i32 1` para `cierto`, etc.) y que `llvm::verifyModule` pasa. La prueba de
+`Identificador` confirma explícitamente que se devuelve el mismo puntero de
+la celda ya declarada, sin `load` de por medio. Suite completa (`ctest -C
+Release`) sigue pasando con `LATINO_LLVM_BACKEND=ON` (44 suites, sin
+regresiones); `test_codegen_llvm` pasa con 26 comprobaciones (las 3 de L2 +
+las nuevas de L3). Además, `latino --backend llvm ejemplos/hola.lat`
+(todavía el esqueleto "hola mundo" de la Fase L1, sin tocar) sigue
+funcionando de punta a punta -- confirma que construir `RuntimeAbiLLVM`
+dentro del constructor de `GeneradorLLVM` (nuevo en esta fase) no rompe el
+camino existente.
 
 ### Fase L4 — Variables locales, asignación, expresiones compuestas
 
