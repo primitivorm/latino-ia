@@ -20,3 +20,7 @@
 /bin/
 /lib/
 /obj/
+
+# Claude
+.claude/
+_bmad/
