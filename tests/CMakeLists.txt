@@ -53,6 +53,8 @@ add_executable(test_codegen
   ${CMAKE_SOURCE_DIR}/src/parser.cpp
   ${CMAKE_SOURCE_DIR}/src/ast.cpp
   ${CMAKE_SOURCE_DIR}/src/compiler.cpp
+  ${CMAKE_SOURCE_DIR}/src/fn_binaria.cpp
+  ${CMAKE_SOURCE_DIR}/src/recolector_variables.cpp
 )
 target_include_directories(test_codegen PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
@@ -67,6 +69,8 @@ add_executable(test_tipado
   ${CMAKE_SOURCE_DIR}/src/ast_impresor.cpp
   ${CMAKE_SOURCE_DIR}/src/analizador_semantico.cpp
   ${CMAKE_SOURCE_DIR}/src/compiler.cpp
+  ${CMAKE_SOURCE_DIR}/src/fn_binaria.cpp
+  ${CMAKE_SOURCE_DIR}/src/recolector_variables.cpp
 )
 target_include_directories(test_tipado PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
@@ -82,6 +86,8 @@ add_executable(test_poo
   ${CMAKE_SOURCE_DIR}/src/ast_impresor.cpp
   ${CMAKE_SOURCE_DIR}/src/analizador_semantico.cpp
   ${CMAKE_SOURCE_DIR}/src/compiler.cpp
+  ${CMAKE_SOURCE_DIR}/src/fn_binaria.cpp
+  ${CMAKE_SOURCE_DIR}/src/recolector_variables.cpp
 )
 target_include_directories(test_poo PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
@@ -97,6 +103,8 @@ if(LATINO_LLVM_BACKEND)
     ${CMAKE_SOURCE_DIR}/src/ast.cpp
     ${CMAKE_SOURCE_DIR}/src/compiler_llvm.cpp
     ${CMAKE_SOURCE_DIR}/src/runtime_abi_llvm.cpp
+    ${CMAKE_SOURCE_DIR}/src/fn_binaria.cpp
+    ${CMAKE_SOURCE_DIR}/src/recolector_variables.cpp
   )
   target_include_directories(test_codegen_llvm PRIVATE
     ${CMAKE_SOURCE_DIR}/include

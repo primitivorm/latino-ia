@@ -1,9 +1,9 @@
-// test_codegen_llvm.cpp — Fases L2 y L3 de input/PLAN_LLVM.md.
+// test_codegen_llvm.cpp — Fases L2, L3 y L4 de input/PLAN_LLVM.md.
 //
 // Solo se compila/registra cuando LATINO_LLVM_BACKEND está habilitado (ver
 // tests/CMakeLists.txt). No compara texto de C como test_codegen.cpp: valida
 // el mecanismo de ABI (Fase L2, Decisión 2 del plan) y el esqueleto de
-// expresión de GeneradorLLVM (Fase L3) --
+// expresión de GeneradorLLVM (Fases L3-L4) --
 //   1. (L2) RuntimeAbiLLVM importa generated/runtime_abi.ll (generado por
 //      Clang a partir de tools/abi_probe.c) sin errores.
 //   2. (L2) Un módulo que declara funciones del runtime vía RuntimeAbiLLVM y
@@ -17,6 +17,11 @@
 //      Identificador a el puntero de su celda ya declarada -- comprobado
 //      por subcadena de IR (equivalente a `contiene(...)` de
 //      test_codegen.cpp) + `verifyModule` en cada caso.
+//   5. (L4) genExpr traduce Binaria/Unaria/PostOperador/Ternaria/
+//      AccesoIndice/AccesoMiembro/ListaLiteral/DiccionarioLiteral/VarArgs;
+//      declararLocales implementa el hoisting total (alloca en el entry
+//      block + lat_nulo()); genAsignacion traduce la sentencia de
+//      asignación simple/múltiple/tipada.
 
 #include <iostream>
 #include <string>
@@ -34,6 +39,7 @@
 #include "ast.h"
 #include "compiler_llvm.h"
 #include "config.h"
+#include "recolector_variables.h"
 #include "runtime_abi_llvm.h"
 
 extern "C" {
@@ -237,6 +243,312 @@ static void prueba_l3_identificador(GeneradorLLVM& gen) {
     verificarModulo("l3_identificador", modulo);
 }
 
+// --- Fase L4: expresiones compuestas, hoisting y asignación ---------------
+
+static ExprPtr litNumero(double v) {
+    auto n = std::make_unique<LitNumero>();
+    n->valor = v;
+    return n;
+}
+
+static ExprPtr identificador(const std::string& nombre) {
+    auto id = std::make_unique<Identificador>();
+    id->nombre = nombre;
+    return id;
+}
+
+static void prueba_l4_binaria(GeneradorLLVM& gen) {
+    llvm::Module modulo("l4_binaria", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    Binaria bin;
+    bin.op = "+";
+    bin.izq = litNumero(2);
+    bin.der = litNumero(3);
+    llvm::Value* celda = gen.genExpr(bin, builder, modulo);
+    CHECK(celda != nullptr, "Binaria debe generar un valor");
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "call void @lat_sumar("), "'+' debe llamar a lat_sumar\n" << ir);
+    verificarModulo("l4_binaria", modulo);
+}
+
+static void prueba_l4_binaria_op_desconocido(GeneradorLLVM& gen) {
+    llvm::Module modulo("l4_binaria_desconocido", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    Binaria bin;
+    bin.op = "###";
+    bin.izq = litNumero(1);
+    bin.der = litNumero(1);
+    CHECK(gen.genExpr(bin, builder, modulo) == nullptr,
+          "un operador binario desconocido debe devolver nullptr");
+}
+
+static void prueba_l4_unaria(GeneradorLLVM& gen) {
+    llvm::Module modulo("l4_unaria", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    Unaria neg;
+    neg.op = "-";
+    neg.operando = litNumero(5);
+    CHECK(gen.genExpr(neg, builder, modulo) != nullptr, "Unaria debe generar un valor");
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "call void @lat_negar("), "'-x' debe llamar a lat_negar\n" << ir);
+    verificarModulo("l4_unaria", modulo);
+}
+
+static void prueba_l4_post_operador(GeneradorLLVM& gen) {
+    llvm::Module modulo("l4_post_operador", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    llvm::Value* celdaX = builder.CreateAlloca(gen.abi().tipoLatValor(), nullptr, "v_x");
+    std::unordered_map<std::string, llvm::Value*> variables{{"x", celdaX}};
+
+    PostOperador incr;
+    incr.op = "++";
+    incr.operando = identificador("x");
+    llvm::Value* resultado = gen.genExpr(incr, builder, modulo, variables);
+    CHECK(resultado == celdaX,
+          "i++ debe devolver la MISMA celda de la variable (ya actualizada), no una copia");
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "call void @lat_sumar("), "i++ debe llamar a lat_sumar\n" << ir);
+    CHECK(contiene(ir, "call void @lat_numero("), "i++ debe construir el literal 1\n" << ir);
+    verificarModulo("l4_post_operador", modulo);
+}
+
+static void prueba_l4_ternaria(GeneradorLLVM& gen) {
+    llvm::Module modulo("l4_ternaria", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    Ternaria tern;
+    tern.condicion = std::make_unique<LitLogico>();
+    static_cast<LitLogico&>(*tern.condicion).valor = true;
+    tern.siCierto = litNumero(1);
+    tern.siFalso = litNumero(2);
+    llvm::Value* resultado = gen.genExpr(tern, builder, modulo);
+    CHECK(resultado != nullptr, "Ternaria debe generar un valor");
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "call i32 @lat_es_verdadero("), "debe evaluar la condicion\n" << ir);
+    CHECK(contiene(ir, "tern_cierto:") && contiene(ir, "tern_falso:") && contiene(ir, "tern_fin:"),
+          "debe emitir basic blocks separados por rama (evaluacion perezosa)\n" << ir);
+    verificarModulo("l4_ternaria", modulo);
+}
+
+static void prueba_l4_acceso_indice(GeneradorLLVM& gen) {
+    llvm::Module modulo("l4_acceso_indice", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    llvm::Value* celdaLista = builder.CreateAlloca(gen.abi().tipoLatValor(), nullptr, "v_lista");
+    std::unordered_map<std::string, llvm::Value*> variables{{"lista", celdaLista}};
+
+    AccesoIndice acceso;
+    acceso.objeto = identificador("lista");
+    acceso.indice = litNumero(0);
+    CHECK(gen.genExpr(acceso, builder, modulo, variables) != nullptr,
+          "AccesoIndice debe generar un valor");
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "call void @lat_obtener_indice("),
+          "objeto[indice] debe llamar a lat_obtener_indice\n" << ir);
+    verificarModulo("l4_acceso_indice", modulo);
+}
+
+static void prueba_l4_acceso_miembro(GeneradorLLVM& gen) {
+    llvm::Module modulo("l4_acceso_miembro", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    llvm::Value* celdaObj = builder.CreateAlloca(gen.abi().tipoLatValor(), nullptr, "v_obj");
+    std::unordered_map<std::string, llvm::Value*> variables{{"obj", celdaObj}};
+
+    AccesoMiembro acceso;
+    acceso.objeto = identificador("obj");
+    acceso.miembro = "campo";
+    CHECK(gen.genExpr(acceso, builder, modulo, variables) != nullptr,
+          "AccesoMiembro debe generar un valor");
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "c\"campo\\00\""), "debe incrustar el nombre del miembro\n" << ir);
+    CHECK(contiene(ir, "call void @lat_cadena("), "debe construir la clave como cadena\n" << ir);
+    CHECK(contiene(ir, "call void @lat_obtener_indice("),
+          "objeto.miembro debe llamar a lat_obtener_indice\n" << ir);
+    verificarModulo("l4_acceso_miembro", modulo);
+}
+
+static void prueba_l4_lista_literal(GeneradorLLVM& gen) {
+    llvm::Module modulo("l4_lista_literal", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    ListaLiteral lista;
+    lista.elementos.push_back(litNumero(1));
+    lista.elementos.push_back(litNumero(2));
+    CHECK(gen.genExpr(lista, builder, modulo) != nullptr, "ListaLiteral debe generar un valor");
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "@lat_lista_de("), "[a, b] debe llamar a lat_lista_de\n" << ir);
+    CHECK(contiene(ir, "i64 2"), "debe pasar el conteo de elementos\n" << ir);
+    verificarModulo("l4_lista_literal", modulo);
+}
+
+static void prueba_l4_lista_literal_resto(GeneradorLLVM& gen) {
+    llvm::Module modulo("l4_lista_literal_resto", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    llvm::Value* celdaResto = builder.CreateAlloca(gen.abi().tipoLatValor(), nullptr, "lat_resto");
+    std::unordered_map<std::string, llvm::Value*> variables{{"lat_resto", celdaResto}};
+
+    ListaLiteral lista;
+    lista.elementos.push_back(std::make_unique<VarArgs>());
+    llvm::Value* resultado = gen.genExpr(lista, builder, modulo, variables);
+    CHECK(resultado == celdaResto,
+          "[...] debe devolver directamente la celda de 'lat_resto', sin llamar a lat_lista_de");
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(!contiene(ir, "lat_lista_de"), "[...] no debe llamar a lat_lista_de\n" << ir);
+    verificarModulo("l4_lista_literal_resto", modulo);
+}
+
+static void prueba_l4_dic_literal(GeneradorLLVM& gen) {
+    llvm::Module modulo("l4_dic_literal", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    DiccionarioLiteral dic;
+    ParDic par;
+    par.clave = std::make_unique<LitCadena>();
+    static_cast<LitCadena&>(*par.clave).valor = "a";
+    par.valor = litNumero(1);
+    dic.pares.push_back(std::move(par));
+    CHECK(gen.genExpr(dic, builder, modulo) != nullptr, "DiccionarioLiteral debe generar un valor");
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "@lat_dic_de("), "{a: 1} debe llamar a lat_dic_de\n" << ir);
+    CHECK(contiene(ir, "i64 1"), "debe pasar el conteo de pares\n" << ir);
+    verificarModulo("l4_dic_literal", modulo);
+}
+
+static void prueba_l4_declarar_locales(GeneradorLLVM& gen) {
+    llvm::Module modulo("l4_declarar_locales", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    auto asign = std::make_unique<Asignacion>();
+    asign->destinos.push_back(identificador("x"));
+    asign->valores.push_back(litNumero(1));
+    ListaSent cuerpo;
+    cuerpo.push_back(std::move(asign));
+
+    std::set<std::string> nombres;
+    recolectarVariables(cuerpo, nombres, {});
+    CHECK(nombres.size() == 1 && nombres.count("x") == 1,
+          "recolectarVariables debe encontrar 'x' en el cuerpo");
+
+    auto variables = gen.declararLocales(nombres, builder, modulo);
+    CHECK(variables.count("x") == 1, "declararLocales debe declarar una celda para 'x'");
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "alloca %struct.LatValor"), "debe emitir un alloca de %struct.LatValor\n" << ir);
+    CHECK(contiene(ir, "call void @lat_nulo("), "debe inicializar la celda con lat_nulo()\n" << ir);
+    verificarModulo("l4_declarar_locales", modulo);
+}
+
+static void prueba_l4_asignacion_simple(GeneradorLLVM& gen) {
+    llvm::Module modulo("l4_asignacion_simple", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    llvm::Value* celdaX = builder.CreateAlloca(gen.abi().tipoLatValor(), nullptr, "v_x");
+    std::unordered_map<std::string, llvm::Value*> variables{{"x", celdaX}};
+
+    Asignacion asign;
+    asign.destinos.push_back(identificador("x"));
+    asign.valores.push_back(litNumero(42));
+    gen.genAsignacion(asign, builder, modulo, variables);
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "call void @lat_numero("), "debe evaluar el literal 42\n" << ir);
+    CHECK(contiene(ir, "store %struct.LatValor"), "debe copiar el valor a la celda de 'x'\n" << ir);
+    verificarModulo("l4_asignacion_simple", modulo);
+}
+
+static void prueba_l4_asignacion_tipada(GeneradorLLVM& gen) {
+    llvm::Module modulo("l4_asignacion_tipada", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    llvm::Value* celdaX = builder.CreateAlloca(gen.abi().tipoLatValor(), nullptr, "v_x");
+    std::unordered_map<std::string, llvm::Value*> variables{{"x", celdaX}};
+
+    Asignacion asign;
+    asign.linea = 7;
+    asign.destinos.push_back(identificador("x"));
+    asign.valores.push_back(litNumero(5));
+    asign.tiposDestino.push_back(TipoAnotado::Numero);
+    gen.genAsignacion(asign, builder, modulo, variables);
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "call void @lat_verificar_tipo("),
+          "una asignacion con tipo anotado debe llamar a lat_verificar_tipo\n" << ir);
+    CHECK(contiene(ir, "i32 " + std::to_string(static_cast<int>(LAT_NUMERO))),
+          "debe pasar LAT_NUMERO como tipo esperado\n" << ir);
+    CHECK(contiene(ir, "i32 7"), "debe pasar el numero de linea\n" << ir);
+    verificarModulo("l4_asignacion_tipada", modulo);
+}
+
+static void prueba_l4_asignacion_multiple(GeneradorLLVM& gen) {
+    llvm::Module modulo("l4_asignacion_multiple", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    llvm::Value* celdaA = builder.CreateAlloca(gen.abi().tipoLatValor(), nullptr, "v_a");
+    llvm::Value* celdaB = builder.CreateAlloca(gen.abi().tipoLatValor(), nullptr, "v_b");
+    std::unordered_map<std::string, llvm::Value*> variables{{"a", celdaA}, {"b", celdaB}};
+
+    // a, b = b, a  -- ejercita el orden "evaluar todo antes de asignar nada"
+    // (si se asignara en el mismo orden en que se evalua, la segunda
+    // asignacion leeria el valor ya sobrescrito de 'a').
+    Asignacion asign;
+    asign.destinos.push_back(identificador("a"));
+    asign.destinos.push_back(identificador("b"));
+    asign.valores.push_back(identificador("b"));
+    asign.valores.push_back(identificador("a"));
+    gen.genAsignacion(asign, builder, modulo, variables);
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    // LLVM sufija con "1" el segundo alloca que pide el mismo nombre base
+    // dentro de la misma función -- su presencia confirma que se crearon DOS
+    // celdas temporales distintas (una por valor) antes de asignar ningún
+    // destino, no una sola reutilizada.
+    CHECK(contiene(ir, "%asig_tmp =") && contiene(ir, "%asig_tmp1 ="),
+          "debe evaluar ambos valores a celdas temporales distintas antes de asignar\n" << ir);
+    verificarModulo("l4_asignacion_multiple", modulo);
+}
+
 int main() {
     CHECK(std::string(LATINO_RUNTIME_ABI_LL) != "",
           "config.h debe traer una ruta a runtime_abi.ll cuando LATINO_LLVM_BACKEND esta ON");
@@ -251,8 +563,23 @@ int main() {
     prueba_l3_lit_nulo(gen);
     prueba_l3_identificador(gen);
 
+    prueba_l4_binaria(gen);
+    prueba_l4_binaria_op_desconocido(gen);
+    prueba_l4_unaria(gen);
+    prueba_l4_post_operador(gen);
+    prueba_l4_ternaria(gen);
+    prueba_l4_acceso_indice(gen);
+    prueba_l4_acceso_miembro(gen);
+    prueba_l4_lista_literal(gen);
+    prueba_l4_lista_literal_resto(gen);
+    prueba_l4_dic_literal(gen);
+    prueba_l4_declarar_locales(gen);
+    prueba_l4_asignacion_simple(gen);
+    prueba_l4_asignacion_tipada(gen);
+    prueba_l4_asignacion_multiple(gen);
+
     std::cout << "\nComprobaciones: " << g_checks << "   Fallos: " << g_fallos << std::endl;
     if (g_fallos == 0)
-        std::cout << "TODAS LAS PRUEBAS DE CODEGEN LLVM (FASES L2-L3) PASARON." << std::endl;
+        std::cout << "TODAS LAS PRUEBAS DE CODEGEN LLVM (FASES L2-L4) PASARON." << std::endl;
     return g_fallos == 0 ? 0 : 1;
 }
