@@ -5,15 +5,11 @@
 // paralelo al backend de C existente (GeneradorC, ver compiler.h) — ninguno
 // de los dos reemplaza al otro; se seleccionan con --backend=c|llvm.
 //
-// Fase L4 (estado actual): `generar()` todavía emite el módulo "hola mundo"
-// de plumbing de la Fase L1 (el recorrido real de `programa` -- funciones,
-// control de flujo -- llega en las Fases L5-L9). Lo nuevo de esta fase:
-// `genExpr()` ahora traduce también operadores binarios/unario/postfijo,
-// ternario, acceso por índice/miembro y literales de lista/diccionario;
-// `declararLocales()` implementa el hoisting total de variables (alloca en
-// el entry block, inicializadas a lat_nulo(), ver Reto 3 y Reto 4 del plan);
-// `genAsignacion()` traduce la sentencia de asignación simple y múltiple,
-// incluida la verificación de tipo del tipado gradual opcional.
+// Fase L5 (estado actual): `generar()` todavía emite el módulo "hola mundo"
+// de plumbing de la Fase L1 (el recorrido real de `programa` -- funciones --
+// llega en las Fases L6-L9). Lo nuevo de esta fase: `genSentencia()`/
+// `genBloque()` traducen control de flujo (Si/Elegir/Mientras/Desde/Repetir/
+// Romper) y sentencias-expresión a basic blocks reales de LLVM.
 #ifndef COMPILER_LLVM_H
 #define COMPILER_LLVM_H
 
@@ -21,6 +17,7 @@
 #include <set>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include <llvm/IR/IRBuilder.h>
 
@@ -28,6 +25,7 @@
 #include "runtime_abi_llvm.h"
 
 namespace llvm {
+class BasicBlock;
 class LLVMContext;
 class Module;
 }  // namespace llvm
@@ -103,12 +101,69 @@ public:
     void genAsignacion(Asignacion& asign, llvm::IRBuilder<>& builder, llvm::Module& modulo,
                         const std::unordered_map<std::string, llvm::Value*>& variables);
 
+    // (Fase L5) Traduce una sentencia en el punto de inserción actual de
+    // 'builder': Asignacion (delega en genAsignacion), ExprSentencia, y
+    // control de flujo -- Si/osi/sino, Elegir, Mientras, Desde, Repetir,
+    // Romper. Cada construcción de control de flujo emite basic blocks
+    // reales (nunca los evita con trucos aritméticos) y deja 'builder'
+    // posicionado en un bloque nuevo, sin terminador, listo para que la
+    // sentencia siguiente continúe -- el mismo patrón que ya usan Ternaria
+    // (Fase L4) y genBloque (más abajo) para saber cuándo un bloque ya
+    // quedó terminado (p.ej. por un `romper` o, desde la Fase L6, un
+    // `retornar`) y no debe recibir más instrucciones.
+    //
+    // No maneja Retornar (Fase L6: depende de la convención de retorno de
+    // la función que contenga la sentencia, que todavía no existe) ni
+    // declaraciones de nivel superior (FuncionDef/ClaseDef/EstructuraDef/
+    // InterfazDef/Incluir/LlamadaBase -- Fases L6/L7/L8).
+    //
+    // `Elegir` se traduce como una cadena de comparaciones
+    // (`lat_igual`+`lat_es_verdadero`), nunca como `SwitchInst` nativo de
+    // LLVM: los valores de caso de Latino son expresiones dinámicas
+    // evaluadas en runtime, no enteros constantes de tiempo de compilación
+    // (Reto 8 del plan) -- usar `switch` cambiaría tanto la semántica como
+    // el orden de evaluación de efectos secundarios.
+    //
+    // `Romper` emite un salto al bloque de salida del bucle contenedor más
+    // interno (pila `pilaSalidasBucle_`, estado nuevo que no existe en
+    // GeneradorC porque ahí el propio `break;` de C ya resuelve esto). Si
+    // no hay bucle contenedor (no debería ocurrir: el analizador semántico
+    // ya rechaza un `romper` fuera de un bucle antes de llegar aquí), no
+    // emite nada.
+    void genSentencia(Sentencia& s, llvm::IRBuilder<>& builder, llvm::Module& modulo,
+                       const std::unordered_map<std::string, llvm::Value*>& variables);
+
+    // (Fase L5) Traduce cada sentencia de 'cuerpo' en orden, deteniéndose
+    // (sin traducir el resto) en cuanto el bloque de inserción actual ya
+    // tiene un terminador -- código muerto tras un `romper` (o, desde la
+    // Fase L6, un `retornar`), exactamente como ese código ya es
+    // inalcanzable en el `while`/`if` de C que emite GeneradorC, salvo que
+    // en LLVM IR insertar instrucciones después de un terminador en el
+    // mismo basic block es inválido (no solo muerto), así que hay que
+    // detenerse explícitamente en vez de dejar que "no importe".
+    void genBloque(const ListaSent& cuerpo, llvm::IRBuilder<>& builder, llvm::Module& modulo,
+                    const std::unordered_map<std::string, llvm::Value*>& variables);
+
     RuntimeAbiLLVM& abi() { return *abi_; }
     llvm::LLVMContext& contexto() { return *contexto_; }
 
 private:
     std::unique_ptr<llvm::LLVMContext> contexto_;
     std::unique_ptr<RuntimeAbiLLVM> abi_;
+
+    // Pila de bloques de salida de los bucles que se están traduciendo en
+    // este momento (Mientras/Desde/Repetir) -- el tope es el bucle más
+    // interno, hacia donde salta un `romper` (ver genSentencia). Vacía
+    // fuera de la traducción de un bucle.
+    std::vector<llvm::BasicBlock*> pilaSalidasBucle_;
+
+    // Evalúa 'celda' con lat_es_verdadero() y compara el resultado contra 0
+    // -- el i1 que necesita CreateCondBr. Devuelve 'false' (i1) sin emitir
+    // la llamada si 'celda' es nullptr (expresión de condición no
+    // soportada; no debería ocurrir con AST real, pero evita construir IR
+    // inválido). Centraliza un patrón que se repite en Ternaria (Fase L4) y
+    // en Si/Mientras/Desde/Repetir (Fase L5).
+    llvm::Value* genEsVerdadero(llvm::Value* celda, llvm::IRBuilder<>& builder, llvm::Module& modulo);
 
     // Traduce la asignación a un único destino (Identificador/AccesoIndice/
     // AccesoMiembro) del valor ya evaluado en 'valorCelda' -- equivalente a

@@ -561,24 +561,95 @@ temporales distintas antes de asignar). Suite completa (`ctest -C Release`):
 `compiler.cpp`) siguen pasando sin cambios de comportamiento — confirma que
 la extracción a código compartido no alteró `GeneradorC`.
 
-### Fase L5 — Control de flujo
+### Fase L5 — Control de flujo ✅ verificada con LLVM real
 
-**Archivos:** `src/compiler_llvm.cpp`, `tests/test_codegen_llvm.cpp`.
+**Archivos:** `include/compiler_llvm.h`/`src/compiler_llvm.cpp` (nuevos
+métodos públicos `genSentencia`/`genBloque`, helper privado `genEsVerdadero`,
+estado nuevo `pilaSalidasBucle_`), `tests/test_codegen_llvm.cpp` (ampliado con
+28 pruebas nuevas).
 
-- `Si`/`osi`/`sino` → basic blocks `then`/`elseifN`/`else`/`merge` con
-  `CreateCondBr`/`CreateBr`.
-- `Mientras`/`Desde`/`Repetir` → bloques `header`/`body`/`latch`/`exit`
-  estándar; `Desde` traduce `inicio`/`incremento` reutilizando la traducción
-  de sentencias ya existente para esas sub-sentencias.
-- `Elegir` → cadena de comparaciones (`lat_igual` + `lat_es_verdadero`), **no**
-  `SwitchInst` nativo de LLVM: los valores de caso en Latino son expresiones
-  dinámicas evaluadas en runtime, no enteros constantes conocidos en tiempo de
-  compilación — usar `switch` cambiaría la semántica (y el orden de
-  evaluación de efectos secundarios).
-- `Romper` → pila de "bloques de salida de bucle" en `GeneradorLLVM` (estado
-  nuevo, no existe en `GeneradorC` porque ahí `break;` de C ya resuelve esto).
-- Portar a `test_codegen_llvm.cpp` los casos de control de flujo equivalentes
-  de `tests/test_codegen.cpp`.
+- [x] `Si`/`osi`/`sino` → basic blocks reales (`si_entonces`/`si_osi`
+  (uno por rama `osi`)/`si_siguiente`/`si_fin`) con `CreateCondBr`/`CreateBr`,
+  encadenando cada `osi` como el `else if` de C: el bloque "siguiente" de
+  una condición es el punto de entrada de la comprobación de la próxima.
+- [x] `Mientras` → `header`/`cuerpo`/`fin` estándar (evalúa la condición en
+  `header`, salta a `fin` si es falsa). `Desde` → `header`/`cuerpo`/
+  `incremento` (`latch`)/`fin`, traduciendo `inicio` (antes del `header`) e
+  `incremento` (en el `latch`, después del cuerpo) reutilizando
+  `genSentencia` sobre esas mismas sub-sentencias — ninguna lógica nueva para
+  ellas. `Repetir` → `cuerpo`/`condicion`/`fin`, con el primer salto hacia
+  `cuerpo` siempre incondicional (ejecuta al menos una vez, a diferencia de
+  `Mientras`) y el salto de vuelta condicionado a que la condición **no**
+  se cumpla todavía (`repetir ... hasta cond` ≡ `do { } while (!cond)`).
+- [x] `Elegir` → cadena de comparaciones (`lat_igual` + `lat_es_verdadero`),
+  nunca `SwitchInst` nativo de LLVM (Reto 8 del plan): los valores de caso de
+  Latino son expresiones dinámicas evaluadas en runtime, no enteros
+  constantes de compilación — un `switch` cambiaría tanto la semántica como
+  el orden de evaluación de efectos secundarios. Un `caso` cuyo valor no se
+  pudo evaluar (`genExpr` devuelve `nullptr`; no debería ocurrir con AST
+  real) se trata como "nunca coincide" (condición `i1 false` constante) en
+  vez de abortar toda la sentencia — el resto de los casos y el `defecto`
+  siguen siendo alcanzables.
+- [x] `Romper` → `pilaSalidasBucle_` (nuevo estado privado de
+  `GeneradorLLVM`, un `std::vector<llvm::BasicBlock*>`; el tope es el bucle
+  más interno): emite un salto directo al bloque de salida de ese bucle. No
+  existe equivalente en `GeneradorC` porque ahí el propio `break;` de C ya
+  resuelve el anidamiento; aquí hay que rastrearlo a mano porque LLVM no
+  tiene una noción de "bucle" en el IR, solo basic blocks. `Mientras`/
+  `Desde`/`Repetir` hacen `push_back`/`pop_back` de su bloque de salida
+  alrededor de la traducción de su cuerpo, así que un `romper` dentro de un
+  `Si` (u otra sentencia) anidado dentro del cuerpo del bucle sigue viendo
+  el bloque de salida correcto (ver `prueba_l5_si_anidado_en_mientras`) — la
+  pila, no el anidamiento sintáctico del AST, es lo que determina el
+  destino.
+- [x] **Hallazgo no anticipado explícitamente en el texto original de esta
+  fase — código muerto tras un `romper` es válido en C pero inválido en LLVM
+  IR.** En C, una sentencia después de `break;` dentro del mismo bloque
+  simplemente nunca se ejecuta (sigue siendo sintaxis válida, el compilador
+  la acepta sin más). En LLVM IR, insertar cualquier instrucción en un basic
+  block que ya tiene un terminador (`br`/`ret`/...) es inválido y
+  `verifyModule` lo rechaza. Solución: `genBloque` (nuevo método público)
+  consulta antes de cada sentencia si el bloque de inserción actual ya
+  quedó terminado (helper de archivo `bloqueTerminado`, no un método —no
+  necesita estado) y, si es así, deja de traducir el resto de la lista sin
+  emitir nada más. El mismo chequeo se repite después de traducir el cuerpo
+  de cada rama de `Si`/`osi`/`sino`/caso de `Elegir`/cuerpo de bucle antes
+  de emitir el salto de cierre correspondiente (`CreateBr` al bloque de
+  fusión/`header`/`latch`), para no intentar terminar dos veces el mismo
+  bloque.
+- [x] `genEsVerdadero(celda, builder, modulo)` (helper privado nuevo):
+  centraliza el patrón `lat_es_verdadero(celda) != 0` que ya usaba `Ternaria`
+  (Fase L4) y que ahora también usan `Si`/`osi`/`Mientras`/`Desde`/`Repetir`/
+  cada comparación de `Elegir` — `Ternaria` se refactorizó para usarlo
+  (mismo IR generado, verificado por los tests de L4 que siguen pasando sin
+  cambios). Devuelve la constante `i1 false` sin emitir ninguna llamada si
+  `celda` es `nullptr` (condición no soportada; no debería ocurrir con AST
+  real, pero nunca construye IR inválido por esa razón).
+- [x] `genSentencia`/`genBloque` no traducen `Retornar` (depende de la
+  convención de retorno de la función contenedora, que no existe todavía —
+  Fase L6) ni declaraciones de nivel superior (`FuncionDef`/`ClaseDef`/
+  `EstructuraDef`/`InterfazDef`/`Incluir`/`LlamadaBase` — Fases L6/L7/L8).
+- [x] Portados a `tests/test_codegen_llvm.cpp` los casos de control de flujo
+  equivalentes de `tests/test_codegen.cpp` (`prueba_si`/`prueba_desde`), más
+  cobertura específica de LLVM sin equivalente en el backend C: `Elegir`
+  (con verificación explícita de que **no** aparece ` switch ` en el IR),
+  `romper` dentro de `Mientras`/`Desde` (confirma que salta directo a la
+  salida y que la sentencia siguiente es código muerto no traducido),
+  `romper` sin bucle contenedor (no debe crashear ni emitir ningún salto) y
+  `romper` anidado dentro de un `Si` dentro de un `Mientras`.
+
+**Criterio de aceptación — cumplido:** 28 pruebas nuevas en
+`tests/test_codegen_llvm.cpp` (mismo estilo que L3-L4: subcadena/ausencia de
+subcadena de IR + `verifyModule`) cubren `Si`/`osi`/`sino`, `Elegir`
+(incluida la ausencia de `SwitchInst`), `Mientras`/`Desde`/`Repetir` (incluida
+la ejecución incondicional de al menos una iteración de `Repetir`), `romper`
+dentro de cada tipo de bucle, `romper` sin bucle contenedor y `romper`
+anidado a través de un `Si`. Suite completa (`ctest -C Release`):
+`test_codegen_llvm` pasa con 102 comprobaciones (74 de L2-L4 + 28 nuevas,
+incluida la reescritura de `Ternaria` sobre `genEsVerdadero`, que no cambió
+ninguna comprobación existente); las 44 suites de CTest (incluidos los 22
+ejemplos E2E y todas las suites de librería) siguen pasando sin cambios —
+esta fase no tocó `GeneradorC` ni ningún archivo de `runtime/`.
 
 ### Fase L6 — Funciones de usuario y variádica
 

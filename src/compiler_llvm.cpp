@@ -142,9 +142,7 @@ llvm::Value* GeneradorLLVM::genExpr(Expresion& expr, llvm::IRBuilder<>& builder,
         // representación uniforme por puntero de la Fase L3).
         llvm::Value* condCelda = genExpr(*n->condicion, builder, modulo, variables);
         if (!condCelda) return nullptr;
-        llvm::Function* fnVerdadero = abi_->declarar(modulo, "lat_es_verdadero");
-        llvm::Value* esVerdadero = builder.CreateCall(fnVerdadero, {condCelda}, "tern_cond_i32");
-        llvm::Value* cond = builder.CreateICmpNE(esVerdadero, builder.getInt32(0), "tern_cond");
+        llvm::Value* cond = genEsVerdadero(condCelda, builder, modulo);
 
         llvm::Value* resultado = builder.CreateAlloca(tipoLatValor, nullptr, "tern");
         llvm::Function* fnActual = builder.GetInsertBlock()->getParent();
@@ -276,6 +274,14 @@ void GeneradorLLVM::genAsignacionDestino(
     // ya rechaza lvalues inválidos antes de llegar al backend).
 }
 
+llvm::Value* GeneradorLLVM::genEsVerdadero(llvm::Value* celda, llvm::IRBuilder<>& builder,
+                                            llvm::Module& modulo) {
+    if (!celda) return builder.getInt1(false);
+    llvm::Function* fn = abi_->declarar(modulo, "lat_es_verdadero");
+    llvm::Value* i32 = builder.CreateCall(fn, {celda}, "es_verdadero");
+    return builder.CreateICmpNE(i32, builder.getInt32(0), "cond");
+}
+
 void GeneradorLLVM::genAsignacion(
     Asignacion& asign, llvm::IRBuilder<>& builder, llvm::Module& modulo,
     const std::unordered_map<std::string, llvm::Value*>& variables) {
@@ -329,6 +335,227 @@ void GeneradorLLVM::genAsignacion(
         }
         genAsignacionDestino(*asign.destinos[i], rhs, builder, modulo, variables);
     }
+}
+
+namespace {
+// Un basic block ya terminado (CreateCondBr/CreateBr/CreateRet ya emitido --
+// p.ej. por un `romper` dentro del cuerpo que se acaba de traducir) no puede
+// recibir más instrucciones: hacerlo produce IR inválido, no solo código
+// muerto (a diferencia de C, donde una sentencia tras `break;` simplemente
+// nunca se ejecuta pero sigue siendo sintaxis válida). genBloque/genSentencia
+// consultan esto antes de cerrar cada construcción con un salto al bloque de
+// continuación.
+bool bloqueTerminado(llvm::IRBuilder<>& builder) {
+    return builder.GetInsertBlock()->getTerminator() != nullptr;
+}
+}  // namespace
+
+void GeneradorLLVM::genBloque(const ListaSent& cuerpo, llvm::IRBuilder<>& builder, llvm::Module& modulo,
+                              const std::unordered_map<std::string, llvm::Value*>& variables) {
+    for (const auto& s : cuerpo) {
+        if (!s) continue;
+        if (bloqueTerminado(builder)) break;
+        genSentencia(*s, builder, modulo, variables);
+    }
+}
+
+void GeneradorLLVM::genSentencia(Sentencia& s, llvm::IRBuilder<>& builder, llvm::Module& modulo,
+                                 const std::unordered_map<std::string, llvm::Value*>& variables) {
+    llvm::StructType* tipoLatValor = abi_->tipoLatValor();
+
+    if (auto* a = dynamic_cast<Asignacion*>(&s)) {
+        genAsignacion(*a, builder, modulo, variables);
+        return;
+    }
+    if (auto* es = dynamic_cast<ExprSentencia*>(&s)) {
+        genExpr(*es->expr, builder, modulo, variables);
+        return;
+    }
+    if (auto* si = dynamic_cast<Si*>(&s)) {
+        llvm::Function* fnActual = builder.GetInsertBlock()->getParent();
+        llvm::BasicBlock* bloqueMerge = llvm::BasicBlock::Create(*contexto_, "si_fin", fnActual);
+
+        llvm::Value* condCelda = genExpr(*si->condicion, builder, modulo, variables);
+        llvm::Value* cond = genEsVerdadero(condCelda, builder, modulo);
+        llvm::BasicBlock* bloqueEntonces =
+            llvm::BasicBlock::Create(*contexto_, "si_entonces", fnActual);
+        llvm::BasicBlock* bloqueSiguiente =
+            llvm::BasicBlock::Create(*contexto_, "si_siguiente", fnActual);
+        builder.CreateCondBr(cond, bloqueEntonces, bloqueSiguiente);
+
+        builder.SetInsertPoint(bloqueEntonces);
+        genBloque(si->entonces, builder, modulo, variables);
+        if (!bloqueTerminado(builder)) builder.CreateBr(bloqueMerge);
+
+        // Cadena de "osi": cada uno reutiliza el bloque "siguiente" del
+        // anterior como su propio punto de entrada, igual que la cadena de
+        // "} else if (...) {" que emite GeneradorC.
+        for (auto& rama : si->osis) {
+            builder.SetInsertPoint(bloqueSiguiente);
+            llvm::Value* condOsiCelda = genExpr(*rama.condicion, builder, modulo, variables);
+            llvm::Value* condOsi = genEsVerdadero(condOsiCelda, builder, modulo);
+            llvm::BasicBlock* bloqueCuerpoOsi =
+                llvm::BasicBlock::Create(*contexto_, "si_osi", fnActual);
+            llvm::BasicBlock* bloqueSiguienteOsi =
+                llvm::BasicBlock::Create(*contexto_, "si_siguiente", fnActual);
+            builder.CreateCondBr(condOsi, bloqueCuerpoOsi, bloqueSiguienteOsi);
+
+            builder.SetInsertPoint(bloqueCuerpoOsi);
+            genBloque(rama.cuerpo, builder, modulo, variables);
+            if (!bloqueTerminado(builder)) builder.CreateBr(bloqueMerge);
+
+            bloqueSiguiente = bloqueSiguienteOsi;
+        }
+
+        builder.SetInsertPoint(bloqueSiguiente);
+        if (si->tieneSino) genBloque(si->sino, builder, modulo, variables);
+        if (!bloqueTerminado(builder)) builder.CreateBr(bloqueMerge);
+
+        builder.SetInsertPoint(bloqueMerge);
+        return;
+    }
+    if (auto* el = dynamic_cast<Elegir*>(&s)) {
+        // Cadena de comparaciones (lat_igual + lat_es_verdadero), nunca un
+        // SwitchInst nativo de LLVM -- ver Reto 8 del plan: los valores de
+        // caso son expresiones dinámicas evaluadas en runtime, no enteros
+        // constantes de compilación.
+        llvm::Value* opcion = genExpr(*el->opcion, builder, modulo, variables);
+        if (!opcion) return;
+
+        llvm::Function* fnActual = builder.GetInsertBlock()->getParent();
+        llvm::BasicBlock* bloqueMerge = llvm::BasicBlock::Create(*contexto_, "elegir_fin", fnActual);
+        llvm::Function* fnIgual = abi_->declarar(modulo, "lat_igual");
+
+        llvm::BasicBlock* bloqueSiguiente = builder.GetInsertBlock();
+        for (auto& caso : el->casos) {
+            builder.SetInsertPoint(bloqueSiguiente);
+            llvm::Value* valorCaso = genExpr(*caso.valor, builder, modulo, variables);
+            llvm::Value* cond;
+            if (valorCaso) {
+                llvm::Value* igualdad =
+                    builder.CreateAlloca(tipoLatValor, nullptr, "elegir_igual");
+                builder.CreateCall(fnIgual, {igualdad, opcion, valorCaso});
+                cond = genEsVerdadero(igualdad, builder, modulo);
+            } else {
+                cond = builder.getInt1(false);
+            }
+            llvm::BasicBlock* bloqueCuerpo =
+                llvm::BasicBlock::Create(*contexto_, "elegir_caso", fnActual);
+            llvm::BasicBlock* bloqueSiguienteCaso =
+                llvm::BasicBlock::Create(*contexto_, "elegir_siguiente", fnActual);
+            builder.CreateCondBr(cond, bloqueCuerpo, bloqueSiguienteCaso);
+
+            builder.SetInsertPoint(bloqueCuerpo);
+            genBloque(caso.cuerpo, builder, modulo, variables);
+            if (!bloqueTerminado(builder)) builder.CreateBr(bloqueMerge);
+
+            bloqueSiguiente = bloqueSiguienteCaso;
+        }
+
+        builder.SetInsertPoint(bloqueSiguiente);
+        if (el->tieneDefecto) genBloque(el->defecto, builder, modulo, variables);
+        if (!bloqueTerminado(builder)) builder.CreateBr(bloqueMerge);
+
+        builder.SetInsertPoint(bloqueMerge);
+        return;
+    }
+    if (auto* mi = dynamic_cast<Mientras*>(&s)) {
+        llvm::Function* fnActual = builder.GetInsertBlock()->getParent();
+        llvm::BasicBlock* bloqueHeader =
+            llvm::BasicBlock::Create(*contexto_, "mientras_header", fnActual);
+        llvm::BasicBlock* bloqueCuerpo =
+            llvm::BasicBlock::Create(*contexto_, "mientras_cuerpo", fnActual);
+        llvm::BasicBlock* bloqueSalida =
+            llvm::BasicBlock::Create(*contexto_, "mientras_fin", fnActual);
+
+        builder.CreateBr(bloqueHeader);
+        builder.SetInsertPoint(bloqueHeader);
+        llvm::Value* condCelda = genExpr(*mi->condicion, builder, modulo, variables);
+        llvm::Value* cond = genEsVerdadero(condCelda, builder, modulo);
+        builder.CreateCondBr(cond, bloqueCuerpo, bloqueSalida);
+
+        builder.SetInsertPoint(bloqueCuerpo);
+        pilaSalidasBucle_.push_back(bloqueSalida);
+        genBloque(mi->cuerpo, builder, modulo, variables);
+        pilaSalidasBucle_.pop_back();
+        if (!bloqueTerminado(builder)) builder.CreateBr(bloqueHeader);
+
+        builder.SetInsertPoint(bloqueSalida);
+        return;
+    }
+    if (auto* de = dynamic_cast<Desde*>(&s)) {
+        if (de->inicio) genSentencia(*de->inicio, builder, modulo, variables);
+
+        llvm::Function* fnActual = builder.GetInsertBlock()->getParent();
+        llvm::BasicBlock* bloqueHeader =
+            llvm::BasicBlock::Create(*contexto_, "desde_header", fnActual);
+        llvm::BasicBlock* bloqueCuerpo =
+            llvm::BasicBlock::Create(*contexto_, "desde_cuerpo", fnActual);
+        llvm::BasicBlock* bloqueLatch =
+            llvm::BasicBlock::Create(*contexto_, "desde_incremento", fnActual);
+        llvm::BasicBlock* bloqueSalida =
+            llvm::BasicBlock::Create(*contexto_, "desde_fin", fnActual);
+
+        builder.CreateBr(bloqueHeader);
+        builder.SetInsertPoint(bloqueHeader);
+        llvm::Value* condCelda = genExpr(*de->condicion, builder, modulo, variables);
+        llvm::Value* cond = genEsVerdadero(condCelda, builder, modulo);
+        builder.CreateCondBr(cond, bloqueCuerpo, bloqueSalida);
+
+        // El incremento vive en su propio bloque ("latch"), después del
+        // cuerpo -- un `romper` dentro del cuerpo salta directo a
+        // bloqueSalida (ver más abajo) y se salta el incremento, igual que
+        // `break;` dentro del `while (...) { cuerpo; incremento; }` que
+        // emite GeneradorC::genSentencia para Desde.
+        builder.SetInsertPoint(bloqueCuerpo);
+        pilaSalidasBucle_.push_back(bloqueSalida);
+        genBloque(de->cuerpo, builder, modulo, variables);
+        pilaSalidasBucle_.pop_back();
+        if (!bloqueTerminado(builder)) builder.CreateBr(bloqueLatch);
+
+        builder.SetInsertPoint(bloqueLatch);
+        if (de->incremento) genSentencia(*de->incremento, builder, modulo, variables);
+        if (!bloqueTerminado(builder)) builder.CreateBr(bloqueHeader);
+
+        builder.SetInsertPoint(bloqueSalida);
+        return;
+    }
+    if (auto* re = dynamic_cast<Repetir*>(&s)) {
+        llvm::Function* fnActual = builder.GetInsertBlock()->getParent();
+        llvm::BasicBlock* bloqueCuerpo =
+            llvm::BasicBlock::Create(*contexto_, "repetir_cuerpo", fnActual);
+        llvm::BasicBlock* bloqueCondicion =
+            llvm::BasicBlock::Create(*contexto_, "repetir_condicion", fnActual);
+        llvm::BasicBlock* bloqueSalida =
+            llvm::BasicBlock::Create(*contexto_, "repetir_fin", fnActual);
+
+        builder.CreateBr(bloqueCuerpo);
+        builder.SetInsertPoint(bloqueCuerpo);
+        pilaSalidasBucle_.push_back(bloqueSalida);
+        genBloque(re->cuerpo, builder, modulo, variables);
+        pilaSalidasBucle_.pop_back();
+        if (!bloqueTerminado(builder)) builder.CreateBr(bloqueCondicion);
+
+        builder.SetInsertPoint(bloqueCondicion);
+        llvm::Value* condCelda = genExpr(*re->condicionHasta, builder, modulo, variables);
+        llvm::Value* cond = genEsVerdadero(condCelda, builder, modulo);
+        // repetir ... hasta condicion  <=>  do { ... } while (!condicion):
+        // si la condición ya es verdadera, sale; si no, repite el cuerpo.
+        builder.CreateCondBr(cond, bloqueSalida, bloqueCuerpo);
+
+        builder.SetInsertPoint(bloqueSalida);
+        return;
+    }
+    if (dynamic_cast<Romper*>(&s)) {
+        if (!pilaSalidasBucle_.empty()) builder.CreateBr(pilaSalidasBucle_.back());
+        // Sin bucle contenedor: no debería ocurrir (ver comentario en el
+        // header); no hay nada seguro que emitir aquí.
+        return;
+    }
+    // Retornar (Fase L6, depende de la convención de retorno de la función
+    // contenedora) e Incluir/FuncionDef/ClaseDef/EstructuraDef/InterfazDef/
+    // LlamadaBase (declaraciones de nivel superior o de Fases L6/L7/L8): no
+    // se traducen aquí.
 }
 
 std::unique_ptr<llvm::Module> GeneradorLLVM::generar(Programa& /*programa*/) {
