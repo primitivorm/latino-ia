@@ -21,6 +21,8 @@ add_executable(latino
   parser.cpp
   analizador_semantico.cpp
   compiler.cpp
+  fn_binaria.cpp
+  recolector_variables.cpp
   invocador_c.cpp
   interpreter.cpp
 )
@@ -34,6 +36,10 @@ target_include_directories(latino PRIVATE
 if(LATINO_LLVM_BACKEND)
   target_sources(latino PRIVATE compiler_llvm.cpp invocador_llvm.cpp runtime_abi_llvm.cpp)
   target_compile_definitions(latino PRIVATE LATINO_CON_LLVM)
+  # compiler_llvm.cpp incluye runtime/latino.h (extern "C") para reusar los
+  # valores reales del enum LatTipo (LAT_NUMERO, ...) en vez de re-derivarlos
+  # a mano -- ver Fase L4 de input/PLAN_LLVM.md.
+  target_include_directories(latino PRIVATE ${LATINO_RUNTIME_DIR})
 
   # generated/runtime_abi.ll (Fase L2) debe existir antes de que latino.exe
   # lo importe en tiempo de ejecución (RuntimeAbiLLVM); no es una dependencia

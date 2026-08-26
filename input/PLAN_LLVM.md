@@ -446,30 +446,120 @@ funcionando de punta a punta -- confirma que construir `RuntimeAbiLLVM`
 dentro del constructor de `GeneradorLLVM` (nuevo en esta fase) no rompe el
 camino existente.
 
-### Fase L4 — Variables locales, asignación, expresiones compuestas
+### Fase L4 — Variables locales, asignación, expresiones compuestas ✅ verificada con LLVM real
 
-**Archivos:** `src/compiler_llvm.cpp`, nuevo `include/recolector_variables.h` +
-`src/recolector_variables.cpp` (extraídos de la lógica hoy duplicada
-implícitamente en el `namespace` anónimo de `src/compiler.cpp`, función
-`colectar()`/`recolectarVariables`), `include/compiler.h`/`src/compiler.cpp`
-(ajustar para usar el recolector compartido en vez de su copia interna).
+**Archivos:** `src/compiler_llvm.cpp`/`include/compiler_llvm.h` (ampliados),
+nuevo `include/recolector_variables.h` + `src/recolector_variables.cpp`
+(extraídos del `namespace` anónimo de `src/compiler.cpp`, función
+`colectar()`/`colectarLista()`; el método `GeneradorC::recolectarVariables`
+ahora es un `#include` a la función libre), nuevo `include/fn_binaria.h` +
+`src/fn_binaria.cpp` (misma extracción para la tabla operador→función que
+antes vivía en el `namespace` anónimo de `compiler.cpp`), `include/compiler.h`
+(quita el método `recolectarVariables`, ya no hace falta — las llamadas sin
+calificar del cuerpo de la clase resuelven directo a la función libre),
+`src/CMakeLists.txt`/`tests/CMakeLists.txt` (agregan los dos archivos nuevos a
+`latino` y a todos los targets de prueba que ya enlazaban `compiler.cpp` o
+`compiler_llvm.cpp`), `tests/test_codegen_llvm.cpp` (ampliado con 48 pruebas
+nuevas).
 
-- Regla de LLVM no negociable: **todo `AllocaInst` se emite en el entry
-  block** de la función, vía un `IRBuilder` secundario posicionado ahí
-  (separado del builder que recorre basic blocks de control de flujo) — así
-  `mem2reg` puede promover a SSA y se evita comportamiento indefinido de
-  crecimiento de stack en bucles.
-- Cada `alloca` se inicializa con `store` de `lat_nulo()`, replicando el
-  hoisting total actual (`LatValor v_x = lat_nulo();` al inicio de cada
-  función/método, sin scoping por bloque) — deliberado, no un "arreglo": es
-  paridad semántica exacta con el backend C, no una mejora de lenguaje.
-- `Binaria`/`Unaria`/`PostOperador`/`Ternaria`/`AccesoIndice`/
-  `AccesoMiembro`/`ListaLiteral`/`DiccionarioLiteral` → llamadas a función,
-  reutilizando (extraída a código común) la tabla `fnBinaria` de
-  `src/compiler.cpp`.
-- Asignación simple y múltiple (`a, b = 1, 2`), incluida la emisión de
-  `lat_verificar_tipo(...)` para las anotaciones de tipo del tipado gradual
-  (Fase 27).
+- [x] `Binaria`/`Unaria`/`PostOperador`/`Ternaria`/`AccesoIndice`/
+  `AccesoMiembro`/`ListaLiteral`/`DiccionarioLiteral`/`VarArgs` → `genExpr`
+  traduce los ocho a llamadas al runtime, reutilizando `fnBinaria` (ahora
+  compartida con `GeneradorC`). Un operador binario desconocido devuelve
+  `nullptr` (nunca ocurre con AST producido por el parser real; el caso
+  existe solo por paridad defensiva con `GeneradorC`, que en ese caso cae a
+  `lat_nulo()` — aquí se prefirió `nullptr`, consistente con el resto de
+  `genExpr` para nodos no soportados, ya que no hay texto C que emitir "de
+  todas formas").
+- [x] `Ternaria` **no** evalúa ambos lados y elige: emite basic blocks reales
+  (`tern_cierto`/`tern_falso`/`tern_fin` con `CreateCondBr`) igual que el
+  operador `?:` de C que ya emite `GeneradorC` — evaluar ambos lados
+  ejecutaría efectos secundarios del lado no tomado, un cambio de semántica
+  observable. Es el primer uso de basic blocks múltiples en `GeneradorLLVM`
+  (antes de la Fase L5 formal de control de flujo), porque el propio
+  operador ternario lo exige.
+- [x] `PostOperador` (`i++`/`i--`) descubrió un caso de aliasing no
+  mencionado explícitamente en el texto original del plan: `i++` lee y
+  escribe la misma celda. Pasar esa celda como `sret` de `lat_sumar` junto
+  con ella misma como operando de entrada sería aliasing entre el puntero de
+  salida y uno de entrada. Solución: calcular en una celda temporal
+  (`post_tmp`) y copiar (`load`+`store` de `%struct.LatValor`, no una
+  llamada) a la celda de la variable — replica exactamente lo que ya hace C
+  de forma implícita (`v_i = lat_sumar(v_i, lat_numero(1))` usa un temporal
+  oculto del propio lenguaje C para el valor de retorno antes de la
+  asignación). Devuelve la celda de la variable (ya actualizada), no el
+  temporal — consistente con la representación uniforme por puntero de la
+  Fase L3.
+- [x] `AccesoMiembro` (`objeto.miembro`) y la asignación a `AccesoMiembro`
+  construyen la clave como `lat_cadena("miembro")` y delegan en
+  `lat_obtener_indice`/`lat_asignar_indice` — mismo mapeo 1:1 que
+  `GeneradorC::genExpr`/`genAsignacionDestino`.
+- [x] `ListaLiteral`/`DiccionarioLiteral` llaman a las funciones **variádicas
+  reales** del runtime (`lat_lista_de`/`lat_dic_de`, `declare ... (ptr sret,
+  i64, ...)` en `runtime_abi.ll`) en vez de un empaquetado alternativo:
+  `RuntimeAbiLLVM::declarar` ya trae el `FunctionType` con `isVarArg=true`
+  desde Clang, y `IRBuilder::CreateCall` sobre una función variádica acepta
+  argumentos extra sin más — no hace falta ningún manejo especial de
+  `va_arg` ni de convención de varargs en el llamador (ver también Reto 5,
+  Fase L6, para el caso simétrico de *declarar* una función variádica de
+  usuario). Cada elemento se pasa como el puntero de su celda, igual que
+  cualquier otro argumento `LatValor` — nunca el struct por valor — porque
+  esa es la clasificación ABI real que Clang ya fijó para estas funciones en
+  la Fase L2 (16 bytes > 8 → indirecto, sin distinción entre parámetro fijo
+  y variádico en el ABI de Windows x64/MSVC).
+- [x] El caso especial `[...]` (un único elemento `VarArgs` dentro de
+  `ListaLiteral`, que significa "la lista de argumentos variádicos", no una
+  lista que la contiene) se resuelve igual que `GeneradorC`: `VarArgs` busca
+  la celda `"lat_resto"` en `variables` (la Fase L6 la poblará con el
+  parámetro variádico real de la función).
+- [x] `declararLocales(nombres, entryBuilder, modulo)` (nuevo método público):
+  declara un `AllocaInst` de `%struct.LatValor` por nombre e inmediatamente
+  lo inicializa con `lat_nulo()`, **en el entry block** vía el
+  `entryBuilder` que pasa quien llama (Reto 3: separar el builder de
+  `alloca`s del que avanza por basic blocks de control de flujo, para que
+  `mem2reg` pueda promover a SSA). Recibe un `std::set<std::string>` ya
+  resuelto por `recolectarVariables` — no conoce parámetros ni "este"; fusionar
+  esa tabla con la de parámetros es responsabilidad de quien arme la función
+  completa (Fase L6).
+- [x] `genAsignacion(asign, builder, modulo, variables)` (nuevo método
+  público): asignación simple (1 destino/1 valor, con `lat_verificar_tipo`
+  interpuesto si hay anotación de tipo del tipado gradual — Fase 27) y
+  múltiple (`a, b = 1, 2`), evaluando **todos** los valores a celdas
+  temporales antes de asignar cualquier destino — igual que los temporales
+  `_tN` de `GeneradorC`, necesario para que `a, b = b, a` intercambie en vez
+  de pisarse. `genAsignacionDestino` (privado) traduce el lvalue:
+  `Identificador` es una copia de struct dentro del módulo (`load`+`store`,
+  nunca una llamada — no cruza la frontera FFI así que no aplica el ABI
+  importado); `AccesoIndice`/`AccesoMiembro` llaman a `lat_asignar_indice`.
+- [x] Extracción de `recolectarVariables`/`fnBinaria` a código compartido:
+  ambas ya se usaban en `GeneradorC` con exactamente el comportamiento que
+  necesitaba `GeneradorLLVM` (mismo hoisting total sin scoping por bloque,
+  Reto 4 — es una decisión de *lenguaje*, no de *backend*, así que ambos
+  generadores deben coincidir en qué variables recolectan; mismo mapeo
+  operador→función). Extraerlas evita mantener dos copias que podrían
+  divergir silenciosamente entre backends.
+- [x] `tipoAnotadoALatTipo` (helper nuevo, anónimo en `compiler_llvm.cpp`)
+  mapea `TipoAnotado` a los valores reales del enum `LatTipo` incluyendo
+  `runtime/latino.h` directamente (`extern "C"`) en vez de re-derivar los
+  valores a mano como texto (que es lo que hace `GeneradorC::tipoALatTipo`,
+  ya que ahí basta con emitir el nombre de la macro para que el compilador
+  de C la resuelva) — mismo principio de "una sola fuente de verdad" que la
+  Decisión 2 aplicó al layout de `LatValor`.
+
+**Criterio de aceptación — cumplido:** 48 pruebas nuevas en
+`tests/test_codegen_llvm.cpp` (todas por subcadena de IR + `verifyModule`,
+igual que las de la Fase L3) cubren cada nodo nuevo, el caso `[...]` →
+`lat_resto`, un operador binario desconocido → `nullptr`, `declararLocales`
+(incluye una prueba end-to-end con `recolectarVariables` real sobre un
+`ListaSent` construido a mano), asignación simple, tipada (verifica el valor
+entero exacto de `LAT_NUMERO` y el número de línea pasados a
+`lat_verificar_tipo`) y múltiple (verifica que se crean dos celdas
+temporales distintas antes de asignar). Suite completa (`ctest -C Release`):
+`test_codegen_llvm` pasa con 74 comprobaciones (26 de L2-L3 + 48 nuevas);
+`test_codegen`/`test_tipado`/`test_poo` (que ahora enlazan
+`fn_binaria.cpp`/`recolector_variables.cpp` en vez de la copia interna de
+`compiler.cpp`) siguen pasando sin cambios de comportamiento — confirma que
+la extracción a código compartido no alteró `GeneradorC`.
 
 ### Fase L5 — Control de flujo
 

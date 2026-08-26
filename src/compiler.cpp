@@ -5,51 +5,9 @@
 #include <cstdio>
 #include <functional>
 
-// ---------------------------------------------------------------------------
-// Recolección de variables locales (descendiendo en bloques, no en funciones)
-// ---------------------------------------------------------------------------
+#include "fn_binaria.h"
+
 namespace {
-
-void colectar(Sentencia* s, std::set<std::string>& out);
-
-void colectarLista(const ListaSent& cuerpo, std::set<std::string>& out) {
-    for (const auto& s : cuerpo)
-        if (s) colectar(s.get(), out);
-}
-
-void colectar(Sentencia* s, std::set<std::string>& out) {
-    if (auto* a = dynamic_cast<Asignacion*>(s)) {
-        for (auto& d : a->destinos)
-            if (auto* id = dynamic_cast<Identificador*>(d.get()))
-                out.insert(id->nombre);
-        return;
-    }
-    if (auto* si = dynamic_cast<Si*>(s)) {
-        colectarLista(si->entonces, out);
-        for (auto& r : si->osis) colectarLista(r.cuerpo, out);
-        if (si->tieneSino) colectarLista(si->sino, out);
-        return;
-    }
-    if (auto* el = dynamic_cast<Elegir*>(s)) {
-        for (auto& c : el->casos) colectarLista(c.cuerpo, out);
-        if (el->tieneDefecto) colectarLista(el->defecto, out);
-        return;
-    }
-    if (auto* de = dynamic_cast<Desde*>(s)) {
-        if (de->inicio) colectar(de->inicio.get(), out);
-        colectarLista(de->cuerpo, out);
-        return;
-    }
-    if (auto* mi = dynamic_cast<Mientras*>(s)) {
-        colectarLista(mi->cuerpo, out);
-        return;
-    }
-    if (auto* re = dynamic_cast<Repetir*>(s)) {
-        colectarLista(re->cuerpo, out);
-        return;
-    }
-    // FuncionDef: no se desciende. ExprSentencia/Romper/Retornar: nada que declarar.
-}
 
 const char* tipoALatTipo(TipoAnotado t) {
     switch (t) {
@@ -62,26 +20,6 @@ const char* tipoALatTipo(TipoAnotado t) {
         case TipoAnotado::Objeto: return "LAT_OBJETO";
         default: return nullptr;
     }
-}
-
-const char* fnBinaria(const std::string& op) {
-    if (op == "+")  return "lat_sumar";
-    if (op == "-")  return "lat_restar";
-    if (op == "*")  return "lat_multiplicar";
-    if (op == "/")  return "lat_dividir";
-    if (op == "%")  return "lat_modulo";
-    if (op == "^")  return "lat_potencia";
-    if (op == "..") return "lat_concatenar";
-    if (op == "==") return "lat_igual";
-    if (op == "!=") return "lat_distinto";
-    if (op == "<")  return "lat_menor";
-    if (op == ">")  return "lat_mayor";
-    if (op == "<=") return "lat_menor_igual";
-    if (op == ">=") return "lat_mayor_igual";
-    if (op == "&&") return "lat_y";
-    if (op == "||") return "lat_o";
-    if (op == "~=") return "lat_coincide";
-    return nullptr;
 }
 
 }  // namespace
@@ -133,14 +71,6 @@ void GeneradorC::recolectarTipos(Programa& programa) {
         else if (auto* i = dynamic_cast<InterfazDef*>(s.get()))
             interfaces[i->nombre] = i;
     }
-}
-
-void GeneradorC::recolectarVariables(const ListaSent& cuerpo,
-                                     std::set<std::string>& destino,
-                                     const std::set<std::string>& excluir) {
-    colectarLista(cuerpo, destino);
-    for (const std::string& e : excluir)
-        destino.erase(e);
 }
 
 // ---------------------------------------------------------------------------

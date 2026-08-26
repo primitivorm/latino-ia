@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "ast.h"
+#include "recolector_variables.h"
 
 class GeneradorC {
 public:
@@ -40,8 +41,6 @@ private:
 
     void recolectarFunciones(Programa& programa);
     void recolectarTipos(Programa& programa);
-    void recolectarVariables(const ListaSent& cuerpo, std::set<std::string>& destino,
-                             const std::set<std::string>& excluir);
 
     void emitir(const std::string& linea);   // escribe con sangría + salto
     std::string nuevoTemp();
