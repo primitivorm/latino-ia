@@ -1,9 +1,9 @@
-// test_codegen_llvm.cpp — Fases L2, L3 y L4 de input/PLAN_LLVM.md.
+// test_codegen_llvm.cpp — Fases L2 a L5 de input/PLAN_LLVM.md.
 //
 // Solo se compila/registra cuando LATINO_LLVM_BACKEND está habilitado (ver
 // tests/CMakeLists.txt). No compara texto de C como test_codegen.cpp: valida
 // el mecanismo de ABI (Fase L2, Decisión 2 del plan) y el esqueleto de
-// expresión de GeneradorLLVM (Fases L3-L4) --
+// expresión/sentencia de GeneradorLLVM (Fases L3-L5) --
 //   1. (L2) RuntimeAbiLLVM importa generated/runtime_abi.ll (generado por
 //      Clang a partir de tools/abi_probe.c) sin errores.
 //   2. (L2) Un módulo que declara funciones del runtime vía RuntimeAbiLLVM y
@@ -22,6 +22,10 @@
 //      declararLocales implementa el hoisting total (alloca en el entry
 //      block + lat_nulo()); genAsignacion traduce la sentencia de
 //      asignación simple/múltiple/tipada.
+//   6. (L5) genSentencia/genBloque traducen control de flujo (Si/osi/sino,
+//      Elegir, Mientras, Desde, Repetir, Romper) a basic blocks reales,
+//      comprobado por las etiquetas/instrucciones de IR esperadas +
+//      verifyModule en cada caso.
 
 #include <iostream>
 #include <string>
@@ -549,6 +553,301 @@ static void prueba_l4_asignacion_multiple(GeneradorLLVM& gen) {
     verificarModulo("l4_asignacion_multiple", modulo);
 }
 
+// --- Fase L5: control de flujo ----------------------------------------------
+
+static ExprPtr litLogico(bool v) {
+    auto l = std::make_unique<LitLogico>();
+    l->valor = v;
+    return l;
+}
+
+static ExprPtr binaria(const std::string& op, ExprPtr izq, ExprPtr der) {
+    auto b = std::make_unique<Binaria>();
+    b->op = op;
+    b->izq = std::move(izq);
+    b->der = std::move(der);
+    return b;
+}
+
+static SentPtr asignacionSimple(const std::string& nombre, ExprPtr valor) {
+    auto a = std::make_unique<Asignacion>();
+    a->destinos.push_back(identificador(nombre));
+    a->valores.push_back(std::move(valor));
+    return a;
+}
+
+static SentPtr exprSentencia(ExprPtr expr) {
+    auto es = std::make_unique<ExprSentencia>();
+    es->expr = std::move(expr);
+    return es;
+}
+
+static ListaSent bloqueDeUno(SentPtr s) {
+    ListaSent l;
+    l.push_back(std::move(s));
+    return l;
+}
+
+static ExprPtr postOperador(const std::string& op, const std::string& nombre) {
+    auto p = std::make_unique<PostOperador>();
+    p->op = op;
+    p->operando = identificador(nombre);
+    return p;
+}
+
+static void prueba_l5_si_sino(GeneradorLLVM& gen) {
+    llvm::Module modulo("l5_si_sino", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    llvm::Value* celdaX = builder.CreateAlloca(gen.abi().tipoLatValor(), nullptr, "v_x");
+    std::unordered_map<std::string, llvm::Value*> variables{{"x", celdaX}};
+
+    Si si;
+    si.condicion = litLogico(true);
+    si.entonces = bloqueDeUno(asignacionSimple("x", litNumero(1)));
+    si.tieneSino = true;
+    si.sino = bloqueDeUno(asignacionSimple("x", litNumero(2)));
+    gen.genSentencia(si, builder, modulo, variables);
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "si_entonces:") && contiene(ir, "si_siguiente:") && contiene(ir, "si_fin:"),
+          "Si/sino debe emitir basic blocks separados por rama\n" << ir);
+    CHECK(contiene(ir, "call i32 @lat_es_verdadero("), "debe evaluar la condicion\n" << ir);
+    verificarModulo("l5_si_sino", modulo);
+}
+
+static void prueba_l5_si_osi(GeneradorLLVM& gen) {
+    llvm::Module modulo("l5_si_osi", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    llvm::Value* celdaX = builder.CreateAlloca(gen.abi().tipoLatValor(), nullptr, "v_x");
+    std::unordered_map<std::string, llvm::Value*> variables{{"x", celdaX}};
+
+    Si si;
+    si.condicion = litLogico(false);
+    si.entonces = bloqueDeUno(asignacionSimple("x", litNumero(1)));
+    RamaOsi rama;
+    rama.condicion = litLogico(true);
+    rama.cuerpo = bloqueDeUno(asignacionSimple("x", litNumero(2)));
+    si.osis.push_back(std::move(rama));
+    gen.genSentencia(si, builder, modulo, variables);
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "si_osi:"), "una rama 'osi' debe emitir su propio basic block\n" << ir);
+    verificarModulo("l5_si_osi", modulo);
+}
+
+static void prueba_l5_elegir(GeneradorLLVM& gen) {
+    llvm::Module modulo("l5_elegir", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    llvm::Value* celdaX = builder.CreateAlloca(gen.abi().tipoLatValor(), nullptr, "v_x");
+    std::unordered_map<std::string, llvm::Value*> variables{{"x", celdaX}};
+
+    Elegir el;
+    el.opcion = litNumero(1);
+    CasoElegir caso;
+    caso.valor = litNumero(1);
+    caso.cuerpo = bloqueDeUno(asignacionSimple("x", litNumero(10)));
+    el.casos.push_back(std::move(caso));
+    el.tieneDefecto = true;
+    el.defecto = bloqueDeUno(asignacionSimple("x", litNumero(99)));
+    gen.genSentencia(el, builder, modulo, variables);
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "call void @lat_igual("), "cada caso debe comparar con lat_igual\n" << ir);
+    CHECK(contiene(ir, "elegir_caso:") && contiene(ir, "elegir_siguiente:") &&
+              contiene(ir, "elegir_fin:"),
+          "debe emitir basic blocks para caso/siguiente/fin (nunca un switch nativo)\n" << ir);
+    CHECK(!contiene(ir, "switch "), "Elegir nunca debe usar SwitchInst nativo de LLVM\n" << ir);
+    verificarModulo("l5_elegir", modulo);
+}
+
+static void prueba_l5_mientras(GeneradorLLVM& gen) {
+    llvm::Module modulo("l5_mientras", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    llvm::Value* celdaX = builder.CreateAlloca(gen.abi().tipoLatValor(), nullptr, "v_x");
+    std::unordered_map<std::string, llvm::Value*> variables{{"x", celdaX}};
+
+    Mientras mi;
+    mi.condicion = litLogico(true);
+    mi.cuerpo = bloqueDeUno(asignacionSimple("x", litNumero(1)));
+    gen.genSentencia(mi, builder, modulo, variables);
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "mientras_header:") && contiene(ir, "mientras_cuerpo:") &&
+              contiene(ir, "mientras_fin:"),
+          "Mientras debe emitir header/cuerpo/fin\n" << ir);
+    CHECK(contiene(ir, "br label %mientras_header"),
+          "el cuerpo debe volver a evaluar la condicion (salto de vuelta al header)\n" << ir);
+    verificarModulo("l5_mientras", modulo);
+}
+
+static void prueba_l5_mientras_romper(GeneradorLLVM& gen) {
+    llvm::Module modulo("l5_mientras_romper", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    llvm::Value* celdaX = builder.CreateAlloca(gen.abi().tipoLatValor(), nullptr, "v_x");
+    std::unordered_map<std::string, llvm::Value*> variables{{"x", celdaX}};
+
+    Mientras mi;
+    mi.condicion = litLogico(true);
+    mi.cuerpo.push_back(std::make_unique<Romper>());
+    // Código muerto tras 'romper': genBloque no debe traducirlo (y no debe
+    // insertar nada tras el terminador que ya emitió Romper).
+    mi.cuerpo.push_back(asignacionSimple("x", litNumero(99)));
+    gen.genSentencia(mi, builder, modulo, variables);
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "br label %mientras_fin"),
+          "'romper' debe saltar directo al bloque de salida del bucle\n" << ir);
+    CHECK(!contiene(ir, "9.900000e+01"),
+          "la asignacion tras 'romper' es codigo muerto y no debe traducirse\n" << ir);
+    verificarModulo("l5_mientras_romper", modulo);
+}
+
+static void prueba_l5_desde(GeneradorLLVM& gen) {
+    llvm::Module modulo("l5_desde", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    llvm::Value* celdaI = builder.CreateAlloca(gen.abi().tipoLatValor(), nullptr, "v_i");
+    std::unordered_map<std::string, llvm::Value*> variables{{"i", celdaI}};
+
+    Desde de;
+    de.inicio = asignacionSimple("i", litNumero(0));
+    de.condicion = binaria("<=", identificador("i"), litNumero(10));
+    de.incremento = exprSentencia(postOperador("++", "i"));
+    gen.genSentencia(de, builder, modulo, variables);
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "desde_header:") && contiene(ir, "desde_cuerpo:") &&
+              contiene(ir, "desde_incremento:") && contiene(ir, "desde_fin:"),
+          "Desde debe emitir header/cuerpo/incremento/fin\n" << ir);
+    CHECK(contiene(ir, "call void @lat_menor_igual("), "la condicion debe usar lat_menor_igual\n" << ir);
+    verificarModulo("l5_desde", modulo);
+}
+
+static void prueba_l5_desde_romper(GeneradorLLVM& gen) {
+    llvm::Module modulo("l5_desde_romper", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    llvm::Value* celdaI = builder.CreateAlloca(gen.abi().tipoLatValor(), nullptr, "v_i");
+    std::unordered_map<std::string, llvm::Value*> variables{{"i", celdaI}};
+
+    Desde de;
+    de.inicio = asignacionSimple("i", litNumero(0));
+    de.condicion = litLogico(true);
+    de.incremento = exprSentencia(postOperador("++", "i"));
+    de.cuerpo.push_back(std::make_unique<Romper>());
+    gen.genSentencia(de, builder, modulo, variables);
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    // 'romper' salta directo a desde_fin -- el salto SIN condicion (no el
+    // "label %desde_fin" que aparece como uno de los dos destinos del
+    // CreateCondBr del header) confirma que se salta el incremento.
+    CHECK(contiene(ir, "br label %desde_fin"),
+          "'romper' dentro de Desde debe saltar directo a desde_fin, saltandose el incremento\n"
+              << ir);
+    verificarModulo("l5_desde_romper", modulo);
+}
+
+static void prueba_l5_repetir(GeneradorLLVM& gen) {
+    llvm::Module modulo("l5_repetir", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    llvm::Value* celdaX = builder.CreateAlloca(gen.abi().tipoLatValor(), nullptr, "v_x");
+    std::unordered_map<std::string, llvm::Value*> variables{{"x", celdaX}};
+
+    Repetir re;
+    re.cuerpo = bloqueDeUno(asignacionSimple("x", litNumero(1)));
+    re.condicionHasta = litLogico(false);
+    gen.genSentencia(re, builder, modulo, variables);
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "repetir_cuerpo:") && contiene(ir, "repetir_condicion:") &&
+              contiene(ir, "repetir_fin:"),
+          "Repetir debe emitir cuerpo/condicion/fin\n" << ir);
+    // "repetir ... hasta cond" ejecuta el cuerpo al menos una vez SIEMPRE
+    // (a diferencia de Mientras): el primer salto hacia el cuerpo debe ser
+    // incondicional (nunca "repetir_condicion" antes de "repetir_cuerpo"),
+    // sin pasar primero por una comprobación de condición. El único salto
+    // incondicional ("br label ...", sin "i1") hacia repetir_cuerpo en todo
+    // el IR es el que sale de 'entrada' -- el que vuelve a repetir el
+    // cuerpo pasa siempre por la comprobación condicional en
+    // repetir_condicion.
+    CHECK(contiene(ir, "br label %repetir_cuerpo"),
+          "el cuerpo debe ejecutarse una primera vez sin comprobar la condicion antes\n" << ir);
+    verificarModulo("l5_repetir", modulo);
+}
+
+static void prueba_l5_romper_sin_bucle_no_crashea(GeneradorLLVM& gen) {
+    llvm::Module modulo("l5_romper_sin_bucle", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    Romper romper;
+    gen.genSentencia(romper, builder, modulo, {});
+    CHECK(builder.GetInsertBlock()->getTerminator() == nullptr,
+          "un 'romper' sin bucle contenedor no debe emitir ningun salto");
+    builder.CreateRetVoid();
+    verificarModulo("l5_romper_sin_bucle", modulo);
+}
+
+static void prueba_l5_si_anidado_en_mientras(GeneradorLLVM& gen) {
+    llvm::Module modulo("l5_si_anidado_en_mientras", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    llvm::Value* celdaX = builder.CreateAlloca(gen.abi().tipoLatValor(), nullptr, "v_x");
+    std::unordered_map<std::string, llvm::Value*> variables{{"x", celdaX}};
+
+    // mientras cierto
+    //   si x == 1
+    //     romper
+    //   fin
+    //   x = 2
+    // fin
+    // -- el 'romper' vive DENTRO de un Si anidado, no directamente en el
+    // cuerpo del bucle; comprueba que la pila de salidas de bucle es
+    // visible a través de un nivel de anidamiento y que, tras el Si (cuyo
+    // bloque de fusion "si_fin" no queda terminado por la rama que no tomó
+    // el romper), la sentencia "x = 2" sigue traduciendose con normalidad.
+    auto si = std::make_unique<Si>();
+    si->condicion = binaria("==", identificador("x"), litNumero(1));
+    si->entonces = bloqueDeUno(std::make_unique<Romper>());
+
+    Mientras mi;
+    mi.condicion = litLogico(true);
+    mi.cuerpo.push_back(std::move(si));
+    mi.cuerpo.push_back(asignacionSimple("x", litNumero(2)));
+    gen.genSentencia(mi, builder, modulo, variables);
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "br label %mientras_fin"),
+          "el 'romper' anidado en el Si debe seguir apuntando a la salida del Mientras\n" << ir);
+    CHECK(contiene(ir, "2.000000e+00"),
+          "la sentencia despues del Si (fuera de la rama que rompio) debe traducirse\n" << ir);
+    verificarModulo("l5_si_anidado_en_mientras", modulo);
+}
+
 int main() {
     CHECK(std::string(LATINO_RUNTIME_ABI_LL) != "",
           "config.h debe traer una ruta a runtime_abi.ll cuando LATINO_LLVM_BACKEND esta ON");
@@ -578,8 +877,19 @@ int main() {
     prueba_l4_asignacion_tipada(gen);
     prueba_l4_asignacion_multiple(gen);
 
+    prueba_l5_si_sino(gen);
+    prueba_l5_si_osi(gen);
+    prueba_l5_elegir(gen);
+    prueba_l5_mientras(gen);
+    prueba_l5_mientras_romper(gen);
+    prueba_l5_desde(gen);
+    prueba_l5_desde_romper(gen);
+    prueba_l5_repetir(gen);
+    prueba_l5_romper_sin_bucle_no_crashea(gen);
+    prueba_l5_si_anidado_en_mientras(gen);
+
     std::cout << "\nComprobaciones: " << g_checks << "   Fallos: " << g_fallos << std::endl;
     if (g_fallos == 0)
-        std::cout << "TODAS LAS PRUEBAS DE CODEGEN LLVM (FASES L2-L4) PASARON." << std::endl;
+        std::cout << "TODAS LAS PRUEBAS DE CODEGEN LLVM (FASES L2-L5) PASARON." << std::endl;
     return g_fallos == 0 ? 0 : 1;
 }
