@@ -1,9 +1,9 @@
-// test_codegen_llvm.cpp — Fases L2 a L5 de input/PLAN_LLVM.md.
+// test_codegen_llvm.cpp — Fases L2 a L6 de input/PLAN_LLVM.md.
 //
 // Solo se compila/registra cuando LATINO_LLVM_BACKEND está habilitado (ver
 // tests/CMakeLists.txt). No compara texto de C como test_codegen.cpp: valida
 // el mecanismo de ABI (Fase L2, Decisión 2 del plan) y el esqueleto de
-// expresión/sentencia de GeneradorLLVM (Fases L3-L5) --
+// expresión/sentencia de GeneradorLLVM (Fases L3-L6) --
 //   1. (L2) RuntimeAbiLLVM importa generated/runtime_abi.ll (generado por
 //      Clang a partir de tools/abi_probe.c) sin errores.
 //   2. (L2) Un módulo que declara funciones del runtime vía RuntimeAbiLLVM y
@@ -26,6 +26,13 @@
 //      Elegir, Mientras, Desde, Repetir, Romper) a basic blocks reales,
 //      comprobado por las etiquetas/instrucciones de IR esperadas +
 //      verifyModule en cada caso.
+//   7. (L6) declararFuncion/genFuncion traducen FuncionDef (con prototipo
+//      adelantado, incluida la recursión directa) copiando cada parámetro
+//      entrante a una celda local fresca; genSentencia traduce Retornar
+//      (con y sin valor, y el "retornar nulo" implícito al final del
+//      cuerpo); genExpr traduce Llamada a una función de usuario ya
+//      declarada, completando argumentos fijos ausentes con lat_nulo() y
+//      empaquetando los variádicos con lat_lista_de.
 
 #include <iostream>
 #include <string>
@@ -848,6 +855,202 @@ static void prueba_l5_si_anidado_en_mientras(GeneradorLLVM& gen) {
     verificarModulo("l5_si_anidado_en_mientras", modulo);
 }
 
+// --- Fase L6: funciones de usuario y variádica ------------------------------
+
+static SentPtr retornar(ExprPtr valor) {
+    auto r = std::make_unique<Retornar>();
+    r->valor = std::move(valor);
+    return r;
+}
+
+static ExprPtr llamada(const std::string& nombre, std::vector<ExprPtr> args) {
+    auto ll = std::make_unique<Llamada>();
+    ll->destino = identificador(nombre);
+    for (auto& a : args) ll->argumentos.push_back(std::move(a));
+    return ll;
+}
+
+static void prueba_l6_funcion_simple_con_retorno(GeneradorLLVM& gen) {
+    llvm::Module modulo("l6_funcion_simple", gen.contexto());
+
+    FuncionDef f;
+    f.nombre = "doble";
+    f.parametros.push_back(ParamFuncion{"n"});
+    f.cuerpo.push_back(retornar(binaria("+", identificador("n"), identificador("n"))));
+
+    gen.genFuncion(f, modulo);
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "define internal void @lat_fn_doble("),
+          "debe definir la funcion con linkage interno\n" << ir);
+    CHECK(contiene(ir, "sret(%struct.LatValor)"),
+          "el primer parametro debe llevar el atributo sret\n" << ir);
+    CHECK(contiene(ir, "call void @lat_sumar("), "el cuerpo debe traducir n + n\n" << ir);
+    CHECK(contiene(ir, "ret void"), "debe terminar con ret void (convencion sret)\n" << ir);
+    verificarModulo("l6_funcion_simple", modulo);
+}
+
+static void prueba_l6_retornar_sin_valor(GeneradorLLVM& gen) {
+    llvm::Module modulo("l6_retornar_sin_valor", gen.contexto());
+
+    FuncionDef f;
+    f.nombre = "vacia";
+    f.cuerpo.push_back(retornar(nullptr));
+
+    gen.genFuncion(f, modulo);
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "define internal void @lat_fn_vacia("), "debe definir la funcion\n" << ir);
+    CHECK(contiene(ir, "call void @lat_nulo("),
+          "'retornar' sin valor debe llenar la celda de retorno con lat_nulo()\n" << ir);
+    verificarModulo("l6_retornar_sin_valor", modulo);
+}
+
+static void prueba_l6_retornar_implicito_al_final(GeneradorLLVM& gen) {
+    llvm::Module modulo("l6_retornar_implicito", gen.contexto());
+
+    FuncionDef f;
+    f.nombre = "sinRetornoExplicito";
+    f.parametros.push_back(ParamFuncion{"x"});
+    f.cuerpo.push_back(asignacionSimple("x", litNumero(1)));
+
+    gen.genFuncion(f, modulo);
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "call void @lat_nulo("),
+          "sin 'retornar' explicito debe emitirse un retorno nulo implicito al final\n" << ir);
+    CHECK(contiene(ir, "ret void"), "debe cerrar con ret void\n" << ir);
+    verificarModulo("l6_retornar_implicito", modulo);
+}
+
+static void prueba_l6_llamada_argumentos_faltantes_se_completan_con_nulo(GeneradorLLVM& gen) {
+    llvm::Module modulo("l6_llamada_args_faltantes", gen.contexto());
+
+    FuncionDef f;
+    f.nombre = "suma2";
+    f.parametros.push_back(ParamFuncion{"a"});
+    f.parametros.push_back(ParamFuncion{"b"});
+    f.cuerpo.push_back(retornar(binaria("+", identificador("a"), identificador("b"))));
+    gen.genFuncion(f, modulo);
+
+    llvm::IRBuilder<> builder(gen.contexto());
+    llvm::Function* llamador = prepararFuncionDePrueba(gen.contexto(), modulo, builder, "llamador");
+    (void)llamador;
+
+    std::vector<ExprPtr> args;
+    args.push_back(litNumero(1));  // falta el segundo argumento -> se completa con lat_nulo()
+    llvm::Value* resultado = gen.genExpr(*llamada("suma2", std::move(args)), builder, modulo);
+    CHECK(resultado != nullptr, "la llamada a una funcion de usuario debe generar un valor");
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "call void @lat_nulo("),
+          "el argumento faltante debe completarse con lat_nulo()\n" << ir);
+    CHECK(contiene(ir, "call void @lat_fn_suma2("), "debe llamar a la funcion de usuario\n" << ir);
+    verificarModulo("l6_llamada_args_faltantes", modulo);
+}
+
+static void prueba_l6_llamada_funcion_variadica(GeneradorLLVM& gen) {
+    llvm::Module modulo("l6_llamada_variadica", gen.contexto());
+
+    FuncionDef f;
+    f.nombre = "sumaTodo";
+    f.variadico = true;
+    f.cuerpo.push_back(retornar(nullptr));
+    gen.genFuncion(f, modulo);
+
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "llamador");
+
+    std::vector<ExprPtr> args;
+    args.push_back(litNumero(1));
+    args.push_back(litNumero(2));
+    args.push_back(litNumero(3));
+    llvm::Value* resultado = gen.genExpr(*llamada("sumaTodo", std::move(args)), builder, modulo);
+    CHECK(resultado != nullptr, "la llamada a una funcion variadica debe generar un valor");
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "@lat_lista_de("),
+          "los argumentos sobrantes deben empaquetarse con lat_lista_de\n" << ir);
+    CHECK(contiene(ir, "call void @lat_fn_sumaTodo("),
+          "debe llamar a la funcion variadica con la lista ya empaquetada\n" << ir);
+    verificarModulo("l6_llamada_variadica", modulo);
+}
+
+static void prueba_l6_recursion_directa(GeneradorLLVM& gen) {
+    llvm::Module modulo("l6_recursion_directa", gen.contexto());
+
+    // funcion fact(n)
+    //   si n <= 1
+    //     retornar 1
+    //   sino
+    //     retornar n * fact(n - 1)
+    //   fin
+    // fin
+    FuncionDef f;
+    f.nombre = "fact";
+    f.parametros.push_back(ParamFuncion{"n"});
+
+    auto si = std::make_unique<Si>();
+    si->condicion = binaria("<=", identificador("n"), litNumero(1));
+    si->entonces = bloqueDeUno(retornar(litNumero(1)));
+    si->tieneSino = true;
+    std::vector<ExprPtr> argsRecursivos;
+    argsRecursivos.push_back(binaria("-", identificador("n"), litNumero(1)));
+    si->sino = bloqueDeUno(
+        retornar(binaria("*", identificador("n"), llamada("fact", std::move(argsRecursivos)))));
+    f.cuerpo.push_back(std::move(si));
+
+    // declararFuncion(f) registra "fact" ANTES de traducir el cuerpo -- por
+    // eso la llamada recursiva dentro del propio cuerpo puede resolverse:
+    // sin el prototipo adelantado, genExpr(Llamada) no encontraria "fact" en
+    // funciones_ todavia y devolveria nullptr.
+    gen.genFuncion(f, modulo);
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "define internal void @lat_fn_fact("), "debe definir fact\n" << ir);
+    CHECK(contiene(ir, "call void @lat_fn_fact("),
+          "el cuerpo de fact debe poder llamarse a si misma (recursion directa)\n" << ir);
+    verificarModulo("l6_recursion_directa", modulo);
+}
+
+static void prueba_l6_genFuncion_no_duplica_cuerpo(GeneradorLLVM& gen) {
+    llvm::Module modulo("l6_no_duplica_cuerpo", gen.contexto());
+
+    FuncionDef f;
+    f.nombre = "unaVez";
+    f.cuerpo.push_back(retornar(litNumero(1)));
+
+    gen.genFuncion(f, modulo);
+    gen.genFuncion(f, modulo);  // segunda llamada: no debe generar un segundo cuerpo.
+
+    std::string ir = irComoTexto(modulo);
+    size_t primera = ir.find("define internal void @lat_fn_unaVez(");
+    CHECK(primera != std::string::npos, "debe existir una definicion de lat_fn_unaVez\n" << ir);
+    size_t segunda = ir.find("define internal void @lat_fn_unaVez(", primera + 1);
+    CHECK(segunda == std::string::npos,
+          "una segunda llamada a genFuncion no debe duplicar el cuerpo\n" << ir);
+    verificarModulo("l6_no_duplica_cuerpo", modulo);
+}
+
+static void prueba_l6_retornar_sin_funcion_no_crashea(GeneradorLLVM& gen) {
+    llvm::Module modulo("l6_retornar_sin_funcion", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    // Sin una llamada a genFuncion en curso, celdaRetorno_ debe estar en su
+    // valor por defecto (nullptr) -- 'retornar' aqui no deberia ocurrir con
+    // AST real (el analizador semantico ya lo exige dentro de una funcion),
+    // pero no debe emitir ningun salto ni crashear, igual que 'romper' sin
+    // bucle contenedor.
+    gen.genSentencia(*retornar(litNumero(1)), builder, modulo, {});
+    CHECK(builder.GetInsertBlock()->getTerminator() == nullptr,
+          "un 'retornar' sin funcion contenedora no debe emitir ningun terminador");
+    builder.CreateRetVoid();
+    verificarModulo("l6_retornar_sin_funcion", modulo);
+}
+
 int main() {
     CHECK(std::string(LATINO_RUNTIME_ABI_LL) != "",
           "config.h debe traer una ruta a runtime_abi.ll cuando LATINO_LLVM_BACKEND esta ON");
@@ -888,8 +1091,17 @@ int main() {
     prueba_l5_romper_sin_bucle_no_crashea(gen);
     prueba_l5_si_anidado_en_mientras(gen);
 
+    prueba_l6_funcion_simple_con_retorno(gen);
+    prueba_l6_retornar_sin_valor(gen);
+    prueba_l6_retornar_implicito_al_final(gen);
+    prueba_l6_llamada_argumentos_faltantes_se_completan_con_nulo(gen);
+    prueba_l6_llamada_funcion_variadica(gen);
+    prueba_l6_recursion_directa(gen);
+    prueba_l6_genFuncion_no_duplica_cuerpo(gen);
+    prueba_l6_retornar_sin_funcion_no_crashea(gen);
+
     std::cout << "\nComprobaciones: " << g_checks << "   Fallos: " << g_fallos << std::endl;
     if (g_fallos == 0)
-        std::cout << "TODAS LAS PRUEBAS DE CODEGEN LLVM (FASES L2-L5) PASARON." << std::endl;
+        std::cout << "TODAS LAS PRUEBAS DE CODEGEN LLVM (FASES L2-L6) PASARON." << std::endl;
     return g_fallos == 0 ? 0 : 1;
 }
