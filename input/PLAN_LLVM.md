@@ -651,24 +651,98 @@ ninguna comprobación existente); las 44 suites de CTest (incluidos los 22
 ejemplos E2E y todas las suites de librería) siguen pasando sin cambios —
 esta fase no tocó `GeneradorC` ni ningún archivo de `runtime/`.
 
-### Fase L6 — Funciones de usuario y variádica
+### Fase L6 — Funciones de usuario y variádica ✅ verificada con LLVM real
 
-**Archivos:** `src/compiler_llvm.cpp`.
+**Archivos:** `include/compiler_llvm.h`/`src/compiler_llvm.cpp` (nuevos
+métodos públicos `declararFuncion`/`genFuncion`, nuevo estado privado
+`funciones_`/`celdaRetorno_`), `tests/test_codegen_llvm.cpp` (ampliado con 8
+pruebas nuevas).
 
-- `FuncionDef` → `Function::Create` con prototipo adelantado (paridad con los
-  prototipos que hoy emite `GeneradorC::generarCuerpo` para permitir
-  recursión/uso antes de definición).
-- Variádica (`...`/`lat_resto`): **no usar varargs nativos de LLVM**; el
-  llamador empaqueta los argumentos extra en una lista (`lat_lista_de`) antes
-  de invocar, exactamente como ya hace `GeneradorC::genLlamada` — evita tener
-  que manejar `va_arg`/intrínsecos de LLVM, que sería mucho más frágil sin
-  aportar nada (Latino ya modela "el resto" como una lista en tiempo de
-  ejecución).
-- `Retornar`/`VarArgs`.
+- [x] `declararFuncion(f, modulo)` declara (o recupera, si ya existe) el
+  prototipo LLVM de una función de usuario: `void @lat_fn_<nombre>(ptr sret
+  %ret, ptr %param0, ..., [ptr %lat_resto si f.variadico])` — misma
+  convención "siempre puntero" descubierta en la Fase L2 (en Windows
+  x64/MSVC, `LatValor` se pasa/retorna por puntero, nunca por valor)
+  aplicada ahora a las funciones que define el propio programa. Linkage
+  interno (equivalente al `static` de `GeneradorC::funC`) con el atributo
+  `sret` puesto a mano en el parámetro 0 vía
+  `Attribute::getWithStructRetType` -- a diferencia de `RuntimeAbiLLVM`
+  (Fase L2), que copia ese atributo del `.ll` que emitió Clang, aquí no hay
+  ningún `.ll` de origen: el prototipo lo construye el propio generador, así
+  que el atributo hay que ponerlo explícitamente para que el IR documente la
+  misma convención de retorno indirecto que ya usa el runtime.
+- [x] `genFuncion(f, modulo)` llama primero a `declararFuncion` (idempotente:
+  una segunda llamada con el mismo `FuncionDef` no duplica el cuerpo, se
+  detecta con `Function::empty()`) **antes** de traducir el cuerpo -- esto es
+  lo que permite que el cuerpo llame a la propia función (recursión directa,
+  ver `prueba_l6_recursion_directa`: un `factorial` recursivo construido a
+  mano genera `call void @lat_fn_fact(` dentro de la definición de
+  `lat_fn_fact`). La recursión indirecta (mutua) queda soportada por el
+  mismo mecanismo siempre que quien orqueste la generación (la Fase L9,
+  `generar()`) declare los prototipos de todas las funciones del programa
+  antes de generar el cuerpo de ninguna -- exactamente el patrón de dos
+  pasadas que ya usa `GeneradorC::generarCuerpo`.
+- [x] **Hallazgo no anticipado explícitamente en el texto original de esta
+  fase — un parámetro entrante NUNCA debe reutilizarse tal cual como la
+  celda de la variable.** El puntero que recibe la función puede ser
+  exactamente la celda de una variable del llamador (`genExpr` de un
+  `Identificador` devuelve el puntero de su celda sin copiar, Fase L3), y
+  Latino tiene semántica de paso por valor: reasignar el parámetro dentro
+  del cuerpo no debe mutar la variable del llamador. `genFuncion` copia
+  (`load`+`store`) cada parámetro entrante a una celda local fresca antes de
+  usarlo -- el mismo efecto que ya obtiene `GeneradorC::genFuncion`
+  implícitamente, porque ahí un parámetro de tipo `LatValor` en C ya es una
+  copia local por definición del lenguaje, sin que el generador tenga que
+  pensar en ello.
+- [x] Variádica (`...`/`lat_resto`): **no se usan varargs nativos de LLVM**;
+  el llamador empaqueta los argumentos extra en una lista (`lat_lista_de`,
+  la misma función variádica real del runtime que ya usan
+  `ListaLiteral`/`DiccionarioLiteral` desde la Fase L4) antes de invocar,
+  exactamente como ya hace `GeneradorC::genLlamada` — evita manejar
+  `va_arg`/intrínsecos de LLVM sin aportar nada (Latino ya modela "el resto"
+  como una lista en tiempo de ejecución). El parámetro `lat_resto` de la
+  función se declara y se copia a una celda local igual que cualquier otro
+  parámetro; `VarArgs` (Fase L4, sin cambios en esta fase) ya sabía buscarlo
+  en `variables` con ese nombre.
+- [x] `genSentencia` traduce `Retornar`: copia el valor evaluado (o llama a
+  `lat_nulo()` si `retornar` no trae valor) a la celda de retorno del estado
+  privado nuevo `celdaRetorno_` (que `genFuncion` fija antes de traducir el
+  cuerpo y restaura al salir) y cierra el bloque con `CreateRetVoid`. Si el
+  cuerpo no termina ya con un `retornar` explícito en todas sus ramas (se
+  detecta con el mismo helper `bloqueTerminado` de la Fase L5),
+  `genFuncion` añade un `retornar nulo` implícito al final — igual que
+  `GeneradorC::genFuncion`, que siempre emite `return lat_nulo();` tras el
+  cuerpo. Un `retornar` sin función contenedora (`celdaRetorno_` es
+  `nullptr`; no debería ocurrir con AST real) no emite nada, igual que
+  `Romper` sin bucle contenedor (Fase L5).
+- [x] `genExpr` traduce `Llamada` cuyo destino es un `Identificador` que
+  nombra una función de usuario ya registrada (por `declararFuncion`): los
+  argumentos fijos ausentes se completan con `lat_nulo()` y, si la función
+  es variádica, los argumentos sobrantes se empaquetan con `lat_lista_de` —
+  paridad exacta con `GeneradorC::genLlamada`. Cualquier otra `Llamada`
+  (builtins como `escribir`, bibliotecas como `cadena.mayusculas`, métodos
+  estáticos, ...) sigue devolviendo `nullptr` — Fases L7/L8.
 
-**Criterio de aceptación:** ejemplo E2E con función recursiva (factorial o
-fibonacci) produce la misma salida con `--backend=llvm` que con
-`--backend=c`.
+**Criterio de aceptación — cumplido a nivel de codegen unitario:** 8 pruebas
+nuevas en `tests/test_codegen_llvm.cpp` (mismo estilo que L2-L5: subcadena de
+IR + `verifyModule`) cubren función simple con `retornar` explícito,
+`retornar` sin valor, `retornar` implícito al final del cuerpo, llamada con
+argumentos fijos faltantes (rellenados con `lat_nulo()`), llamada a función
+variádica (empaquetado con `lat_lista_de`), recursión directa (`factorial`
+construido a mano, confirma el prototipo adelantado), idempotencia de
+`genFuncion` (una segunda llamada no duplica el `define`) y `retornar` sin
+función contenedora. Suite completa (`ctest -C Release`): `test_codegen_llvm`
+pasa con 129 comprobaciones (102 de L2-L5 + 27 nuevas); las 44 suites de
+CTest (incluidos los 22 ejemplos E2E y todas las suites de librería) siguen
+pasando sin cambios. El criterio *literal* del texto original del plan ("un
+ejemplo E2E con `--backend=llvm` produce la misma salida que con
+`--backend=c`") todavía no se puede ejecutar de punta a punta: `generar()`
+sigue emitiendo el módulo "hola mundo" de la Fase L1 (no recorre `programa`
+todavía) y no hay forma de imprimir un resultado sin `escribir`/`imprimir`
+(builtins, Fase L7) — ambas piezas quedan pendientes hasta que L7 (llamadas
+a runtime/librerías) y L9 (driver: `generar()` recorriendo el `Programa`
+real) estén completas. Mismo patrón que L3-L5, que tampoco pudieron
+ejecutar un `.lat` real con `--backend=llvm` todavía.
 
 ### Fase L7 — Llamadas a runtime y librerías (FFI)
 

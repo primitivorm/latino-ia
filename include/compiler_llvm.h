@@ -5,11 +5,13 @@
 // paralelo al backend de C existente (GeneradorC, ver compiler.h) — ninguno
 // de los dos reemplaza al otro; se seleccionan con --backend=c|llvm.
 //
-// Fase L5 (estado actual): `generar()` todavía emite el módulo "hola mundo"
-// de plumbing de la Fase L1 (el recorrido real de `programa` -- funciones --
-// llega en las Fases L6-L9). Lo nuevo de esta fase: `genSentencia()`/
-// `genBloque()` traducen control de flujo (Si/Elegir/Mientras/Desde/Repetir/
-// Romper) y sentencias-expresión a basic blocks reales de LLVM.
+// Fase L6 (estado actual): `generar()` todavía emite el módulo "hola mundo"
+// de plumbing de la Fase L1 (el recorrido real de `programa` -- el "main"
+// generado -- llega en la Fase L9, cuando el driver lo necesita de verdad).
+// Lo nuevo de esta fase: `declararFuncion()`/`genFuncion()` traducen
+// funciones de usuario (con prototipo adelantado, para recursión directa e
+// indirecta) y `genSentencia()` traduce `Retornar`; `genExpr()` traduce
+// `Llamada` a una función de usuario ya declarada.
 #ifndef COMPILER_LLVM_H
 #define COMPILER_LLVM_H
 
@@ -69,8 +71,21 @@ public:
     // celda; declararLocales() (más abajo) es quien las declara -- hasta
     // entonces quien llame arma la tabla a mano (así se prueba esta fase de
     // forma aislada). Devuelve nullptr para nodos de expresión que todavía
-    // no se manejan (control de flujo, llamadas, POO, ... -- fases futuras)
-    // o para un identificador/"lat_resto" ausente de 'variables'.
+    // no se manejan (control de flujo, llamadas a builtins/bibliotecas/
+    // métodos, POO, ... -- fases futuras) o para un identificador/
+    // "lat_resto" ausente de 'variables'.
+    //
+    // (Fase L6) `Llamada` cuyo destino es un `Identificador` que nombra una
+    // función de usuario ya registrada (por `declararFuncion`/`genFuncion`,
+    // más abajo) se traduce a una llamada real: argumentos fijos ausentes se
+    // completan con `lat_nulo()` (paridad con `GeneradorC::genLlamada`) y,
+    // si la función es variádica, los argumentos sobrantes se empaquetan con
+    // `lat_lista_de` antes de la llamada -- igual mecanismo que ya usan
+    // `ListaLiteral`/`DiccionarioLiteral` (Fase L4) para invocar una función
+    // variádica real del runtime, aplicado aquí a una función de usuario.
+    // Cualquier otro `Llamada` (builtins como `escribir`, bibliotecas como
+    // `cadena.mayusculas`, métodos estáticos, ...) devuelve `nullptr` --
+    // Fases L7/L8.
     llvm::Value* genExpr(Expresion& expr, llvm::IRBuilder<>& builder, llvm::Module& modulo,
                          const std::unordered_map<std::string, llvm::Value*>& variables = {});
 
@@ -112,10 +127,21 @@ public:
     // quedó terminado (p.ej. por un `romper` o, desde la Fase L6, un
     // `retornar`) y no debe recibir más instrucciones.
     //
-    // No maneja Retornar (Fase L6: depende de la convención de retorno de
-    // la función que contenga la sentencia, que todavía no existe) ni
-    // declaraciones de nivel superior (FuncionDef/ClaseDef/EstructuraDef/
-    // InterfazDef/Incluir/LlamadaBase -- Fases L6/L7/L8).
+    // (Fase L6) `Retornar` copia el valor evaluado (o `lat_nulo()` si
+    // `retornar` no trae valor) a la celda de retorno (`sret`) de la función
+    // contenedora -- el estado privado nuevo `celdaRetorno_`, que
+    // `genFuncion` fija antes de traducir el cuerpo -- y cierra el bloque
+    // actual con `CreateRetVoid`. Si no hay función contenedora
+    // (`celdaRetorno_` es `nullptr`; no debería ocurrir con AST real: el
+    // analizador semántico ya exige que `retornar` esté dentro de una
+    // función) no emite nada, igual que `Romper` sin bucle.
+    //
+    // No maneja declaraciones de nivel superior distintas de FuncionDef
+    // (ClaseDef/EstructuraDef/InterfazDef/Incluir/LlamadaBase -- Fases
+    // L7/L8) ni la propia FuncionDef (ver `genFuncion`/`declararFuncion`,
+    // que la traducen desde fuera de `genSentencia`/`genBloque`, nunca
+    // dentro de un bloque -- igual que `GeneradorC::genSentencia`, que
+    // tampoco emite una FuncionDef anidada).
     //
     // `Elegir` se traduce como una cadena de comparaciones
     // (`lat_igual`+`lat_es_verdadero`), nunca como `SwitchInst` nativo de
@@ -144,6 +170,54 @@ public:
     void genBloque(const ListaSent& cuerpo, llvm::IRBuilder<>& builder, llvm::Module& modulo,
                     const std::unordered_map<std::string, llvm::Value*>& variables);
 
+    // (Fase L6) Declara (o recupera, si ya se declaró antes) el prototipo
+    // LLVM de la función de usuario 'f': `void @lat_fn_<nombre>(ptr sret
+    // %ret, ptr %param0, ..., [ptr %lat_resto si f.variadico])` -- misma
+    // convención "siempre puntero" que ya usan las funciones del runtime
+    // (Fase L2: en Windows x64/MSVC, LatValor se pasa/retorna por puntero,
+    // nunca por valor) aplicada ahora a las funciones que define el propio
+    // programa Latino. El parámetro variádico ("lat_resto") es, igual que
+    // en GeneradorC, la lista ya empaquetada por el llamador (Fase L4:
+    // ListaLiteral/genExpr(Llamada) usan lat_lista_de) -- nunca varargs
+    // nativos de LLVM. Registra la función en la tabla interna nombre ->
+    // {Function*, numParámetros, variadico} para que genExpr(Llamada) y una
+    // futura llamada a genFuncion (incluida la de la propia 'f', para
+    // recursión directa) puedan resolverla. Enlaza con linkage interno
+    // (equivalente al 'static' que ya usa GeneradorC::funC) -- por eso toda
+    // llamada a esta función dentro de un módulo debe emparejarse con una
+    // llamada a genFuncion() que le dé cuerpo antes de verificar el módulo:
+    // una función de linkage interno sin cuerpo es IR inválido.
+    llvm::Function* declararFuncion(FuncionDef& f, llvm::Module& modulo);
+
+    // (Fase L6) Traduce el cuerpo de 'f' -- declara su prototipo primero
+    // (vía declararFuncion, que es idempotente) si no existía ya, ANTES de
+    // traducir el cuerpo, precisamente para permitir que 'f' se llame a sí
+    // misma (recursión directa) o que otra función ya declarada la llame a
+    // ella (recursión indirecta, si el llamador de genFuncion declaró antes
+    // los prototipos de todo el grupo). Si el prototipo ya tiene cuerpo (una
+    // llamada anterior a genFuncion con el mismo nombre), no hace nada más
+    // -- evita generar el cuerpo dos veces.
+    //
+    // Cada parámetro entrante se COPIA a una celda local fresca -- nunca se
+    // usa directamente como la celda de la variable: el puntero que llega
+    // podría ser la celda real de una variable del llamador (genExpr de un
+    // Identificador devuelve el puntero de la celda tal cual, sin copiar,
+    // ver Fase L3), y Latino tiene semántica de paso por valor -- reasignar
+    // el parámetro dentro del cuerpo no debe mutar la variable del llamador.
+    // El resto de variables locales se declara con declararLocales sobre
+    // recolectarVariables(f.cuerpo, ..., excluir=parámetros).
+    //
+    // Fija el estado privado celdaRetorno_ a la celda de retorno (el
+    // parámetro sret) mientras traduce el cuerpo con genBloque -- así
+    // genSentencia(Retornar) sabe adónde copiar el valor -- y lo restaura al
+    // salir (paridad con el guardado/restaurado de actualClase/actualPadre
+    // en GeneradorC::genMetodo, por si en el futuro genFuncion se invoca de
+    // forma anidada). Si el cuerpo no termina ya con un `retornar` explícito
+    // en todas sus ramas, añade un `retornar nulo` implícito al final --
+    // igual que GeneradorC::genFuncion, que siempre emite `return
+    // lat_nulo();` tras el cuerpo.
+    void genFuncion(FuncionDef& f, llvm::Module& modulo);
+
     RuntimeAbiLLVM& abi() { return *abi_; }
     llvm::LLVMContext& contexto() { return *contexto_; }
 
@@ -156,6 +230,23 @@ private:
     // interno, hacia donde salta un `romper` (ver genSentencia). Vacía
     // fuera de la traducción de un bucle.
     std::vector<llvm::BasicBlock*> pilaSalidasBucle_;
+
+    // (Fase L6) Información de una función de usuario ya declarada --
+    // equivalente a GeneradorC::InfoFuncion (compiler.h), con el
+    // llvm::Function* del prototipo agregado (GeneradorC no lo necesita:
+    // ahí "declarar" es solo emitir texto, nunca un objeto que haya que
+    // reutilizar).
+    struct InfoFuncionUsuario {
+        llvm::Function* fn;
+        size_t numParametros;
+        bool variadico;
+    };
+    std::unordered_map<std::string, InfoFuncionUsuario> funciones_;
+
+    // (Fase L6) Celda de retorno (el parámetro sret) de la función que
+    // genFuncion esté traduciendo en este momento; nullptr fuera de la
+    // traducción de una función -- ver genSentencia(Retornar).
+    llvm::Value* celdaRetorno_ = nullptr;
 
     // Evalúa 'celda' con lat_es_verdadero() y compara el resultado contra 0
     // -- el i1 que necesita CreateCondBr. Devuelve 'false' (i1) sin emitir

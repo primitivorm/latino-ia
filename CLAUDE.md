@@ -179,8 +179,16 @@ expone `%struct.LatValor` y las firmas reales del runtime a
 Windows x64/MSVC, `LatValor` se pasa/retorna **por puntero** (`sret` +
 `ptr`), nunca por valor — cualquier codegen futuro (L3+) debe modelar cada
 valor Latino como un puntero a una celda `alloca %LatValor`, nunca como un
-struct LLVM por registro. L3-L13 (recorrido real del AST, control de flujo,
-funciones, FFI, POO, driver, JIT, tests, paridad) siguen pendientes.
+struct LLVM por registro. L3 completa (tipos/literales/expresión), L4
+completa (variables locales, asignación, expresiones compuestas), L5
+completa (control de flujo: si/desde/mientras/repetir/elegir/romper) y L6
+completa (funciones de usuario y variádica: prototipo adelantado para
+recursión, `retornar`, llamadas a funciones de usuario) — todas verificadas
+con LLVM real vía pruebas de codegen unitarias (`tests/test_codegen_llvm.cpp`,
+subcadena de IR + `verifyModule`), no E2E todavía: `generar()` sigue
+emitiendo el módulo "hola mundo" de L1 hasta que L9 (driver) lo conecte al
+recorrido real de `Programa`. L7-L13 (FFI a runtime/librerías, POO, driver,
+JIT, tests E2E, paridad) siguen pendientes.
 
 ## Ramas y PRs
 

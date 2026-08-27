@@ -6,8 +6,10 @@
 
 #include "compiler_llvm.h"
 
+#include <llvm/IR/Attributes.h>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Constants.h>
+#include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
@@ -16,6 +18,7 @@
 
 #include "config.h"
 #include "fn_binaria.h"
+#include "recolector_variables.h"
 
 extern "C" {
 // Solo se usa el enum LatTipo (LAT_NUMERO, ...) -- los mismos valores que ya
@@ -205,6 +208,48 @@ llvm::Value* GeneradorLLVM::genExpr(Expresion& expr, llvm::IRBuilder<>& builder,
         }
         builder.CreateCall(fn, args);
         return celda;
+    }
+    if (auto* n = dynamic_cast<Llamada*>(&expr)) {
+        // Solo funciones de usuario ya declaradas (Fase L6) -- builtins
+        // (escribir, ...), bibliotecas (cadena.xxx, ...) y métodos estáticos
+        // son Fases L7/L8, devuelven nullptr como cualquier otro nodo no
+        // soportado todavía.
+        auto* destino = dynamic_cast<Identificador*>(n->destino.get());
+        auto it = destino ? funciones_.find(destino->nombre) : funciones_.end();
+        if (it == funciones_.end()) return nullptr;
+        const InfoFuncionUsuario& info = it->second;
+
+        llvm::Value* celdaRet = builder.CreateAlloca(tipoLatValor, nullptr, "llamada_ret");
+        std::vector<llvm::Value*> args{celdaRet};
+
+        llvm::Function* fnNulo = abi_->declarar(modulo, "lat_nulo");
+        size_t nargs = n->argumentos.size();
+        for (size_t i = 0; i < info.numParametros; i++) {
+            llvm::Value* arg;
+            if (i < nargs) {
+                arg = genExpr(*n->argumentos[i], builder, modulo, variables);
+                if (!arg) return nullptr;
+            } else {
+                arg = builder.CreateAlloca(tipoLatValor, nullptr, "llamada_arg_nulo");
+                builder.CreateCall(fnNulo, {arg});
+            }
+            args.push_back(arg);
+        }
+        if (info.variadico) {
+            llvm::Function* fnListaDe = abi_->declarar(modulo, "lat_lista_de");
+            llvm::Value* resto = builder.CreateAlloca(tipoLatValor, nullptr, "llamada_resto");
+            size_t nResto = (nargs > info.numParametros) ? nargs - info.numParametros : 0;
+            std::vector<llvm::Value*> argsResto{resto, builder.getInt64(nResto)};
+            for (size_t i = info.numParametros; i < nargs; i++) {
+                llvm::Value* v = genExpr(*n->argumentos[i], builder, modulo, variables);
+                if (!v) return nullptr;
+                argsResto.push_back(v);
+            }
+            builder.CreateCall(fnListaDe, argsResto);
+            args.push_back(resto);
+        }
+        builder.CreateCall(info.fn, args);
+        return celdaRet;
     }
     if (auto* n = dynamic_cast<DiccionarioLiteral*>(&expr)) {
         llvm::Function* fn = abi_->declarar(modulo, "lat_dic_de");
@@ -552,10 +597,108 @@ void GeneradorLLVM::genSentencia(Sentencia& s, llvm::IRBuilder<>& builder, llvm:
         // header); no hay nada seguro que emitir aquí.
         return;
     }
-    // Retornar (Fase L6, depende de la convención de retorno de la función
-    // contenedora) e Incluir/FuncionDef/ClaseDef/EstructuraDef/InterfazDef/
-    // LlamadaBase (declaraciones de nivel superior o de Fases L6/L7/L8): no
-    // se traducen aquí.
+    if (auto* rt = dynamic_cast<Retornar*>(&s)) {
+        if (!celdaRetorno_) return;  // sin función contenedora: ver Romper.
+        if (rt->valor) {
+            llvm::Value* val = genExpr(*rt->valor, builder, modulo, variables);
+            if (!val) return;
+            builder.CreateStore(builder.CreateLoad(tipoLatValor, val), celdaRetorno_);
+        } else {
+            llvm::Function* fnNulo = abi_->declarar(modulo, "lat_nulo");
+            builder.CreateCall(fnNulo, {celdaRetorno_});
+        }
+        builder.CreateRetVoid();
+        return;
+    }
+    // Incluir/FuncionDef/ClaseDef/EstructuraDef/InterfazDef/LlamadaBase
+    // (declaraciones de nivel superior o de Fases L7/L8): no se traducen
+    // aquí -- FuncionDef la traducen declararFuncion/genFuncion, siempre
+    // desde fuera de un bloque, igual que GeneradorC::genSentencia.
+}
+
+llvm::Function* GeneradorLLVM::declararFuncion(FuncionDef& f, llvm::Module& modulo) {
+    auto it = funciones_.find(f.nombre);
+    if (it != funciones_.end()) return it->second.fn;
+
+    llvm::PointerType* tipoPuntero = llvm::PointerType::get(*contexto_, /*AddressSpace=*/0);
+    std::vector<llvm::Type*> tipos{tipoPuntero};  // celda de retorno (sret)
+    for (size_t i = 0; i < f.parametros.size(); i++) tipos.push_back(tipoPuntero);
+    if (f.variadico) tipos.push_back(tipoPuntero);  // "lat_resto", ya empaquetada por el llamador
+    llvm::FunctionType* tipoFn =
+        llvm::FunctionType::get(llvm::Type::getVoidTy(*contexto_), tipos, /*isVarArg=*/false);
+
+    llvm::Function* fn = llvm::Function::Create(
+        tipoFn, llvm::Function::InternalLinkage, "lat_fn_" + f.nombre, &modulo);
+    fn->addParamAttr(0, llvm::Attribute::getWithStructRetType(*contexto_, abi_->tipoLatValor()));
+
+    funciones_[f.nombre] = InfoFuncionUsuario{fn, f.parametros.size(), f.variadico};
+    return fn;
+}
+
+void GeneradorLLVM::genFuncion(FuncionDef& f, llvm::Module& modulo) {
+    llvm::Function* fn = declararFuncion(f, modulo);
+    if (!fn->empty()) return;  // ya se generó el cuerpo (llamada repetida).
+
+    llvm::StructType* tipoLatValor = abi_->tipoLatValor();
+    llvm::IRBuilder<> builder(*contexto_);
+    llvm::BasicBlock* entrada = llvm::BasicBlock::Create(*contexto_, "entrada", fn);
+    builder.SetInsertPoint(entrada);
+
+    auto argumento = fn->arg_begin();
+    llvm::Value* celdaRetorno = &*argumento++;
+
+    // Cada parámetro entrante se copia a una celda local fresca -- nunca se
+    // reutiliza el puntero recibido como celda de la variable (ver
+    // comentario de esta función en compiler_llvm.h): el llamador puede
+    // pasar el puntero de su propia variable, y Latino tiene semántica de
+    // paso por valor.
+    std::unordered_map<std::string, llvm::Value*> variables;
+    for (size_t i = 0; i < f.parametros.size(); i++, ++argumento) {
+        llvm::Value* celda =
+            builder.CreateAlloca(tipoLatValor, nullptr, "v_" + f.parametros[i].nombre);
+        builder.CreateStore(builder.CreateLoad(tipoLatValor, &*argumento), celda);
+        variables[f.parametros[i].nombre] = celda;
+    }
+    if (f.variadico) {
+        llvm::Value* celda = builder.CreateAlloca(tipoLatValor, nullptr, "v_lat_resto");
+        builder.CreateStore(builder.CreateLoad(tipoLatValor, &*argumento), celda);
+        variables["lat_resto"] = celda;
+    }
+
+    std::set<std::string> excluir;
+    for (const auto& p : f.parametros) excluir.insert(p.nombre);
+    if (f.variadico) excluir.insert("lat_resto");
+
+    std::set<std::string> nombresLocales;
+    recolectarVariables(f.cuerpo, nombresLocales, excluir);
+    auto locales = declararLocales(nombresLocales, builder, modulo);
+    variables.insert(locales.begin(), locales.end());
+
+    // Chequeos de tipo de parámetros anotados (tipado gradual, Fase 27) --
+    // paridad con GeneradorC::genFuncion.
+    for (const auto& p : f.parametros) {
+        if (p.tipo == TipoAnotado::Ninguno) continue;
+        llvm::Function* fnVerificar = abi_->declarar(modulo, "lat_verificar_tipo");
+        llvm::Value* celdaParam = variables[p.nombre];
+        llvm::Value* nombreC = builder.CreateGlobalStringPtr(p.nombre, "nombre_param", 0, &modulo);
+        llvm::Value* verificado = builder.CreateAlloca(tipoLatValor, nullptr, "param_verificado");
+        builder.CreateCall(fnVerificar, {verificado, celdaParam,
+                                         builder.getInt32(tipoAnotadoALatTipo(p.tipo)), nombreC,
+                                         builder.getInt32(f.linea)});
+        builder.CreateStore(builder.CreateLoad(tipoLatValor, verificado), celdaParam);
+    }
+
+    llvm::Value* anteriorRetorno = celdaRetorno_;
+    celdaRetorno_ = celdaRetorno;
+    genBloque(f.cuerpo, builder, modulo, variables);
+    if (!bloqueTerminado(builder)) {
+        // Retornar nulo implícito al final -- igual que GeneradorC::genFuncion,
+        // que siempre emite "return lat_nulo();" tras el cuerpo.
+        llvm::Function* fnNulo = abi_->declarar(modulo, "lat_nulo");
+        builder.CreateCall(fnNulo, {celdaRetorno});
+        builder.CreateRetVoid();
+    }
+    celdaRetorno_ = anteriorRetorno;
 }
 
 std::unique_ptr<llvm::Module> GeneradorLLVM::generar(Programa& /*programa*/) {
