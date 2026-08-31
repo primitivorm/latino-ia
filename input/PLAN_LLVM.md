@@ -744,27 +744,138 @@ a runtime/librerías) y L9 (driver: `generar()` recorriendo el `Programa`
 real) estén completas. Mismo patrón que L3-L5, que tampoco pudieron
 ejecutar un `.lat` real con `--backend=llvm` todavía.
 
-### Fase L7 — Llamadas a runtime y librerías (FFI)
+### Fase L7 — Llamadas a runtime y librerías (FFI) ✅ verificada con LLVM real (ver hallazgo de alcance)
 
-**Archivos:** `src/compiler_llvm.cpp`.
+**Archivos:** `src/compiler_llvm.cpp`/`include/compiler_llvm.h` (ampliado el
+caso `Llamada` de `genExpr`, sin estado nuevo), `tests/test_codegen_llvm.cpp`
+(ampliado con 9 pruebas nuevas).
 
-- Equivalente de `GeneradorC::genLlamada`: built-ins (`escribir`, `imprimir`,
-  `leer`, `limpiar`, `acadena`, `tipo`, `error`, `incluir`), `imprimirf`
-  (variádica → empaquetado en lista, igual que L6), y las 7 librerías
-  (`cadena`, `lista`, `dic`, `mate`, `sis`, `archivo`, `paquete`) vía
-  `AccesoMiembro`.
-- A diferencia de `GeneradorC` (que detecta `libsUsadas` dinámicamente para
-  emitir `#include` selectivos), `GeneradorLLVM` puede `declare` **todas**
-  las funciones del runtime desde el arranque (ya disponibles vía
-  `runtime_abi.ll` de la Fase L2) sin costo real — `invocador_c.cpp` ya
-  enlaza incondicionalmente todos los `.c` de `runtime/libs/`.
-- Métodos estáticos de clase/estructura (`NombreClase.metodo(...)`): mismo
-  patrón de "empaquetar argumentos en arreglo + llamar función uniforme".
+- [x] Equivalente de `GeneradorC::genLlamada` para `Llamada` con destino
+  `Identificador`: built-ins de un argumento opcional (`escribir`/
+  `imprimir`/`escribe`/`poner`, `acadena`/`alogico`/`anumero`/`tipo`/`error`/
+  `incluir` — el argumento ausente se completa con `lat_nulo()`, paridad
+  exacta), built-ins sin argumentos (`leer`/`limpiar`) e `imprimirf`
+  (variádica, empaquetada igual que `lat_lista_de`/`lat_dic_de` desde la Fase
+  L4/L6 — ver hallazgo 1 abajo). Si el nombre no coincide con ningún builtin
+  ni con una función de usuario ya declarada (Fase L6), devuelve `nullptr`
+  como cualquier nodo no soportado (no debería ocurrir con AST real).
+- [x] `Llamada` con destino `AccesoMiembro` cuyo objeto es un `Identificador`
+  que nombra una de las 7 librerías (`cadena`, `lista`, `dic`, `mate`, `sis`,
+  `archivo`, `paquete`) se traduce a `lat_<lib>_<fn>(args...)` — `cadena.
+  formato` variádica con el mismo empaquetado que `imprimirf`. A diferencia
+  de `GeneradorC` (que detecta `libsUsadas` dinámicamente para emitir
+  `#include` selectivos), `GeneradorLLVM` puede `declare` cualquier función
+  del runtime en el momento en que la necesita, vía `RuntimeAbiLLVM::
+  declarar` (Fase L2) sobre `runtime_abi.ll` — no hace falta lista de "libs
+  usadas": `invocador_c.cpp` ya enlaza incondicionalmente todos los `.c` de
+  `runtime/libs/`.
+- [x] Cualquier otro `AccesoMiembro` (el objeto no es una de las 7
+  librerías) se traduce al despacho dinámico uniforme `lat_obj_llamar_metodo
+  (objeto, nombre, nargs, args...)` — mismo fallback que usa `GeneradorC`
+  tanto para "milib.funcionExportada(args)" (objeto de tipo `LAT_MODULO`,
+  cargado con `paquete.cargar`, Reto 7 del plan) como para "instancia.metodo
+  (args)" (objeto de tipo `LAT_OBJETO`, una vez la Fase L8 sepa construir
+  instancias). No necesita ningún seguimiento de clases/estructuras porque
+  el despacho ya es dinámico en runtime vía el diccionario de métodos que
+  vive en el propio objeto — se implementó en esta fase (no en L8) porque no
+  depende de nada que L8 vaya a agregar.
 
-**Criterio de aceptación:** test dedicado que carga un módulo dinámico con
-`paquete.cargar`/invoca una función exportada desde un programa compilado con
-`--backend=llvm`, confirmando que la ABI derivada en L2 es compatible con
-módulos externos compilados por separado.
+**Hallazgo 1 (no anticipado explícitamente en el texto original de esta
+fase) — `lat_imprimirf` no tiene celda de retorno.** A diferencia de
+`lat_escribir`/`lat_cadena_formato`/etc. (que siempre retornan `LatValor` por
+`sret`), `lat_imprimirf` está declarada `void lat_imprimirf(size_t n, ...)`
+en el runtime real — confirmado en `generated/runtime_abi.ll`:
+`declare void @lat_imprimirf(i64 noundef, ...)`, sin ningún parámetro
+`sret`. `genExpr(Llamada)` para `imprimirf` emite la llamada por su efecto y
+devuelve `nullptr` como valor -- no porque el nodo sea "no soportado" (como
+en el resto de `genExpr`), sino porque genuinamente no hay ninguna celda que
+devolver. Esto replica el estado de cosas ya existente en `GeneradorC`,
+donde el texto C `lat_imprimirf(...)` tampoco es una expresión `LatValor`
+válida para anidar (solo se usa hoy como `ExprSentencia`) — la diferencia es
+que en LLVM esta limitación se documenta explícitamente devolviendo
+`nullptr`, en vez de dejar que el compilador de C de turno la descubra si
+alguna vez se generara ese texto en posición de expresión.
+
+**Hallazgo 2 — la firma real de `lat_obj_llamar_metodo` mezcla escalares
+crudos con `LatValor` indirecto, confirmando la necesidad del mecanismo de
+sondeo de la Decisión 2 también para funciones "mixtas".**
+`generated/runtime_abi.ll` clasifica `LatValor lat_obj_llamar_metodo(LatValor
+objeto, const char* nombre, int nargs, ...)` como `declare void @lat_obj_
+llamar_metodo(ptr sret(%struct.LatValor) align 8, ptr noundef, ptr noundef,
+i32 noundef, ...)`: el retorno es indirecto (`sret`, como siempre), `objeto`
+(`LatValor`) es indirecto (`ptr`, igual que cualquier otro `LatValor`),
+`nombre` (`const char*`) es un `ptr` **directo** (ya era un puntero en C, sin
+indirección adicional) y `nargs` (`int`) es un `i32` **escalar por
+registro**, no una celda `LatValor`. `genExpr(Llamada)` pasa `builder.
+getInt32(...)` para `nargs` (un entero LLVM nativo, nunca una celda
+`%struct.LatValor`) — construir esto a mano sin haber importado la firma real
+de Clang habría sido fácil de acertar por intuición para este caso concreto,
+pero es exactamente el tipo de suposición que la Decisión 2 prohíbe: la única
+fuente de verdad es `runtime_abi.ll`, nunca una firma reconstruida por
+inspección del prototipo C.
+
+**Hallazgo/decisión de alcance — métodos estáticos de clase/estructura
+(`NombreClase.metodo(...)`) se mueven a la Fase L8, no se implementan aquí.**
+El texto original de esta fase incluía "métodos estáticos... mismo patrón de
+empaquetar argumentos en arreglo + llamar función uniforme" como parte de
+L7. En la práctica, resolver si `NombreClase` nombra una clase/estructura
+conocida (y si `metodo` es uno de sus métodos estáticos) exige que
+`GeneradorLLVM` lleve una tabla `clases_`/`estructuras_` análoga a la de
+`GeneradorC` -- que no existe todavía porque `genClase`/`genMetodo`/
+`genEstructura` son trabajo de la Fase L8, no de esta. Intentar resolver
+"método estático" antes de que exista esa tabla no tiene con qué comparar
+`NombreClase`; se documenta aquí como movido a L8 (donde sí se agregará la
+tabla) en vez de implementarse a medias. El resto de la llamada dinámica
+(`objeto.metodo(...)`/`milib.fn(...)`, que no necesita esa tabla) sí se
+implementó en esta fase, ver arriba.
+
+**Hallazgo/riesgo pendiente — ejecución real de argumentos variádicos
+`LatValor` en un sitio de llamada, heredado desde L4/L6, ahora también
+aplica a `lat_cadena_formato`/`lat_imprimirf`/`lat_obj_llamar_metodo`.**
+Igual que `lat_lista_de`/`lat_dic_de` (Fase L4) y la llamada a una función de
+usuario variádica (Fase L6), estas tres funciones son variádicas con
+argumentos `LatValor` (16 bytes, indirectos) intercalados con parámetros
+fijos escalares. El mecanismo de la Decisión 2 (Clang deriva el
+`FunctionType`/atributos de la *declaración*) es sólido y está verificado
+con LLVM real; lo que **no** se ha confirmado todavía con una ejecución real
+es que un *sitio de llamada* armado a mano vía `IRBuilder::CreateCall` sobre
+ese `FunctionType` (pasando el puntero de cada celda como argumento
+variádico, nunca el struct por valor) produzca exactamente el mismo código
+máquina que generaría Clang para una llamada C real equivalente -- las
+pruebas de esta fase (igual que las de L4/L6) solo comprueban subcadena de
+IR + `verifyModule`, no ejecución. Se documenta como riesgo conocido, no
+como bloqueante: la Fase L9 (driver AOT, criterio "los 22 ejemplos
+compilan y ejecutan con `--backend=llvm`") ejercitará esto con programas
+reales que ya usan `imprimirf`/`cadena.formato`/listas, y es el punto natural
+para confirmarlo con ejecución real -- introducir aquí una infraestructura de
+compilación+enlace+ejecución ad-hoc (sin el driver todavía) habría exigido
+adelantar trabajo de L9 fuera de su fase, y para el caso específico de
+`lat_obj_llamar_metodo` además habría exigido un módulo dinámico de prueba
+(`.dll`/`.so`) que ni siquiera existe hoy para el backend C (no hay ningún
+test, unitario ni E2E, que ejercite `paquete.cargar` contra un módulo real).
+
+**Criterio de aceptación — cumplido a nivel de codegen unitario, con el
+mismo patrón de L3-L6:** 9 pruebas nuevas en `tests/test_codegen_llvm.cpp`
+(subcadena de IR + `verifyModule`) cubren cada builtin de un argumento
+(`escribir`), el argumento faltante completado con `lat_nulo()`
+(`imprimir()`), un builtin sin argumentos (`leer`), `imprimirf` variádica
+(confirma que devuelve `nullptr` como valor), una llamada de librería simple
+(`cadena.mayusculas`), una llamada de librería sin argumentos (`mate.pi`),
+`cadena.formato` variádica, el despacho dinámico `objeto.metodo(...)` (con
+verificación explícita de que se incrusta el nombre del método/función como
+literal y el conteo de argumentos como `i32`) y una llamada a un
+identificador que no es builtin ni función de usuario (debe devolver
+`nullptr`, no crashear). Suite completa (`ctest -C Release`):
+`test_codegen_llvm` pasa con 157 comprobaciones (129 de L2-L6 + 28 nuevas);
+las 44 suites de CTest (incluidos los 22 ejemplos E2E y todas las suites de
+librería) siguen pasando sin cambios -- esta fase no tocó `GeneradorC` ni
+ningún archivo de `runtime/`. El criterio *literal* del texto original del
+plan (ejecución real de `paquete.cargar` + módulo externo compilado por
+separado, vía `--backend=llvm`) sigue sin poder ejecutarse de punta a punta
+por las mismas dos razones ya documentadas en L3-L6 (`generar()` todavía no
+recorre el `Programa` real -- Fase L9) y en el hallazgo de riesgo pendiente
+de arriba (falta de un módulo de prueba `.dll`/`.so`, que tampoco existe
+para el backend C).
 
 ### Fase L8 — POO
 

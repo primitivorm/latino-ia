@@ -5,13 +5,14 @@
 // paralelo al backend de C existente (GeneradorC, ver compiler.h) — ninguno
 // de los dos reemplaza al otro; se seleccionan con --backend=c|llvm.
 //
-// Fase L6 (estado actual): `generar()` todavía emite el módulo "hola mundo"
+// Fase L7 (estado actual): `generar()` todavía emite el módulo "hola mundo"
 // de plumbing de la Fase L1 (el recorrido real de `programa` -- el "main"
 // generado -- llega en la Fase L9, cuando el driver lo necesita de verdad).
-// Lo nuevo de esta fase: `declararFuncion()`/`genFuncion()` traducen
-// funciones de usuario (con prototipo adelantado, para recursión directa e
-// indirecta) y `genSentencia()` traduce `Retornar`; `genExpr()` traduce
-// `Llamada` a una función de usuario ya declarada.
+// Lo nuevo de esta fase: `genExpr()` traduce `Llamada` a los builtins
+// (`escribir`/`imprimir`/..., `imprimirf`) y a las 7 bibliotecas
+// (`cadena`/`lista`/`dic`/`mate`/`sis`/`archivo`/`paquete`) vía
+// `AccesoMiembro`, además del despacho dinámico uniforme
+// `lat_obj_llamar_metodo` para métodos de instancia/módulos dinámicos.
 #ifndef COMPILER_LLVM_H
 #define COMPILER_LLVM_H
 
@@ -83,9 +84,32 @@ public:
     // `lat_lista_de` antes de la llamada -- igual mecanismo que ya usan
     // `ListaLiteral`/`DiccionarioLiteral` (Fase L4) para invocar una función
     // variádica real del runtime, aplicado aquí a una función de usuario.
-    // Cualquier otro `Llamada` (builtins como `escribir`, bibliotecas como
-    // `cadena.mayusculas`, métodos estáticos, ...) devuelve `nullptr` --
-    // Fases L7/L8.
+    //
+    // (Fase L7) Antes de resolver contra una función de usuario, `Llamada`
+    // con destino `Identificador` prueba primero los builtins (`escribir`/
+    // `imprimir`/`escribe`/`poner`, `acadena`/`alogico`/`anumero`/`tipo`/
+    // `error`/`incluir`, `leer`/`limpiar`, `imprimirf`) -- paridad exacta con
+    // `GeneradorC::genLlamada`. `imprimirf` es la única que devuelve
+    // `nullptr` como valor de forma intencional (no por no estar soportada):
+    // `lat_imprimirf` retorna `void` en el runtime real (sin `sret`, a
+    // diferencia de todo el resto del runtime), así que no hay ninguna celda
+    // que devolver -- solo es válida como `ExprSentencia`, igual que en
+    // `GeneradorC`. `Llamada` con destino `AccesoMiembro` cuyo objeto es un
+    // `Identificador` que nombra una de las 7 bibliotecas
+    // (`cadena`/`lista`/`dic`/`mate`/`sis`/`archivo`/`paquete`) se traduce a
+    // `lat_<lib>_<fn>(args...)` (`cadena.formato` es variádica, empaquetada
+    // igual que `imprimirf`). Cualquier otro `AccesoMiembro` (llamada a
+    // método de una instancia u objeto de módulo dinámico cargado con
+    // `paquete.cargar`) se traduce al despacho dinámico uniforme
+    // `lat_obj_llamar_metodo(objeto, nombre, nargs, args...)` -- el mismo
+    // fallback que usa `GeneradorC` tanto para métodos de instancia como
+    // para funciones exportadas de un módulo dinámico (Reto 7 del plan), sin
+    // necesitar ningún seguimiento de clases/estructuras porque el
+    // diccionario de métodos ya vive en el propio objeto en runtime.
+    // Métodos ESTÁTICOS (`NombreClase.metodo(...)`, que sí exigen resolver
+    // en tiempo de compilación si `NombreClase` es una clase/estructura
+    // conocida) quedan pendientes de la Fase L8: `GeneradorLLVM` todavía no
+    // lleva una tabla `clases_`/`estructuras_` análoga a la de `GeneradorC`.
     llvm::Value* genExpr(Expresion& expr, llvm::IRBuilder<>& builder, llvm::Module& modulo,
                          const std::unordered_map<std::string, llvm::Value*>& variables = {});
 
