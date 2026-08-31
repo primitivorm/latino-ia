@@ -1,4 +1,4 @@
-// test_codegen_llvm.cpp — Fases L2 a L6 de input/PLAN_LLVM.md.
+// test_codegen_llvm.cpp — Fases L2 a L7 de input/PLAN_LLVM.md.
 //
 // Solo se compila/registra cuando LATINO_LLVM_BACKEND está habilitado (ver
 // tests/CMakeLists.txt). No compara texto de C como test_codegen.cpp: valida
@@ -33,6 +33,13 @@
 //      cuerpo); genExpr traduce Llamada a una función de usuario ya
 //      declarada, completando argumentos fijos ausentes con lat_nulo() y
 //      empaquetando los variádicos con lat_lista_de.
+//   8. (L7) genExpr traduce Llamada a los builtins (escribir/imprimir/...,
+//      imprimirf variádica sin celda de retorno porque lat_imprimirf es
+//      void), a las 7 bibliotecas vía AccesoMiembro (cadena/lista/dic/mate/
+//      sis/archivo/paquete, con cadena.formato variádica) y, para cualquier
+//      otro AccesoMiembro, al despacho dinámico uniforme
+//      lat_obj_llamar_metodo (métodos de instancia y funciones exportadas de
+//      un módulo dinámico cargado con paquete.cargar).
 
 #include <iostream>
 #include <string>
@@ -1051,6 +1058,193 @@ static void prueba_l6_retornar_sin_funcion_no_crashea(GeneradorLLVM& gen) {
     verificarModulo("l6_retornar_sin_funcion", modulo);
 }
 
+// --- Fase L7: llamadas a runtime y librerias (FFI) --------------------------
+
+static ExprPtr litCadena(const std::string& v) {
+    auto l = std::make_unique<LitCadena>();
+    l->valor = v;
+    return l;
+}
+
+static ExprPtr accesoMiembro(ExprPtr objeto, const std::string& miembro) {
+    auto am = std::make_unique<AccesoMiembro>();
+    am->objeto = std::move(objeto);
+    am->miembro = miembro;
+    return am;
+}
+
+static ExprPtr llamadaMiembro(ExprPtr objeto, const std::string& miembro,
+                               std::vector<ExprPtr> args) {
+    auto ll = std::make_unique<Llamada>();
+    ll->destino = accesoMiembro(std::move(objeto), miembro);
+    for (auto& a : args) ll->argumentos.push_back(std::move(a));
+    return ll;
+}
+
+static void prueba_l7_builtin_un_argumento(GeneradorLLVM& gen) {
+    llvm::Module modulo("l7_builtin_un_argumento", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    std::vector<ExprPtr> args;
+    args.push_back(litCadena("hola"));
+    llvm::Value* resultado = gen.genExpr(*llamada("escribir", std::move(args)), builder, modulo);
+    CHECK(resultado != nullptr, "escribir(...) debe generar un valor");
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "call void @lat_escribir("), "escribir debe llamar a lat_escribir\n" << ir);
+    verificarModulo("l7_builtin_un_argumento", modulo);
+}
+
+static void prueba_l7_builtin_argumento_faltante_se_completa_con_nulo(GeneradorLLVM& gen) {
+    llvm::Module modulo("l7_builtin_arg_faltante", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    llvm::Value* resultado = gen.genExpr(*llamada("imprimir", {}), builder, modulo);
+    CHECK(resultado != nullptr, "imprimir() sin argumentos debe generar un valor");
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "call void @lat_nulo("),
+          "el argumento ausente de un builtin debe completarse con lat_nulo()\n" << ir);
+    CHECK(contiene(ir, "call void @lat_imprimir("), "imprimir debe llamar a lat_imprimir\n" << ir);
+    verificarModulo("l7_builtin_arg_faltante", modulo);
+}
+
+static void prueba_l7_builtin_sin_argumentos(GeneradorLLVM& gen) {
+    llvm::Module modulo("l7_builtin_sin_argumentos", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    llvm::Value* resultado = gen.genExpr(*llamada("leer", {}), builder, modulo);
+    CHECK(resultado != nullptr, "leer() debe generar un valor");
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "call void @lat_leer("), "leer debe llamar a lat_leer sin argumentos\n" << ir);
+    verificarModulo("l7_builtin_sin_argumentos", modulo);
+}
+
+static void prueba_l7_imprimirf_variadica(GeneradorLLVM& gen) {
+    llvm::Module modulo("l7_imprimirf", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    std::vector<ExprPtr> args;
+    args.push_back(litCadena("%d\n"));
+    args.push_back(litNumero(5));
+    llvm::Value* resultado = gen.genExpr(*llamada("imprimirf", std::move(args)), builder, modulo);
+    CHECK(resultado == nullptr,
+          "imprimirf no tiene celda de retorno (lat_imprimirf es void) -- debe devolver nullptr");
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    // Llamada a una función variádica: LLVM imprime el tipo de la llamada
+    // ("call void (...) @lat_imprimirf(") en vez de "call void @lat_imprimirf("
+    // -- mismo formato que ya usan las comprobaciones de lat_lista_de en las
+    // pruebas de la Fase L4/L6, por eso aquí se busca solo el nombre.
+    CHECK(contiene(ir, "@lat_imprimirf("), "imprimirf debe llamar a lat_imprimirf\n" << ir);
+    verificarModulo("l7_imprimirf", modulo);
+}
+
+static void prueba_l7_libreria_llamada_simple(GeneradorLLVM& gen) {
+    llvm::Module modulo("l7_libreria_simple", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    std::vector<ExprPtr> args;
+    args.push_back(litCadena("hola"));
+    llvm::Value* resultado =
+        gen.genExpr(*llamadaMiembro(identificador("cadena"), "mayusculas", std::move(args)),
+                    builder, modulo);
+    CHECK(resultado != nullptr, "cadena.mayusculas(...) debe generar un valor");
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "call void @lat_cadena_mayusculas("),
+          "cadena.mayusculas debe llamar a lat_cadena_mayusculas\n" << ir);
+    verificarModulo("l7_libreria_simple", modulo);
+}
+
+static void prueba_l7_libreria_sin_argumentos(GeneradorLLVM& gen) {
+    llvm::Module modulo("l7_libreria_sin_argumentos", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    llvm::Value* resultado =
+        gen.genExpr(*llamadaMiembro(identificador("mate"), "pi", {}), builder, modulo);
+    CHECK(resultado != nullptr, "mate.pi() debe generar un valor");
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "call void @lat_mate_pi("), "mate.pi debe llamar a lat_mate_pi\n" << ir);
+    verificarModulo("l7_libreria_sin_argumentos", modulo);
+}
+
+static void prueba_l7_libreria_cadena_formato_variadica(GeneradorLLVM& gen) {
+    llvm::Module modulo("l7_cadena_formato", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    std::vector<ExprPtr> args;
+    args.push_back(litCadena("%d-%d"));
+    args.push_back(litNumero(1));
+    args.push_back(litNumero(2));
+    llvm::Value* resultado =
+        gen.genExpr(*llamadaMiembro(identificador("cadena"), "formato", std::move(args)), builder,
+                    modulo);
+    CHECK(resultado != nullptr, "cadena.formato(...) debe generar un valor");
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "@lat_cadena_formato("),
+          "cadena.formato debe llamar a lat_cadena_formato\n" << ir);
+    verificarModulo("l7_cadena_formato", modulo);
+}
+
+static void prueba_l7_metodo_objeto_dinamico(GeneradorLLVM& gen) {
+    llvm::Module modulo("l7_metodo_objeto_dinamico", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    llvm::Value* celdaObj = builder.CreateAlloca(gen.abi().tipoLatValor(), nullptr, "v_milib");
+    std::unordered_map<std::string, llvm::Value*> variables{{"milib", celdaObj}};
+
+    std::vector<ExprPtr> args;
+    args.push_back(litNumero(1));
+    args.push_back(litNumero(2));
+    llvm::Value* resultado =
+        gen.genExpr(*llamadaMiembro(identificador("milib"), "sumarExportada", std::move(args)),
+                    builder, modulo, variables);
+    CHECK(resultado != nullptr, "milib.sumarExportada(...) debe generar un valor");
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "@lat_obj_llamar_metodo("),
+          "una llamada objeto.metodo(...) que no es de biblioteca ni funcion de usuario debe "
+          "usar el despacho dinamico lat_obj_llamar_metodo\n"
+              << ir);
+    CHECK(contiene(ir, "c\"sumarExportada\\00\""),
+          "debe incrustar el nombre del metodo/funcion exportada como literal\n" << ir);
+    CHECK(contiene(ir, "i32 2"), "debe pasar el numero de argumentos (2) como i32\n" << ir);
+    verificarModulo("l7_metodo_objeto_dinamico", modulo);
+}
+
+static void prueba_l7_llamada_a_identificador_no_soportado_devuelve_nulo(GeneradorLLVM& gen) {
+    llvm::Module modulo("l7_llamada_no_soportada", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    // Ni builtin ni funcion de usuario ya declarada -- no deberia ocurrir
+    // con AST real (el analizador semantico ya rechaza llamar algo que no
+    // existe), pero debe devolver nullptr en vez de crashear.
+    CHECK(gen.genExpr(*llamada("funcionQueNoExiste", {}), builder, modulo) == nullptr,
+          "una llamada a un identificador que no es builtin ni funcion de usuario conocida debe "
+          "devolver nullptr");
+}
+
 int main() {
     CHECK(std::string(LATINO_RUNTIME_ABI_LL) != "",
           "config.h debe traer una ruta a runtime_abi.ll cuando LATINO_LLVM_BACKEND esta ON");
@@ -1100,8 +1294,18 @@ int main() {
     prueba_l6_genFuncion_no_duplica_cuerpo(gen);
     prueba_l6_retornar_sin_funcion_no_crashea(gen);
 
+    prueba_l7_builtin_un_argumento(gen);
+    prueba_l7_builtin_argumento_faltante_se_completa_con_nulo(gen);
+    prueba_l7_builtin_sin_argumentos(gen);
+    prueba_l7_imprimirf_variadica(gen);
+    prueba_l7_libreria_llamada_simple(gen);
+    prueba_l7_libreria_sin_argumentos(gen);
+    prueba_l7_libreria_cadena_formato_variadica(gen);
+    prueba_l7_metodo_objeto_dinamico(gen);
+    prueba_l7_llamada_a_identificador_no_soportado_devuelve_nulo(gen);
+
     std::cout << "\nComprobaciones: " << g_checks << "   Fallos: " << g_fallos << std::endl;
     if (g_fallos == 0)
-        std::cout << "TODAS LAS PRUEBAS DE CODEGEN LLVM (FASES L2-L6) PASARON." << std::endl;
+        std::cout << "TODAS LAS PRUEBAS DE CODEGEN LLVM (FASES L2-L7) PASARON." << std::endl;
     return g_fallos == 0 ? 0 : 1;
 }

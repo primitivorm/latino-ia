@@ -210,46 +210,177 @@ llvm::Value* GeneradorLLVM::genExpr(Expresion& expr, llvm::IRBuilder<>& builder,
         return celda;
     }
     if (auto* n = dynamic_cast<Llamada*>(&expr)) {
-        // Solo funciones de usuario ya declaradas (Fase L6) -- builtins
-        // (escribir, ...), bibliotecas (cadena.xxx, ...) y métodos estáticos
-        // son Fases L7/L8, devuelven nullptr como cualquier otro nodo no
-        // soportado todavía.
-        auto* destino = dynamic_cast<Identificador*>(n->destino.get());
-        auto it = destino ? funciones_.find(destino->nombre) : funciones_.end();
-        if (it == funciones_.end()) return nullptr;
-        const InfoFuncionUsuario& info = it->second;
+        if (auto* destino = dynamic_cast<Identificador*>(n->destino.get())) {
+            const std::string& nombre = destino->nombre;
 
-        llvm::Value* celdaRet = builder.CreateAlloca(tipoLatValor, nullptr, "llamada_ret");
-        std::vector<llvm::Value*> args{celdaRet};
-
-        llvm::Function* fnNulo = abi_->declarar(modulo, "lat_nulo");
-        size_t nargs = n->argumentos.size();
-        for (size_t i = 0; i < info.numParametros; i++) {
-            llvm::Value* arg;
-            if (i < nargs) {
-                arg = genExpr(*n->argumentos[i], builder, modulo, variables);
-                if (!arg) return nullptr;
-            } else {
-                arg = builder.CreateAlloca(tipoLatValor, nullptr, "llamada_arg_nulo");
-                builder.CreateCall(fnNulo, {arg});
+            // (Fase L7) Builtins de un solo argumento opcional -- el
+            // argumento ausente se completa con lat_nulo(), igual que
+            // GeneradorC::genLlamada.
+            static const std::unordered_map<std::string, const char*> BUILTINS_UN_ARG = {
+                {"escribir", "lat_escribir"}, {"imprimir", "lat_imprimir"},
+                {"escribe", "lat_escribir"},  {"poner", "lat_escribir"},
+                {"acadena", "lat_acadena"},   {"alogico", "lat_alogico"},
+                {"anumero", "lat_anumero"},   {"tipo", "lat_tipo"},
+                {"error", "lat_error"},       {"incluir", "lat_incluir"},
+            };
+            auto itBuiltin = BUILTINS_UN_ARG.find(nombre);
+            if (itBuiltin != BUILTINS_UN_ARG.end()) {
+                llvm::Value* arg;
+                if (!n->argumentos.empty()) {
+                    arg = genExpr(*n->argumentos[0], builder, modulo, variables);
+                    if (!arg) return nullptr;
+                } else {
+                    llvm::Function* fnNulo = abi_->declarar(modulo, "lat_nulo");
+                    arg = builder.CreateAlloca(tipoLatValor, nullptr, "builtin_arg_nulo");
+                    builder.CreateCall(fnNulo, {arg});
+                }
+                llvm::Function* fn = abi_->declarar(modulo, itBuiltin->second);
+                llvm::Value* celda = builder.CreateAlloca(tipoLatValor, nullptr, "builtin_ret");
+                builder.CreateCall(fn, {celda, arg});
+                return celda;
             }
-            args.push_back(arg);
+            // Builtins sin argumentos.
+            if (nombre == "leer" || nombre == "limpiar") {
+                llvm::Function* fn = abi_->declarar(modulo, "lat_" + nombre);
+                llvm::Value* celda = builder.CreateAlloca(tipoLatValor, nullptr, "builtin_ret");
+                builder.CreateCall(fn, {celda});
+                return celda;
+            }
+            // imprimirf(fmt, ...) -- variádica real del runtime, misma
+            // firma void que lat_lista_de/lat_dic_de (sret AUSENTE: no hay
+            // celda de retorno porque lat_imprimirf devuelve void, a
+            // diferencia de todo el resto del runtime). Por eso, a
+            // diferencia de cualquier otro builtin de esta lista, esta
+            // llamada no produce un valor -- se traduce solo por su efecto
+            // (imprimir), igual que en GeneradorC, donde el texto C
+            // resultante ("lat_imprimirf(...)") tampoco es una LatValor
+            // válida para usar en una expresión anidada (solo aparece hoy
+            // como ExprSentencia). Devuelve nullptr como valor -- correcto
+            // aquí porque no hay ninguna celda que devolver, no porque el
+            // nodo sea "no soportado".
+            if (nombre == "imprimirf") {
+                llvm::Function* fn = abi_->declarar(modulo, "lat_imprimirf");
+                std::vector<llvm::Value*> args{builder.getInt64(n->argumentos.size())};
+                for (auto& a : n->argumentos) {
+                    llvm::Value* v = genExpr(*a, builder, modulo, variables);
+                    if (!v) return nullptr;
+                    args.push_back(v);
+                }
+                builder.CreateCall(fn, args);
+                return nullptr;
+            }
+
+            // Función de usuario ya declarada (Fase L6).
+            auto it = funciones_.find(nombre);
+            if (it == funciones_.end()) return nullptr;
+            const InfoFuncionUsuario& info = it->second;
+
+            llvm::Value* celdaRet = builder.CreateAlloca(tipoLatValor, nullptr, "llamada_ret");
+            std::vector<llvm::Value*> args{celdaRet};
+
+            llvm::Function* fnNulo = abi_->declarar(modulo, "lat_nulo");
+            size_t nargs = n->argumentos.size();
+            for (size_t i = 0; i < info.numParametros; i++) {
+                llvm::Value* arg;
+                if (i < nargs) {
+                    arg = genExpr(*n->argumentos[i], builder, modulo, variables);
+                    if (!arg) return nullptr;
+                } else {
+                    arg = builder.CreateAlloca(tipoLatValor, nullptr, "llamada_arg_nulo");
+                    builder.CreateCall(fnNulo, {arg});
+                }
+                args.push_back(arg);
+            }
+            if (info.variadico) {
+                llvm::Function* fnListaDe = abi_->declarar(modulo, "lat_lista_de");
+                llvm::Value* resto = builder.CreateAlloca(tipoLatValor, nullptr, "llamada_resto");
+                size_t nResto = (nargs > info.numParametros) ? nargs - info.numParametros : 0;
+                std::vector<llvm::Value*> argsResto{resto, builder.getInt64(nResto)};
+                for (size_t i = info.numParametros; i < nargs; i++) {
+                    llvm::Value* v = genExpr(*n->argumentos[i], builder, modulo, variables);
+                    if (!v) return nullptr;
+                    argsResto.push_back(v);
+                }
+                builder.CreateCall(fnListaDe, argsResto);
+                args.push_back(resto);
+            }
+            builder.CreateCall(info.fn, args);
+            return celdaRet;
         }
-        if (info.variadico) {
-            llvm::Function* fnListaDe = abi_->declarar(modulo, "lat_lista_de");
-            llvm::Value* resto = builder.CreateAlloca(tipoLatValor, nullptr, "llamada_resto");
-            size_t nResto = (nargs > info.numParametros) ? nargs - info.numParametros : 0;
-            std::vector<llvm::Value*> argsResto{resto, builder.getInt64(nResto)};
-            for (size_t i = info.numParametros; i < nargs; i++) {
-                llvm::Value* v = genExpr(*n->argumentos[i], builder, modulo, variables);
+
+        if (auto* am = dynamic_cast<AccesoMiembro*>(n->destino.get())) {
+            // (Fase L7) Llamada de librería: cadena.xxx(args), lista.xxx(args), ...
+            if (auto* obj = dynamic_cast<Identificador*>(am->objeto.get())) {
+                static const std::set<std::string> LIBS = {
+                    "cadena", "lista", "dic", "mate", "sis", "archivo", "paquete"};
+                if (LIBS.count(obj->nombre)) {
+                    const std::string& lib = obj->nombre;
+                    const std::string& fn = am->miembro;
+
+                    // cadena.formato es variádica (primer arg = fmt, resto = valores).
+                    if (lib == "cadena" && fn == "formato") {
+                        llvm::Function* fnRt = abi_->declarar(modulo, "lat_cadena_formato");
+                        llvm::Value* celda =
+                            builder.CreateAlloca(tipoLatValor, nullptr, "cadena_formato");
+                        std::vector<llvm::Value*> args{celda,
+                                                        builder.getInt64(n->argumentos.size())};
+                        for (auto& a : n->argumentos) {
+                            llvm::Value* v = genExpr(*a, builder, modulo, variables);
+                            if (!v) return nullptr;
+                            args.push_back(v);
+                        }
+                        builder.CreateCall(fnRt, args);
+                        return celda;
+                    }
+
+                    // Resto de funciones de librería: args fijos.
+                    llvm::Function* fnRt = abi_->declarar(modulo, "lat_" + lib + "_" + fn);
+                    if (!fnRt) return nullptr;
+                    llvm::Value* celda = builder.CreateAlloca(tipoLatValor, nullptr, "lib_ret");
+                    std::vector<llvm::Value*> args{celda};
+                    for (auto& a : n->argumentos) {
+                        llvm::Value* v = genExpr(*a, builder, modulo, variables);
+                        if (!v) return nullptr;
+                        args.push_back(v);
+                    }
+                    builder.CreateCall(fnRt, args);
+                    return celda;
+                }
+            }
+
+            // Llamada a método de objeto / módulo dinámico:
+            // lat_obj_llamar_metodo(objeto, nombre, nargs, args...) -- mismo
+            // fallback dinámico que GeneradorC::genLlamada usa tanto para
+            // "milib.funcionExportada(args)" (objeto de tipo LAT_MODULO,
+            // Reto 7 del plan) como para "instancia.metodo(args)" (objeto de
+            // tipo LAT_OBJETO, una vez la Fase L8 sepa construir instancias
+            // -- este fallback no necesita seguimiento de clases/estructuras
+            // porque el despacho ya es dinámico en runtime vía el
+            // diccionario de métodos del objeto). Métodos ESTÁTICOS
+            // (NombreClase.metodo(...), que no pasan por 'este' y sí
+            // requieren resolver en tiempo de compilación si 'NombreClase'
+            // es una clase/estructura conocida) siguen pendientes de la Fase
+            // L8: GeneradorLLVM todavía no lleva una tabla clases_/
+            // estructuras_ análoga a la de GeneradorC.
+            llvm::Value* objeto = genExpr(*am->objeto, builder, modulo, variables);
+            if (!objeto) return nullptr;
+            llvm::Function* fn = abi_->declarar(modulo, "lat_obj_llamar_metodo");
+            if (!fn) return nullptr;
+            llvm::Value* nombreC =
+                builder.CreateGlobalStringPtr(am->miembro, "metodo_nombre", 0, &modulo);
+            llvm::Value* celda = builder.CreateAlloca(tipoLatValor, nullptr, "metodo_ret");
+            std::vector<llvm::Value*> args{celda, objeto, nombreC,
+                                            builder.getInt32((int)n->argumentos.size())};
+            for (auto& a : n->argumentos) {
+                llvm::Value* v = genExpr(*a, builder, modulo, variables);
                 if (!v) return nullptr;
-                argsResto.push_back(v);
+                args.push_back(v);
             }
-            builder.CreateCall(fnListaDe, argsResto);
-            args.push_back(resto);
+            builder.CreateCall(fn, args);
+            return celda;
         }
-        builder.CreateCall(info.fn, args);
-        return celdaRet;
+
+        return nullptr;
     }
     if (auto* n = dynamic_cast<DiccionarioLiteral*>(&expr)) {
         llvm::Function* fn = abi_->declarar(modulo, "lat_dic_de");
