@@ -1,4 +1,4 @@
-// test_codegen_llvm.cpp — Fases L2 a L7 de input/PLAN_LLVM.md.
+// test_codegen_llvm.cpp — Fases L2 a L8 de input/PLAN_LLVM.md.
 //
 // Solo se compila/registra cuando LATINO_LLVM_BACKEND está habilitado (ver
 // tests/CMakeLists.txt). No compara texto de C como test_codegen.cpp: valida
@@ -40,6 +40,17 @@
 //      otro AccesoMiembro, al despacho dinámico uniforme
 //      lat_obj_llamar_metodo (métodos de instancia y funciones exportadas de
 //      un módulo dinámico cargado con paquete.cargar).
+//   9. (L8) recolectarTipos puebla clases_/estructuras_/interfaces_;
+//      declararMetodo/genMetodo traducen métodos de instancia y estáticos
+//      con la firma empaquetada (sret, nargs, args) -- "este" y cada
+//      parámetro se leen con una rama real (nargs > idx) ? args[idx] :
+//      lat_nulo(), nunca un acceso directo, porque nargs es un valor de
+//      ejecución; genExpr traduce NuevoExpr (ancestría + registro de
+//      campos/métodos + constructor), EsExpr (lat_obj_es_instancia +
+//      lat_logico) y AccesoEste ("este" en 'variables'), además de resolver
+//      NombreClase.metodo(...) como llamada estática directa antes de caer
+//      al despacho dinámico; genSentencia traduce LlamadaBase (base(...))
+//      resolviendo el constructor de la clase padre.
 
 #include <iostream>
 #include <string>
@@ -1245,6 +1256,400 @@ static void prueba_l7_llamada_a_identificador_no_soportado_devuelve_nulo(Generad
           "devolver nullptr");
 }
 
+// --- Fase L8: POO ------------------------------------------------------------
+
+static CampoDef campoDef(const std::string& nombre, ExprPtr valorDefecto = nullptr) {
+    CampoDef c;
+    c.nombre = nombre;
+    c.valorDefecto = std::move(valorDefecto);
+    return c;
+}
+
+static MetodoDef metodoDefBase(const std::string& nombre) {
+    MetodoDef m;
+    m.nombre = nombre;
+    return m;
+}
+
+static ExprPtr accesoEste() {
+    return std::make_unique<AccesoEste>();
+}
+
+static ExprPtr nuevoExpr(const std::string& clase, std::vector<ExprPtr> args) {
+    auto n = std::make_unique<NuevoExpr>();
+    n->clase = clase;
+    for (auto& a : args) n->argumentos.push_back(std::move(a));
+    return n;
+}
+
+static ExprPtr esExpr(ExprPtr objeto, const std::string& clase) {
+    auto e = std::make_unique<EsExpr>();
+    e->objeto = std::move(objeto);
+    e->clase = clase;
+    return e;
+}
+
+static SentPtr llamadaBaseSent(std::vector<ExprPtr> args) {
+    auto b = std::make_unique<LlamadaBase>();
+    for (auto& a : args) b->argumentos.push_back(std::move(a));
+    return b;
+}
+
+static SentPtr asignacionDestino(ExprPtr destino, ExprPtr valor) {
+    auto a = std::make_unique<Asignacion>();
+    a->destinos.push_back(std::move(destino));
+    a->valores.push_back(std::move(valor));
+    return a;
+}
+
+static void prueba_l8_nuevo_estructura_simple(GeneradorLLVM& gen) {
+    llvm::Module modulo("l8_nuevo_estructura", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    Programa programa;
+    auto e = std::make_unique<EstructuraDef>();
+    e->nombre = "Punto";
+    e->campos.push_back(campoDef("x"));
+    e->campos.push_back(campoDef("y"));
+    MetodoDef ctor = metodoDefBase("Punto");
+    ctor.esConstructor = true;
+    ctor.parametros.push_back(ParamFuncion{"x"});
+    ctor.parametros.push_back(ParamFuncion{"y"});
+    ctor.cuerpo.push_back(asignacionDestino(accesoMiembro(accesoEste(), "x"), identificador("x")));
+    ctor.cuerpo.push_back(asignacionDestino(accesoMiembro(accesoEste(), "y"), identificador("y")));
+    e->metodos.push_back(std::move(ctor));
+    EstructuraDef* ePtr = e.get();
+    programa.sentencias.push_back(std::move(e));
+
+    gen.recolectarTipos(programa);
+    gen.genEstructura(*ePtr, modulo);  // cuerpo del constructor generado ANTES de nuevo Punto(...).
+
+    std::vector<ExprPtr> args;
+    args.push_back(litNumero(3));
+    args.push_back(litNumero(4));
+    llvm::Value* resultado = gen.genExpr(*nuevoExpr("Punto", std::move(args)), builder, modulo);
+    CHECK(resultado != nullptr, "nuevo Punto(...) debe generar un valor");
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "c\"Punto\\00\""),
+          "debe crear el objeto con el nombre de la estructura\n" << ir);
+    CHECK(contiene(ir, "call void @lat_obj_nuevo("), "debe llamar a lat_obj_nuevo\n" << ir);
+    CHECK(contiene(ir, "call void @lat_fn_Punto_Punto("), "debe invocar al constructor\n" << ir);
+    verificarModulo("l8_nuevo_estructura", modulo);
+}
+
+static void prueba_l8_nuevo_clase_herencia_cadena_ancestros(GeneradorLLVM& gen) {
+    llvm::Module modulo("l8_nuevo_herencia", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    Programa programa;
+    auto a = std::make_unique<ClaseDef>();
+    a->nombre = "Animal";
+    auto b = std::make_unique<ClaseDef>();
+    b->nombre = "Perro";
+    b->padre = "Animal";
+    programa.sentencias.push_back(std::move(a));
+    programa.sentencias.push_back(std::move(b));
+    gen.recolectarTipos(programa);
+
+    llvm::Value* resultado = gen.genExpr(*nuevoExpr("Perro", {}), builder, modulo);
+    CHECK(resultado != nullptr, "nuevo Perro() debe generar un valor");
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "c\"Animal\\00\""),
+          "debe crear el objeto con el ancestro mas antiguo (Animal)\n" << ir);
+    CHECK(contiene(ir, "c\"Perro\\00\""),
+          "debe registrar tambien la clase hoja (Perro) via lat_obj_set_clase\n" << ir);
+    size_t posNuevo = ir.find("call void @lat_obj_nuevo(");
+    size_t posSetClase = ir.find("call void @lat_obj_set_clase(");
+    CHECK(posNuevo != std::string::npos && posSetClase != std::string::npos && posNuevo < posSetClase,
+          "lat_obj_nuevo(raiz) debe emitirse antes de lat_obj_set_clase(hoja)\n" << ir);
+    verificarModulo("l8_nuevo_herencia", modulo);
+}
+
+static void prueba_l8_nuevo_registra_campo_default_y_metodo(GeneradorLLVM& gen) {
+    llvm::Module modulo("l8_nuevo_registro", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    Programa programa;
+    auto c = std::make_unique<ClaseDef>();
+    c->nombre = "Contador";
+    c->campos.push_back(campoDef("valor", litNumero(0)));
+    MetodoDef m = metodoDefBase("obtener");
+    m.cuerpo.push_back(retornar(accesoMiembro(accesoEste(), "valor")));
+    c->metodos.push_back(std::move(m));
+    ClaseDef* cPtr = c.get();
+    programa.sentencias.push_back(std::move(c));
+
+    gen.recolectarTipos(programa);
+    gen.genClase(*cPtr, modulo);  // cuerpo de "obtener" generado ANTES de nuevo Contador().
+
+    llvm::Value* resultado = gen.genExpr(*nuevoExpr("Contador", {}), builder, modulo);
+    CHECK(resultado != nullptr, "nuevo Contador() debe generar un valor");
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "call void @lat_obj_set("),
+          "debe registrar el campo con valor por defecto\n" << ir);
+    CHECK(contiene(ir, "call void @lat_funcion_nueva("),
+          "debe envolver el metodo en lat_funcion_nueva\n" << ir);
+    CHECK(contiene(ir, "call void @lat_obj_set_metodo("),
+          "debe registrar el metodo de instancia\n" << ir);
+    CHECK(contiene(ir, "@lat_fn_Contador_obtener"),
+          "debe referenciar el puntero a la funcion generada para el metodo\n" << ir);
+    verificarModulo("l8_nuevo_registro", modulo);
+}
+
+static void prueba_l8_es_expr(GeneradorLLVM& gen) {
+    llvm::Module modulo("l8_es_expr", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    llvm::Value* celdaObj = builder.CreateAlloca(gen.abi().tipoLatValor(), nullptr, "v_obj");
+    std::unordered_map<std::string, llvm::Value*> variables{{"obj", celdaObj}};
+
+    llvm::Value* resultado =
+        gen.genExpr(*esExpr(identificador("obj"), "Animal"), builder, modulo, variables);
+    CHECK(resultado != nullptr, "'obj es Animal' debe generar un valor");
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "call i32 @lat_obj_es_instancia("),
+          "'es' debe llamar a lat_obj_es_instancia (retorna int, sin sret)\n" << ir);
+    CHECK(contiene(ir, "c\"Animal\\00\""), "debe incrustar el nombre de la clase como literal\n" << ir);
+    CHECK(contiene(ir, "call void @lat_logico("),
+          "el resultado entero debe envolverse con lat_logico\n" << ir);
+    verificarModulo("l8_es_expr", modulo);
+}
+
+static void prueba_l8_metodo_acceso_este(GeneradorLLVM& gen) {
+    llvm::Module modulo("l8_metodo_este", gen.contexto());
+
+    MetodoDef m = metodoDefBase("identidad");
+    m.cuerpo.push_back(retornar(accesoEste()));
+
+    gen.genMetodo("Cosa", m, "", modulo);
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "define internal void @lat_fn_Cosa_identidad("),
+          "debe definir el metodo con la firma sret/nargs/args\n" << ir);
+    CHECK(contiene(ir, "arg_presente:") && contiene(ir, "arg_ausente:"),
+          "'este' debe poblarse con una rama real (nargs > 0) ? args[0] : lat_nulo()\n" << ir);
+    verificarModulo("l8_metodo_este", modulo);
+}
+
+static void prueba_l8_metodo_parametro_opcional(GeneradorLLVM& gen) {
+    llvm::Module modulo("l8_metodo_parametro", gen.contexto());
+
+    MetodoDef m = metodoDefBase("saludar");
+    m.parametros.push_back(ParamFuncion{"nombre"});
+    m.cuerpo.push_back(retornar(identificador("nombre")));
+
+    gen.genMetodo("Persona", m, "", modulo);
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "define internal void @lat_fn_Persona_saludar("), "debe definir el metodo\n" << ir);
+    size_t primeraRama = ir.find("hay_arg");
+    size_t segundaRama = primeraRama == std::string::npos ? std::string::npos
+                                                            : ir.find("hay_arg", primeraRama + 1);
+    CHECK(primeraRama != std::string::npos && segundaRama != std::string::npos,
+          "debe haber una comprobacion 'hay_arg' para 'este' y otra para el parametro 'nombre'\n" << ir);
+    verificarModulo("l8_metodo_parametro", modulo);
+}
+
+static void prueba_l8_metodo_estatico_sin_este(GeneradorLLVM& gen) {
+    llvm::Module modulo("l8_metodo_estatico_sin_este", gen.contexto());
+
+    MetodoDef m = metodoDefBase("crear");
+    m.esEstatico = true;
+    m.cuerpo.push_back(retornar(litNumero(1)));
+
+    gen.genMetodo("Fabrica", m, "", modulo);
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "define internal void @lat_fn_Fabrica_crear("), "debe definir el metodo\n" << ir);
+    CHECK(!contiene(ir, "hay_arg"),
+          "un metodo estatico sin parametros no debe generar ninguna celda de argumento "
+          "(ni 'este' ni parametros)\n"
+              << ir);
+    verificarModulo("l8_metodo_estatico_sin_este", modulo);
+}
+
+static void prueba_l8_metodo_abstracto_no_genera_nada(GeneradorLLVM& gen) {
+    llvm::Module modulo("l8_metodo_abstracto", gen.contexto());
+
+    MetodoDef m = metodoDefBase("firma");
+    m.esAbstracto = true;
+
+    gen.genMetodo("IContrato", m, "", modulo);
+
+    CHECK(modulo.getFunction("lat_fn_IContrato_firma") == nullptr,
+          "un metodo abstracto no debe declarar ni definir ninguna funcion");
+    verificarModulo("l8_metodo_abstracto", modulo);
+}
+
+static void prueba_l8_genMetodo_no_duplica_cuerpo(GeneradorLLVM& gen) {
+    llvm::Module modulo("l8_metodo_no_duplica", gen.contexto());
+
+    MetodoDef m = metodoDefBase("una_vez");
+    m.cuerpo.push_back(retornar(litNumero(1)));
+
+    gen.genMetodo("X", m, "", modulo);
+    gen.genMetodo("X", m, "", modulo);  // segunda llamada: no debe generar un segundo cuerpo.
+
+    std::string ir = irComoTexto(modulo);
+    size_t primera = ir.find("define internal void @lat_fn_X_una_vez(");
+    CHECK(primera != std::string::npos, "debe existir una definicion de lat_fn_X_una_vez\n" << ir);
+    size_t segunda = ir.find("define internal void @lat_fn_X_una_vez(", primera + 1);
+    CHECK(segunda == std::string::npos,
+          "una segunda llamada a genMetodo no debe duplicar el cuerpo\n" << ir);
+    verificarModulo("l8_metodo_no_duplica", modulo);
+}
+
+static void prueba_l8_llamada_metodo_estatico(GeneradorLLVM& gen) {
+    llvm::Module modulo("l8_llamada_estatico", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    Programa programa;
+    auto c = std::make_unique<ClaseDef>();
+    c->nombre = "Fabrica";
+    MetodoDef m = metodoDefBase("crear");
+    m.esEstatico = true;
+    m.parametros.push_back(ParamFuncion{"nombre"});
+    m.cuerpo.push_back(retornar(identificador("nombre")));
+    c->metodos.push_back(std::move(m));
+    ClaseDef* cPtr = c.get();
+    programa.sentencias.push_back(std::move(c));
+
+    gen.recolectarTipos(programa);
+    gen.genClase(*cPtr, modulo);
+
+    std::vector<ExprPtr> args;
+    args.push_back(litCadena("Luna"));
+    llvm::Value* resultado = gen.genExpr(
+        *llamadaMiembro(identificador("Fabrica"), "crear", std::move(args)), builder, modulo);
+    CHECK(resultado != nullptr, "Fabrica.crear(...) debe generar un valor");
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "call void @lat_fn_Fabrica_crear("),
+          "un metodo estatico conocido debe resolverse a una llamada directa\n" << ir);
+    CHECK(!contiene(ir, "@lat_obj_llamar_metodo("),
+          "un metodo estatico conocido no debe caer al despacho dinamico\n" << ir);
+    verificarModulo("l8_llamada_estatico", modulo);
+}
+
+static void prueba_l8_llamada_metodo_estatico_heredado(GeneradorLLVM& gen) {
+    llvm::Module modulo("l8_llamada_estatico_heredado", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    Programa programa;
+    auto padre = std::make_unique<ClaseDef>();
+    padre->nombre = "Base";
+    MetodoDef m = metodoDefBase("version");
+    m.esEstatico = true;
+    m.cuerpo.push_back(retornar(litNumero(1)));
+    padre->metodos.push_back(std::move(m));
+    ClaseDef* padrePtr = padre.get();
+
+    auto hijo = std::make_unique<ClaseDef>();
+    hijo->nombre = "Derivada";
+    hijo->padre = "Base";
+
+    programa.sentencias.push_back(std::move(padre));
+    programa.sentencias.push_back(std::move(hijo));
+    gen.recolectarTipos(programa);
+    gen.genClase(*padrePtr, modulo);
+
+    llvm::Value* resultado =
+        gen.genExpr(*llamadaMiembro(identificador("Derivada"), "version", {}), builder, modulo);
+    CHECK(resultado != nullptr, "Derivada.version() (heredado de Base) debe generar un valor");
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "call void @lat_fn_Base_version("),
+          "un metodo estatico heredado debe resolverse a la funcion de la clase que lo declara "
+          "(Base), nunca reimplementarse en la clase derivada\n"
+              << ir);
+    CHECK(contiene(ir, "null"),
+          "una llamada estatica sin argumentos debe pasar un puntero nulo para 'args'\n" << ir);
+    verificarModulo("l8_llamada_estatico_heredado", modulo);
+}
+
+static void prueba_l8_llamada_base_con_constructor_padre(GeneradorLLVM& gen) {
+    llvm::Module modulo("l8_llamada_base", gen.contexto());
+
+    Programa programa;
+    auto padre = std::make_unique<ClaseDef>();
+    padre->nombre = "Animal";
+    MetodoDef ctorPadre = metodoDefBase("Animal");
+    ctorPadre.esConstructor = true;
+    ctorPadre.parametros.push_back(ParamFuncion{"nombre"});
+    ctorPadre.cuerpo.push_back(
+        asignacionDestino(accesoMiembro(accesoEste(), "nombre"), identificador("nombre")));
+    padre->metodos.push_back(std::move(ctorPadre));
+    ClaseDef* padrePtr = padre.get();
+    programa.sentencias.push_back(std::move(padre));
+
+    gen.recolectarTipos(programa);
+    gen.genClase(*padrePtr, modulo);  // cuerpo del constructor de Animal generado antes de base(...).
+
+    MetodoDef ctorHijo = metodoDefBase("Perro");
+    ctorHijo.esConstructor = true;
+    ctorHijo.parametros.push_back(ParamFuncion{"nombre"});
+    std::vector<ExprPtr> argsBase;
+    argsBase.push_back(identificador("nombre"));
+    ctorHijo.cuerpo.push_back(llamadaBaseSent(std::move(argsBase)));
+    gen.genMetodo("Perro", ctorHijo, "Animal", modulo);
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "call void @lat_fn_Animal_Animal("),
+          "base(...) debe llamar al constructor de la clase padre\n" << ir);
+    verificarModulo("l8_llamada_base", modulo);
+}
+
+static void prueba_l8_llamada_base_sin_constructor_padre(GeneradorLLVM& gen) {
+    llvm::Module modulo("l8_llamada_base_sin_ctor", gen.contexto());
+
+    Programa programa;
+    auto padre = std::make_unique<ClaseDef>();
+    padre->nombre = "Base";  // sin metodos: no tiene constructor.
+    programa.sentencias.push_back(std::move(padre));
+    gen.recolectarTipos(programa);
+
+    MetodoDef ctorHijo = metodoDefBase("Hijo");
+    ctorHijo.esConstructor = true;
+    ctorHijo.cuerpo.push_back(llamadaBaseSent({}));
+    gen.genMetodo("Hijo", ctorHijo, "Base", modulo);
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(!contiene(ir, "@lat_fn_Base_Base("),
+          "sin constructor de clase base, base(...) no debe emitir ninguna llamada\n" << ir);
+    verificarModulo("l8_llamada_base_sin_ctor", modulo);
+}
+
+static void prueba_l8_gen_interfaz_no_emite_nada(GeneradorLLVM& gen) {
+    llvm::Module modulo("l8_gen_interfaz", gen.contexto());
+
+    InterfazDef i;
+    i.nombre = "IContrato";
+    MetodoDef firma = metodoDefBase("hacer");
+    firma.esAbstracto = true;
+    i.metodos.push_back(std::move(firma));
+
+    gen.genInterfaz(i);  // no-op: no debe crashear ni declarar nada (no toma 'modulo').
+
+    CHECK(modulo.empty(), "genInterfaz no debe declarar ni definir nada -- paridad con GeneradorC");
+    verificarModulo("l8_gen_interfaz", modulo);
+}
+
 int main() {
     CHECK(std::string(LATINO_RUNTIME_ABI_LL) != "",
           "config.h debe traer una ruta a runtime_abi.ll cuando LATINO_LLVM_BACKEND esta ON");
@@ -1304,8 +1709,23 @@ int main() {
     prueba_l7_metodo_objeto_dinamico(gen);
     prueba_l7_llamada_a_identificador_no_soportado_devuelve_nulo(gen);
 
+    prueba_l8_nuevo_estructura_simple(gen);
+    prueba_l8_nuevo_clase_herencia_cadena_ancestros(gen);
+    prueba_l8_nuevo_registra_campo_default_y_metodo(gen);
+    prueba_l8_es_expr(gen);
+    prueba_l8_metodo_acceso_este(gen);
+    prueba_l8_metodo_parametro_opcional(gen);
+    prueba_l8_metodo_estatico_sin_este(gen);
+    prueba_l8_metodo_abstracto_no_genera_nada(gen);
+    prueba_l8_genMetodo_no_duplica_cuerpo(gen);
+    prueba_l8_llamada_metodo_estatico(gen);
+    prueba_l8_llamada_metodo_estatico_heredado(gen);
+    prueba_l8_llamada_base_con_constructor_padre(gen);
+    prueba_l8_llamada_base_sin_constructor_padre(gen);
+    prueba_l8_gen_interfaz_no_emite_nada(gen);
+
     std::cout << "\nComprobaciones: " << g_checks << "   Fallos: " << g_fallos << std::endl;
     if (g_fallos == 0)
-        std::cout << "TODAS LAS PRUEBAS DE CODEGEN LLVM (FASES L2-L7) PASARON." << std::endl;
+        std::cout << "TODAS LAS PRUEBAS DE CODEGEN LLVM (FASES L2-L8) PASARON." << std::endl;
     return g_fallos == 0 ? 0 : 1;
 }

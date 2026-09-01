@@ -877,28 +877,137 @@ recorre el `Programa` real -- Fase L9) y en el hallazgo de riesgo pendiente
 de arriba (falta de un módulo de prueba `.dll`/`.so`, que tampoco existe
 para el backend C).
 
-### Fase L8 — POO
+### Fase L8 — POO ✅ verificada con LLVM real
 
-**Archivos:** `src/compiler_llvm.cpp`.
+**Archivos:** `include/compiler_llvm.h`/`src/compiler_llvm.cpp` (ampliados:
+nuevos métodos públicos `recolectarTipos`/`declararMetodo`/`genMetodo`/
+`genClase`/`genEstructura`/`genInterfaz`, nuevo estado privado
+`clases_`/`estructuras_`/`interfaces_`/`actualClase_`/`actualPadre_`, nuevo
+helper privado `genArgumentoDeArray`), `tests/test_codegen_llvm.cpp`
+(ampliado con 49 pruebas nuevas).
 
-- Traducir 1:1 `GeneradorC::genClase`/`genMetodo`/`genEstructura`/
-  `NuevoExpr`/`EsExpr`/`AccesoEste`/`LlamadaBase`, manteniendo el **mismo
-  modelo dinámico basado en diccionarios** (`lat_obj_nuevo`,
-  `lat_obj_set_metodo`, `lat_obj_llamar_metodo`, `lat_obj_es_instancia`,
-  `lat_obj_set_clase` para la cadena de ascendencia). LLVM no introduce
-  vtablas estáticas ni despacho por puntero a función en esta fase —
-  deliberado, ver "Fuera de alcance".
-- Métodos y constructores mantienen la firma uniforme
-  `%LatValor @lat_fn_<Clase>_<metodo>(i32 %nargs, %LatValor* %args)`; `este`
-  sigue siendo `args[0]` vía `CreateGEP`+`CreateLoad`.
-- Mismo esquema de nombres `lat_fn_<Clase>_<metodo>` /
-  `lat_fn_<Clase>_<Clase>` (constructor) que ya usa `GeneradorC`. Un módulo
-  LLVM exige nombres de función globalmente únicos (como C) — verificar
-  explícitamente en esta fase si una clase y una estructura pueden compartir
-  nombre hoy sin que el analizador semántico lo detecte (ambas usan el mismo
-  prefijo `lat_fn_`, así que colisionarían igual en el backend C actual; si
-  no está prohibido, añadir la verificación en `analizador_semantico.cpp`
-  como parte de esta fase, no solo en el backend LLVM).
+- [x] `recolectarTipos(Programa&)` puebla `clases_`/`estructuras_`/
+  `interfaces_` -- equivalente exacto a `GeneradorC::recolectarTipos` --
+  público (a diferencia de su contraparte en `GeneradorC`) para que las
+  pruebas unitarias puedan poblar las tablas sin pasar por un driver
+  completo, mismo patrón que el resto de métodos expuestos desde la Fase L3.
+- [x] `declararMetodo`/`genMetodo` traducen métodos de instancia y estáticos
+  (constructores incluidos) con la firma **empaquetada**
+  `void @lat_fn_<Clase>_<metodo>(ptr sret %ret, i32 %nargs, ptr %args)` --
+  **no** la firma "un puntero por parámetro" de `declararFuncion` (Fase L6).
+  Motivo: el despacho dinámico real
+  (`lat_obj_llamar_metodo`/`LatFnModulo`, confirmado leyendo
+  `runtime/latino.c`: `LatFnModulo fn = metodo.como.funcion; fn(nargs + 1,
+  args);`) solo conoce el número de argumentos de una llamada concreta en
+  **tiempo de ejecución** -- nunca en tiempo de compilación, a diferencia de
+  una llamada directa a una función de usuario. A nivel de ABI real en este
+  target (LatValor siempre por sret, Fase L2), esta firma es exactamente la
+  que produce Clang para `LatValor fn(int, LatValor*)` (`LatFnModulo`), así
+  que un `llvm::Function*` de `declararMetodo` es válido para pasarse
+  directamente a `lat_funcion_nueva`/`lat_obj_set_metodo` sin ningún ajuste.
+- [x] "este" y cada parámetro se leen con `genArgumentoDeArray` (helper
+  privado nuevo): una celda local fresca poblada con una rama real de basic
+  blocks -- `(nargs > idx) ? args[idx] : lat_nulo()` -- nunca un acceso
+  directo a `args[idx]`. Ajuste deliberado sobre el texto original de esta
+  fase (que proponía `CreateGEP`+`CreateLoad` sin rama): `nargs` es un `i32`
+  de **ejecución** (parámetro real de la función, nunca una constante de
+  compilación), así que leer `args[idx]` sin comprobar primero sería leer
+  más allá del array que construyó el llamador cuando la llamada trae menos
+  argumentos que parámetros declarados -- exactamente el mismo caso que ya
+  resuelve el `(nargs > idx) ? args[idx] : lat_nulo()` de
+  `GeneradorC::genMetodo`, aquí con basic blocks reales en vez de un
+  operador ternario de C (mismo patrón que `Ternaria`, Fase L4).
+- [x] `NuevoExpr` (`nuevo Clase(args...)`) traduce 1:1
+  `GeneradorC::genExpr(NuevoExpr)`: `lat_obj_nuevo` con el ancestro más
+  antiguo de la cadena de herencia, luego `lat_obj_set_clase` por cada nivel
+  hacia la hoja (para que `lat_obj_es_instancia` reconozca a los
+  ancestros), registro de campos con valor por defecto (`lat_obj_set`) y
+  métodos de instancia (`lat_obj_set_metodo` + `lat_funcion_nueva`)
+  recorriendo la cadena de herencia de la raíz hacia la hoja, e invocación
+  del constructor si existe uno. Una estructura sigue el mismo patrón sin
+  ninguna cadena de ancestros (nunca hereda).
+- [x] `EsExpr` (`expr es Clase`) y `AccesoEste` (`este`) no necesitan ninguna
+  tabla: el primero es una llamada directa a `lat_obj_es_instancia`
+  (retorna `int`, sin `sret` -- a diferencia de casi todo el resto del
+  runtime) envuelta en `lat_logico`; el segundo busca `variables["este"]`,
+  poblada por `genMetodo`.
+- [x] Método estático (`NombreClase.metodo(...)`/
+  `NombreEstructura.metodo(...)`) resuelto dentro del mismo bloque que ya
+  maneja `AccesoMiembro` con objeto `Identificador` en `genExpr(Llamada)`
+  (Fase L7), justo después de la comprobación de biblioteca y antes del
+  despacho dinámico uniforme -- recorriendo la cadena de herencia hacia
+  arriba para una clase, igual algoritmo que `GeneradorC::genLlamada`. Sin
+  celda "este": el array de argumentos empieza directamente en el primer
+  argumento real (`ptr null` cuando la llamada no trae ninguno, igual que el
+  `NULL` literal de `GeneradorC` para ese caso).
+- [x] `LlamadaBase` (`base(args...)`) empaqueta `este` + los argumentos
+  evaluados en un array contiguo (misma convención que `NuevoExpr`) y llama
+  al constructor de `actualPadre_` si existe uno -- paridad exacta con
+  `GeneradorC::genSentencia(LlamadaBase)`, incluido el caso sin constructor
+  de clase base (no emite ninguna llamada).
+- [x] **Reto 6 del plan (colisión de nombres clase/estructura) -- verificado,
+  no hace falta ningún cambio.** `AnalizadorSemantico::recolectarTipos`
+  (`src/analizador_semantico.cpp:190`) ya guarda clases, estructuras e
+  interfaces en una única tabla `tipos` compartida y rechaza cualquier
+  nombre repetido entre las tres ("el tipo 'X' ya está definido") antes de
+  llegar a ningún backend -- la colisión que el texto original de esta fase
+  pedía verificar ya estaba cerrada desde antes de esta migración, en ambos
+  backends por igual.
+- [x] Un método abstracto (`genMetodo`) no declara ni define ninguna
+  función -- paridad con `GeneradorC::genMetodo`, que tampoco emite nada
+  para uno. `genInterfaz` es no-op (todos sus métodos son abstractos, sin
+  excepción) -- paridad exacta con `GeneradorC::genInterfaz`.
+
+**Hallazgo (no forma parte de esta fase, documentado para no repetirlo por
+error en trabajo futuro) — `GeneradorC::genExpr(NuevoExpr)` tiene un bug
+preexistente e independiente de esta migración: un campo con valor por
+defecto no compila con `--backend=c`.** `GeneradorC` emite
+`lat_obj_set(obj, lat_cadena("campo"), valor)`, pero la firma real de
+`lat_obj_set` (`runtime/latino.h:89`) es `void lat_obj_set(LatValor objeto,
+const char* nombre, LatValor valor)` -- el segundo argumento espera
+`const char*`, no un `LatValor`. Confirmado compilando un caso mínimo
+(`clase Contador \n publico valor: numero = 0 ...`) con
+`--backend=c`: `cl.exe` rechaza el `.c` generado con `error C2440: no se
+puede realizar la conversión de 'LatValor' a 'const char *'`. Como
+`tests/test_poo_e2e.cpp` no cubre ningún campo con valor por defecto, este
+bug pasó inadvertido hasta ahora. `GeneradorLLVM::genExpr(NuevoExpr)`
+**no** replica este bug: usa el nombre crudo (`CreateGlobalStringPtr`, sin
+envolverlo en una llamada a `lat_cadena`) para los tres parámetros de
+nombre (campo/método/clase) en `lat_obj_set`/`lat_obj_set_metodo`/
+`lat_obj_set_clase`/`lat_obj_es_instancia`, consistente con la firma real
+que `RuntimeAbiLLVM` importa de `runtime_abi.ll` -- la Decisión 2 del plan
+("nunca declarar firmas a mano") aplicada aquí también evitó heredar este
+bug por construcción, no por una corrección deliberada. Corregir
+`GeneradorC` queda fuera del alcance de esta migración (bug del backend C
+preexistente, no introducido por este plan) -- se documenta aquí como
+hallazgo para una futura corrección independiente.
+
+**Criterio de aceptación — cumplido a nivel de codegen unitario, mismo
+patrón que L2-L7:** 49 pruebas/comprobaciones nuevas en
+`tests/test_codegen_llvm.cpp` (subcadena de IR + `verifyModule`) cubren:
+`nuevo` sobre una estructura simple (con constructor), `nuevo` sobre una
+clase con herencia (orden `lat_obj_nuevo(raíz)` antes de
+`lat_obj_set_clase(hoja)`), registro de campo con valor por defecto y
+método de instancia (`lat_obj_set`/`lat_obj_set_metodo`/
+`lat_funcion_nueva`), `EsExpr` (`lat_obj_es_instancia` retornando `i32` sin
+`sret` + `lat_logico`), `AccesoEste` dentro de un método (ramas
+`arg_presente`/`arg_ausente` reales), un parámetro de método opcional
+(segunda rama `hay_arg`), un método estático sin celda "este" (cero ramas
+`hay_arg` con cero parámetros), un método abstracto (no declara nada),
+idempotencia de `genMetodo`, una llamada a método estático conocido
+(resuelta a llamada directa, nunca al despacho dinámico), un método
+estático heredado (resuelto a la función de la clase que lo declara, con
+`ptr null` para la llamada sin argumentos), `base(...)` con y sin
+constructor de clase base, y `genInterfaz` (no-op). Suite completa
+(`ctest -C Release`): `test_codegen_llvm` pasa con 206 comprobaciones (157
+de L2-L7 + 49 nuevas); las 44 suites de CTest (incluidos los 22 ejemplos
+E2E, `test_poo_e2e` y todas las suites de librería) siguen pasando sin
+cambios -- esta fase no tocó `GeneradorC` ni ningún archivo de `runtime/`.
+El criterio *literal* del texto original del plan (paridad de salida E2E
+contra `--backend=c` para programas POO) sigue sin poder ejecutarse de
+punta a punta por la misma razón ya documentada en L3-L7: `generar()`
+todavía emite el módulo "hola mundo" de la Fase L1 (Fase L9, driver,
+pendiente).
 
 ### Fase L9 — Driver AOT
 

@@ -6,6 +6,8 @@
 
 #include "compiler_llvm.h"
 
+#include <functional>
+
 #include <llvm/IR/Attributes.h>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Constants.h>
@@ -346,6 +348,71 @@ llvm::Value* GeneradorLLVM::genExpr(Expresion& expr, llvm::IRBuilder<>& builder,
                     builder.CreateCall(fnRt, args);
                     return celda;
                 }
+
+                // (Fase L8) Método estático: NombreClase.metodo(args...) /
+                // NombreEstructura.metodo(args...) -- se resuelve en tiempo
+                // de compilación si 'obj->nombre' nombra una clase/
+                // estructura conocida con un método estático de ese nombre,
+                // recorriendo la cadena de herencia hacia arriba para una
+                // clase (mismo algoritmo que GeneradorC::genLlamada). A
+                // diferencia del despacho dinámico de más abajo, no hay
+                // celda "este": el array de argumentos empieza directamente
+                // en el primer argumento real.
+                std::string tipoDeclarante;
+                MetodoDef* metodoEstatico = nullptr;
+                {
+                    auto itC = clases_.find(obj->nombre);
+                    for (ClaseDef* t = (itC != clases_.end()) ? itC->second : nullptr; t;) {
+                        bool encontrado = false;
+                        for (MetodoDef& m : t->metodos) {
+                            if (m.nombre == am->miembro && m.esEstatico) {
+                                metodoEstatico = &m;
+                                encontrado = true;
+                                break;
+                            }
+                        }
+                        if (encontrado) {
+                            tipoDeclarante = t->nombre;
+                            break;
+                        }
+                        if (t->padre.empty()) break;
+                        auto itPadre = clases_.find(t->padre);
+                        t = (itPadre != clases_.end()) ? itPadre->second : nullptr;
+                    }
+                    if (tipoDeclarante.empty()) {
+                        auto itE = estructuras_.find(obj->nombre);
+                        if (itE != estructuras_.end()) {
+                            for (MetodoDef& m : itE->second->metodos) {
+                                if (m.nombre == am->miembro && m.esEstatico) {
+                                    metodoEstatico = &m;
+                                    tipoDeclarante = itE->second->nombre;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                if (metodoEstatico) {
+                    llvm::Function* fnMetodo = declararMetodo(tipoDeclarante, *metodoEstatico, modulo);
+                    size_t nargs = n->argumentos.size();
+                    llvm::Value* argsArr;
+                    if (nargs > 0) {
+                        argsArr = builder.CreateAlloca(tipoLatValor, builder.getInt64(nargs),
+                                                        "estatico_args");
+                        for (size_t i = 0; i < nargs; i++) {
+                            llvm::Value* v = genExpr(*n->argumentos[i], builder, modulo, variables);
+                            if (!v) return nullptr;
+                            llvm::Value* slot =
+                                builder.CreateGEP(tipoLatValor, argsArr, builder.getInt64(i), "estatico_arg");
+                            builder.CreateStore(builder.CreateLoad(tipoLatValor, v), slot);
+                        }
+                    } else {
+                        argsArr = llvm::ConstantPointerNull::get(llvm::PointerType::get(*contexto_, 0));
+                    }
+                    llvm::Value* celdaRet = builder.CreateAlloca(tipoLatValor, nullptr, "estatico_ret");
+                    builder.CreateCall(fnMetodo, {celdaRet, builder.getInt32((int)nargs), argsArr});
+                    return celdaRet;
+                }
             }
 
             // Llamada a método de objeto / módulo dinámico:
@@ -396,8 +463,171 @@ llvm::Value* GeneradorLLVM::genExpr(Expresion& expr, llvm::IRBuilder<>& builder,
         builder.CreateCall(fn, args);
         return celda;
     }
+    if (auto* n = dynamic_cast<NuevoExpr*>(&expr)) {
+        // (Fase L8) Mismo mapeo 1:1 que GeneradorC::genExpr(NuevoExpr) -- ver
+        // el comentario de esta fase en compiler_llvm.h para el resumen del
+        // algoritmo (ancestría + registro de campos/métodos + constructor).
+        llvm::Function* fnObjNuevo = abi_->declarar(modulo, "lat_obj_nuevo");
+        llvm::Function* fnObjSetClase = abi_->declarar(modulo, "lat_obj_set_clase");
+        llvm::Function* fnObjSet = abi_->declarar(modulo, "lat_obj_set");
+        llvm::Function* fnObjSetMetodo = abi_->declarar(modulo, "lat_obj_set_metodo");
+        llvm::Function* fnFuncionNueva = abi_->declarar(modulo, "lat_funcion_nueva");
 
-    // Control de flujo, llamadas, POO, ... -- Fases L5 en adelante.
+        llvm::Value* obj = builder.CreateAlloca(tipoLatValor, nullptr, "obj_nuevo");
+
+        auto itC = clases_.find(n->clase);
+        if (itC != clases_.end()) {
+            ClaseDef* c = itC->second;
+
+            // Cadena de ascendencia (de la hoja a la raíz) -- lat_obj_nuevo
+            // crea el objeto con el nombre del ancestro más antiguo, y cada
+            // lat_obj_set_clase posterior (de la raíz hacia la hoja) va
+            // registrando el resto de la cadena, para que
+            // lat_obj_es_instancia reconozca a los ancestros tras la
+            // herencia -- mismo algoritmo que GeneradorC.
+            std::vector<ClaseDef*> cadena;
+            for (ClaseDef* t = c; t;) {
+                cadena.push_back(t);
+                if (t->padre.empty()) break;
+                auto itPadreTipo = clases_.find(t->padre);
+                t = (itPadreTipo != clases_.end()) ? itPadreTipo->second : nullptr;
+            }
+            llvm::Value* nombreRaiz =
+                builder.CreateGlobalStringPtr(cadena.back()->nombre, "obj_clase_raiz", 0, &modulo);
+            builder.CreateCall(fnObjNuevo, {obj, nombreRaiz});
+            for (size_t i = cadena.size() - 1; i-- > 0;) {
+                llvm::Value* nombreNivel =
+                    builder.CreateGlobalStringPtr(cadena[i]->nombre, "obj_clase_nivel", 0, &modulo);
+                builder.CreateCall(fnObjSetClase, {obj, nombreNivel});
+            }
+
+            std::function<void(ClaseDef*)> registrarTipo = [&](ClaseDef* tipo) {
+                if (!tipo) return;
+                if (!tipo->padre.empty()) {
+                    auto itPadre = clases_.find(tipo->padre);
+                    if (itPadre != clases_.end()) registrarTipo(itPadre->second);
+                }
+                for (CampoDef& campo : tipo->campos) {
+                    if (!campo.valorDefecto) continue;
+                    llvm::Value* valor = genExpr(*campo.valorDefecto, builder, modulo, variables);
+                    if (!valor) continue;
+                    llvm::Value* nombreCampo =
+                        builder.CreateGlobalStringPtr(campo.nombre, "obj_campo_nombre", 0, &modulo);
+                    builder.CreateCall(fnObjSet, {obj, nombreCampo, valor});
+                }
+                for (MetodoDef& metodo : tipo->metodos) {
+                    if (metodo.esConstructor || metodo.esEstatico || metodo.esAbstracto) continue;
+                    llvm::Function* metodoFn = declararMetodo(tipo->nombre, metodo, modulo);
+                    llvm::Value* nombreMetodo =
+                        builder.CreateGlobalStringPtr(metodo.nombre, "obj_metodo_nombre", 0, &modulo);
+                    llvm::Value* celdaFn = builder.CreateAlloca(tipoLatValor, nullptr, "obj_metodo_valor");
+                    builder.CreateCall(fnFuncionNueva, {celdaFn, metodoFn});
+                    builder.CreateCall(fnObjSetMetodo, {obj, nombreMetodo, celdaFn});
+                }
+            };
+            registrarTipo(c);
+
+            MetodoDef* ctor = nullptr;
+            for (MetodoDef& metodo : c->metodos) {
+                if (metodo.esConstructor) {
+                    ctor = &metodo;
+                    break;
+                }
+            }
+            if (ctor) {
+                llvm::Function* fnCtor = declararMetodo(c->nombre, *ctor, modulo);
+                size_t nargsTotal = n->argumentos.size() + 1;
+                llvm::Value* argsArr =
+                    builder.CreateAlloca(tipoLatValor, builder.getInt64(nargsTotal), "ctor_args");
+                llvm::Value* slot0 = builder.CreateGEP(tipoLatValor, argsArr, builder.getInt64(0), "ctor_arg0");
+                builder.CreateStore(builder.CreateLoad(tipoLatValor, obj), slot0);
+                for (size_t i = 0; i < n->argumentos.size(); i++) {
+                    llvm::Value* v = genExpr(*n->argumentos[i], builder, modulo, variables);
+                    if (!v) return nullptr;
+                    llvm::Value* slot =
+                        builder.CreateGEP(tipoLatValor, argsArr, builder.getInt64(i + 1), "ctor_arg");
+                    builder.CreateStore(builder.CreateLoad(tipoLatValor, v), slot);
+                }
+                llvm::Value* ctorRet = builder.CreateAlloca(tipoLatValor, nullptr, "ctor_ret");
+                builder.CreateCall(fnCtor, {ctorRet, builder.getInt32((int)nargsTotal), argsArr});
+            }
+        } else {
+            llvm::Value* nombreLiteral =
+                builder.CreateGlobalStringPtr(n->clase, "obj_clase_nombre_lit", 0, &modulo);
+            builder.CreateCall(fnObjNuevo, {obj, nombreLiteral});
+
+            auto itE = estructuras_.find(n->clase);
+            if (itE != estructuras_.end()) {
+                EstructuraDef* e = itE->second;
+                for (CampoDef& campo : e->campos) {
+                    if (!campo.valorDefecto) continue;
+                    llvm::Value* valor = genExpr(*campo.valorDefecto, builder, modulo, variables);
+                    if (!valor) continue;
+                    llvm::Value* nombreCampo =
+                        builder.CreateGlobalStringPtr(campo.nombre, "obj_campo_nombre", 0, &modulo);
+                    builder.CreateCall(fnObjSet, {obj, nombreCampo, valor});
+                }
+                for (MetodoDef& metodo : e->metodos) {
+                    if (metodo.esConstructor || metodo.esEstatico || metodo.esAbstracto) continue;
+                    llvm::Function* metodoFn = declararMetodo(e->nombre, metodo, modulo);
+                    llvm::Value* nombreMetodo =
+                        builder.CreateGlobalStringPtr(metodo.nombre, "obj_metodo_nombre", 0, &modulo);
+                    llvm::Value* celdaFn = builder.CreateAlloca(tipoLatValor, nullptr, "obj_metodo_valor");
+                    builder.CreateCall(fnFuncionNueva, {celdaFn, metodoFn});
+                    builder.CreateCall(fnObjSetMetodo, {obj, nombreMetodo, celdaFn});
+                }
+
+                MetodoDef* ctor = nullptr;
+                for (MetodoDef& metodo : e->metodos) {
+                    if (metodo.esConstructor) {
+                        ctor = &metodo;
+                        break;
+                    }
+                }
+                if (ctor) {
+                    llvm::Function* fnCtor = declararMetodo(e->nombre, *ctor, modulo);
+                    size_t nargsTotal = n->argumentos.size() + 1;
+                    llvm::Value* argsArr =
+                        builder.CreateAlloca(tipoLatValor, builder.getInt64(nargsTotal), "ctor_args");
+                    llvm::Value* slot0 =
+                        builder.CreateGEP(tipoLatValor, argsArr, builder.getInt64(0), "ctor_arg0");
+                    builder.CreateStore(builder.CreateLoad(tipoLatValor, obj), slot0);
+                    for (size_t i = 0; i < n->argumentos.size(); i++) {
+                        llvm::Value* v = genExpr(*n->argumentos[i], builder, modulo, variables);
+                        if (!v) return nullptr;
+                        llvm::Value* slot =
+                            builder.CreateGEP(tipoLatValor, argsArr, builder.getInt64(i + 1), "ctor_arg");
+                        builder.CreateStore(builder.CreateLoad(tipoLatValor, v), slot);
+                    }
+                    llvm::Value* ctorRet = builder.CreateAlloca(tipoLatValor, nullptr, "ctor_ret");
+                    builder.CreateCall(fnCtor, {ctorRet, builder.getInt32((int)nargsTotal), argsArr});
+                }
+            }
+        }
+        return obj;
+    }
+    if (auto* n = dynamic_cast<EsExpr*>(&expr)) {
+        // "expr es Clase" -- comprobación en tiempo de ejecución por nombre,
+        // no necesita ninguna tabla estática (paridad con
+        // GeneradorC::genExpr(EsExpr)).
+        llvm::Value* objeto = genExpr(*n->objeto, builder, modulo, variables);
+        if (!objeto) return nullptr;
+        llvm::Function* fnEsInstancia = abi_->declarar(modulo, "lat_obj_es_instancia");
+        llvm::Value* claseC = builder.CreateGlobalStringPtr(n->clase, "es_clase_nombre", 0, &modulo);
+        llvm::Value* esInstancia = builder.CreateCall(fnEsInstancia, {objeto, claseC}, "es_instancia");
+        llvm::Function* fnLogico = abi_->declarar(modulo, "lat_logico");
+        llvm::Value* celda = builder.CreateAlloca(tipoLatValor, nullptr, "es_resultado");
+        builder.CreateCall(fnLogico, {celda, esInstancia});
+        return celda;
+    }
+    if (dynamic_cast<AccesoEste*>(&expr)) {
+        auto it = variables.find("este");
+        return it == variables.end() ? nullptr : it->second;
+    }
+
+    // Todos los nodos de Expresion reales están cubiertos arriba (Fases
+    // L3-L8); nullptr aquí solo puede significar un tipo de nodo que el
+    // parser nunca produce.
     return nullptr;
 }
 
@@ -741,10 +971,58 @@ void GeneradorLLVM::genSentencia(Sentencia& s, llvm::IRBuilder<>& builder, llvm:
         builder.CreateRetVoid();
         return;
     }
-    // Incluir/FuncionDef/ClaseDef/EstructuraDef/InterfazDef/LlamadaBase
-    // (declaraciones de nivel superior o de Fases L7/L8): no se traducen
-    // aquí -- FuncionDef la traducen declararFuncion/genFuncion, siempre
-    // desde fuera de un bloque, igual que GeneradorC::genSentencia.
+    if (auto* b = dynamic_cast<LlamadaBase*>(&s)) {
+        // (Fase L8) base(args...) -- solo válida dentro de un constructor.
+        // Empaqueta "este" + los argumentos evaluados en un array contiguo
+        // (misma convención que NuevoExpr) y llama al constructor de
+        // actualPadre_ si existe uno -- paridad exacta con
+        // GeneradorC::genSentencia(LlamadaBase).
+        auto itEste = variables.find("este");
+        llvm::Value* celdaEste = itEste != variables.end() ? itEste->second : nullptr;
+
+        size_t nargsTotal = b->argumentos.size() + 1;
+        llvm::Value* argsArr = builder.CreateAlloca(tipoLatValor, builder.getInt64(nargsTotal), "base_args");
+        llvm::Value* slot0 = builder.CreateGEP(tipoLatValor, argsArr, builder.getInt64(0), "base_arg0");
+        if (celdaEste) {
+            builder.CreateStore(builder.CreateLoad(tipoLatValor, celdaEste), slot0);
+        } else {
+            llvm::Function* fnNulo = abi_->declarar(modulo, "lat_nulo");
+            builder.CreateCall(fnNulo, {slot0});
+        }
+        for (size_t i = 0; i < b->argumentos.size(); i++) {
+            llvm::Value* v = genExpr(*b->argumentos[i], builder, modulo, variables);
+            if (!v) return;
+            llvm::Value* slot = builder.CreateGEP(tipoLatValor, argsArr, builder.getInt64(i + 1), "base_arg");
+            builder.CreateStore(builder.CreateLoad(tipoLatValor, v), slot);
+        }
+
+        MetodoDef* padreCtor = nullptr;
+        if (!actualPadre_.empty()) {
+            auto itPadre = clases_.find(actualPadre_);
+            if (itPadre != clases_.end()) {
+                for (MetodoDef& m : itPadre->second->metodos) {
+                    if (m.esConstructor) {
+                        padreCtor = &m;
+                        break;
+                    }
+                }
+            }
+        }
+        if (padreCtor) {
+            llvm::Function* fnPadreCtor = declararMetodo(actualPadre_, *padreCtor, modulo);
+            llvm::Value* celdaRet = builder.CreateAlloca(tipoLatValor, nullptr, "base_ret");
+            builder.CreateCall(fnPadreCtor, {celdaRet, builder.getInt32((int)nargsTotal), argsArr});
+        }
+        // Sin constructor de clase base que ejecutar: no hay nada seguro
+        // que emitir (paridad con el comentario que deja GeneradorC en ese
+        // caso).
+        return;
+    }
+    // Incluir/FuncionDef/ClaseDef/EstructuraDef/InterfazDef (declaraciones
+    // de nivel superior): no se traducen aquí -- FuncionDef/ClaseDef/
+    // EstructuraDef/InterfazDef las traducen genFuncion/genClase/
+    // genEstructura/genInterfaz, siempre desde fuera de un bloque, igual que
+    // GeneradorC::genSentencia.
 }
 
 llvm::Function* GeneradorLLVM::declararFuncion(FuncionDef& f, llvm::Module& modulo) {
@@ -830,6 +1108,165 @@ void GeneradorLLVM::genFuncion(FuncionDef& f, llvm::Module& modulo) {
         builder.CreateRetVoid();
     }
     celdaRetorno_ = anteriorRetorno;
+}
+
+void GeneradorLLVM::recolectarTipos(Programa& programa) {
+    clases_.clear();
+    estructuras_.clear();
+    interfaces_.clear();
+    for (auto& s : programa.sentencias) {
+        if (auto* c = dynamic_cast<ClaseDef*>(s.get()))
+            clases_[c->nombre] = c;
+        else if (auto* e = dynamic_cast<EstructuraDef*>(s.get()))
+            estructuras_[e->nombre] = e;
+        else if (auto* i = dynamic_cast<InterfazDef*>(s.get()))
+            interfaces_[i->nombre] = i;
+    }
+}
+
+llvm::Function* GeneradorLLVM::declararMetodo(const std::string& claseNombre, MetodoDef& metodo,
+                                              llvm::Module& modulo) {
+    std::string nombreFn = "lat_fn_" + claseNombre + "_" + metodo.nombre;
+    if (llvm::Function* existente = modulo.getFunction(nombreFn)) return existente;
+
+    llvm::PointerType* tipoPuntero = llvm::PointerType::get(*contexto_, /*AddressSpace=*/0);
+    llvm::Type* tipoI32 = llvm::Type::getInt32Ty(*contexto_);
+    // sret, nargs, args -- ver el comentario de esta función en
+    // compiler_llvm.h para por qué la firma es "empaquetada" (nargs +
+    // array) en vez del puntero-por-parámetro que usa declararFuncion.
+    std::vector<llvm::Type*> tipos{tipoPuntero, tipoI32, tipoPuntero};
+    llvm::FunctionType* tipoFn =
+        llvm::FunctionType::get(llvm::Type::getVoidTy(*contexto_), tipos, /*isVarArg=*/false);
+
+    llvm::Function* fn = llvm::Function::Create(
+        tipoFn, llvm::Function::InternalLinkage, nombreFn, &modulo);
+    fn->addParamAttr(0, llvm::Attribute::getWithStructRetType(*contexto_, abi_->tipoLatValor()));
+    return fn;
+}
+
+llvm::Value* GeneradorLLVM::genArgumentoDeArray(llvm::Value* argsPtr, llvm::Value* nargs, size_t idx,
+                                                llvm::IRBuilder<>& builder, llvm::Module& modulo,
+                                                const std::string& nombreCelda) {
+    llvm::StructType* tipoLatValor = abi_->tipoLatValor();
+    llvm::Value* celda = builder.CreateAlloca(tipoLatValor, nullptr, nombreCelda);
+
+    llvm::Function* fnActual = builder.GetInsertBlock()->getParent();
+    llvm::BasicBlock* bloquePresente = llvm::BasicBlock::Create(*contexto_, "arg_presente", fnActual);
+    llvm::BasicBlock* bloqueAusente = llvm::BasicBlock::Create(*contexto_, "arg_ausente", fnActual);
+    llvm::BasicBlock* bloqueFin = llvm::BasicBlock::Create(*contexto_, "arg_fin", fnActual);
+
+    llvm::Value* cond = builder.CreateICmpSGT(nargs, builder.getInt32((int)idx), "hay_arg");
+    builder.CreateCondBr(cond, bloquePresente, bloqueAusente);
+
+    builder.SetInsertPoint(bloquePresente);
+    llvm::Value* slot = builder.CreateGEP(tipoLatValor, argsPtr, builder.getInt64(idx), "arg_slot");
+    builder.CreateStore(builder.CreateLoad(tipoLatValor, slot), celda);
+    builder.CreateBr(bloqueFin);
+
+    builder.SetInsertPoint(bloqueAusente);
+    llvm::Function* fnNulo = abi_->declarar(modulo, "lat_nulo");
+    builder.CreateCall(fnNulo, {celda});
+    builder.CreateBr(bloqueFin);
+
+    builder.SetInsertPoint(bloqueFin);
+    return celda;
+}
+
+void GeneradorLLVM::genMetodo(const std::string& claseNombre, MetodoDef& metodo,
+                              const std::string& padreNombre, llvm::Module& modulo) {
+    if (metodo.esAbstracto) return;
+
+    llvm::Function* fn = declararMetodo(claseNombre, metodo, modulo);
+    if (!fn->empty()) return;  // ya se generó el cuerpo (llamada repetida).
+
+    llvm::StructType* tipoLatValor = abi_->tipoLatValor();
+    llvm::IRBuilder<> builder(*contexto_);
+    llvm::BasicBlock* entrada = llvm::BasicBlock::Create(*contexto_, "entrada", fn);
+    builder.SetInsertPoint(entrada);
+
+    auto argumento = fn->arg_begin();
+    llvm::Value* celdaRetorno = &*argumento++;
+    llvm::Value* nargs = &*argumento++;
+    llvm::Value* argsPtr = &*argumento++;
+
+    std::unordered_map<std::string, llvm::Value*> variables;
+    bool instancia = !metodo.esEstatico;
+    if (instancia)
+        variables["este"] = genArgumentoDeArray(argsPtr, nargs, 0, builder, modulo, "este");
+
+    size_t offset = instancia ? 1 : 0;
+    for (size_t i = 0; i < metodo.parametros.size(); i++) {
+        variables[metodo.parametros[i].nombre] =
+            genArgumentoDeArray(argsPtr, nargs, i + offset, builder, modulo, "v_" + metodo.parametros[i].nombre);
+    }
+
+    std::set<std::string> excluir;
+    if (instancia) excluir.insert("este");
+    for (const auto& p : metodo.parametros) excluir.insert(p.nombre);
+
+    std::set<std::string> nombresLocales;
+    recolectarVariables(metodo.cuerpo, nombresLocales, excluir);
+    auto locales = declararLocales(nombresLocales, builder, modulo);
+    variables.insert(locales.begin(), locales.end());
+
+    // Chequeos de tipo de parámetros anotados -- paridad con
+    // GeneradorC::genMetodo/genFuncion.
+    for (const auto& p : metodo.parametros) {
+        if (p.tipo == TipoAnotado::Ninguno) continue;
+        llvm::Function* fnVerificar = abi_->declarar(modulo, "lat_verificar_tipo");
+        llvm::Value* celdaParam = variables[p.nombre];
+        llvm::Value* nombreC = builder.CreateGlobalStringPtr(p.nombre, "nombre_param", 0, &modulo);
+        llvm::Value* verificado = builder.CreateAlloca(tipoLatValor, nullptr, "param_verificado");
+        builder.CreateCall(fnVerificar, {verificado, celdaParam,
+                                         builder.getInt32(tipoAnotadoALatTipo(p.tipo)), nombreC,
+                                         builder.getInt32(metodo.linea)});
+        builder.CreateStore(builder.CreateLoad(tipoLatValor, verificado), celdaParam);
+    }
+
+    std::string anteriorClase = actualClase_;
+    std::string anteriorPadre = actualPadre_;
+    actualClase_ = claseNombre;
+    actualPadre_ = padreNombre;
+
+    llvm::Value* anteriorRetorno = celdaRetorno_;
+    celdaRetorno_ = celdaRetorno;
+    genBloque(metodo.cuerpo, builder, modulo, variables);
+    if (!bloqueTerminado(builder)) {
+        llvm::Function* fnNulo = abi_->declarar(modulo, "lat_nulo");
+        builder.CreateCall(fnNulo, {celdaRetorno});
+        builder.CreateRetVoid();
+    }
+    celdaRetorno_ = anteriorRetorno;
+
+    actualClase_ = anteriorClase;
+    actualPadre_ = anteriorPadre;
+}
+
+void GeneradorLLVM::genClase(ClaseDef& c, llvm::Module& modulo) {
+    std::string anteriorClase = actualClase_;
+    std::string anteriorPadre = actualPadre_;
+    actualClase_ = c.nombre;
+    actualPadre_ = c.padre;
+    for (MetodoDef& metodo : c.metodos)
+        genMetodo(c.nombre, metodo, c.padre, modulo);
+    actualClase_ = anteriorClase;
+    actualPadre_ = anteriorPadre;
+}
+
+void GeneradorLLVM::genEstructura(EstructuraDef& e, llvm::Module& modulo) {
+    std::string anteriorClase = actualClase_;
+    std::string anteriorPadre = actualPadre_;
+    actualClase_ = e.nombre;
+    actualPadre_.clear();
+    for (MetodoDef& metodo : e.metodos)
+        genMetodo(e.nombre, metodo, "", modulo);
+    actualClase_ = anteriorClase;
+    actualPadre_ = anteriorPadre;
+}
+
+void GeneradorLLVM::genInterfaz(InterfazDef& /*i*/) {
+    // Una interfaz no tiene ningún cuerpo que traducir -- paridad exacta con
+    // GeneradorC::genInterfaz.
 }
 
 std::unique_ptr<llvm::Module> GeneradorLLVM::generar(Programa& /*programa*/) {

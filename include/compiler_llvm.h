@@ -106,10 +106,34 @@ public:
     // para funciones exportadas de un módulo dinámico (Reto 7 del plan), sin
     // necesitar ningún seguimiento de clases/estructuras porque el
     // diccionario de métodos ya vive en el propio objeto en runtime.
-    // Métodos ESTÁTICOS (`NombreClase.metodo(...)`, que sí exigen resolver
-    // en tiempo de compilación si `NombreClase` es una clase/estructura
-    // conocida) quedan pendientes de la Fase L8: `GeneradorLLVM` todavía no
-    // lleva una tabla `clases_`/`estructuras_` análoga a la de `GeneradorC`.
+    // (Fase L8) Métodos ESTÁTICOS (`NombreClase.metodo(...)`): dentro del
+    // mismo bloque que resuelve `AccesoMiembro` con objeto `Identificador`,
+    // se busca primero si el nombre nombra una clase/estructura conocida
+    // (tablas `clases_`/`estructuras_`, pobladas por `recolectarTipos`) con
+    // un método estático de ese nombre -- recorriendo la cadena de herencia
+    // hacia arriba para una clase, igual que
+    // `GeneradorC::genLlamada`. Si se encuentra, se traduce a una llamada
+    // directa (`declararMetodo`) con los argumentos empaquetados en un
+    // array contiguo (sin celda para "este": un método estático no la
+    // recibe). Si no se encuentra, cae al despacho dinámico uniforme de
+    // siempre (`lat_obj_llamar_metodo`).
+    //
+    // (Fase L8) `NuevoExpr` (`nuevo Clase(args...)`): crea la instancia
+    // (`lat_obj_nuevo` con el ancestro más antiguo si es una clase con
+    // herencia, luego `lat_obj_set_clase` por cada nivel hacia el hijo, para
+    // que `lat_obj_es_instancia` reconozca a los ancestros), registra campos
+    // con valor por defecto (`lat_obj_set`) y métodos de instancia
+    // (`lat_obj_set_metodo` + `lat_funcion_nueva`) recorriendo la cadena de
+    // herencia de la raíz hacia la hoja (para que los métodos/campos de la
+    // clase derivada queden registrados en último lugar, sobreescribiendo a
+    // los del padre), y por último invoca el constructor si existe --
+    // mismo mapeo 1:1 que `GeneradorC::genExpr(NuevoExpr)`. Una estructura
+    // sigue el mismo patrón sin herencia (sin recorrer ninguna cadena).
+    // `EsExpr` (`expr es Clase`) es una llamada directa a
+    // `lat_obj_es_instancia` envuelta en `lat_logico` -- no necesita
+    // ninguna tabla, es una comprobación en tiempo de ejecución por nombre.
+    // `AccesoEste` (`este`) busca la celda `"este"` en `variables`, poblada
+    // por `genMetodo` para métodos de instancia.
     llvm::Value* genExpr(Expresion& expr, llvm::IRBuilder<>& builder, llvm::Module& modulo,
                          const std::unordered_map<std::string, llvm::Value*>& variables = {});
 
@@ -160,12 +184,23 @@ public:
     // analizador semántico ya exige que `retornar` esté dentro de una
     // función) no emite nada, igual que `Romper` sin bucle.
     //
+    // (Fase L8) `LlamadaBase` (`base(args...)`, solo válida dentro de un
+    // constructor): empaqueta `este` (celda `variables["este"]`) más los
+    // argumentos evaluados en un array contiguo, igual convención que
+    // `NuevoExpr`, y llama al constructor de `actualPadre_` (`declararMetodo`
+    // sobre el `MetodoDef` marcado `esConstructor` de esa clase, buscada en
+    // `clases_`) si existe uno -- si `actualPadre_` está vacío o la clase
+    // padre no tiene constructor, no emite ninguna llamada (paridad exacta
+    // con `GeneradorC::genSentencia(LlamadaBase)`, que en ese caso solo deja
+    // un comentario).
+    //
     // No maneja declaraciones de nivel superior distintas de FuncionDef
-    // (ClaseDef/EstructuraDef/InterfazDef/Incluir/LlamadaBase -- Fases
-    // L7/L8) ni la propia FuncionDef (ver `genFuncion`/`declararFuncion`,
-    // que la traducen desde fuera de `genSentencia`/`genBloque`, nunca
-    // dentro de un bloque -- igual que `GeneradorC::genSentencia`, que
-    // tampoco emite una FuncionDef anidada).
+    // (ClaseDef/EstructuraDef/InterfazDef/Incluir -- Fase L8 las traduce vía
+    // `genClase`/`genEstructura`/`genInterfaz`, siempre desde fuera de
+    // `genSentencia`/`genBloque`) ni la propia FuncionDef (ver
+    // `genFuncion`/`declararFuncion`, que la traducen desde fuera de
+    // `genSentencia`/`genBloque`, nunca dentro de un bloque -- igual que
+    // `GeneradorC::genSentencia`, que tampoco emite una FuncionDef anidada).
     //
     // `Elegir` se traduce como una cadena de comparaciones
     // (`lat_igual`+`lat_es_verdadero`), nunca como `SwitchInst` nativo de
@@ -212,6 +247,92 @@ public:
     // llamada a genFuncion() que le dé cuerpo antes de verificar el módulo:
     // una función de linkage interno sin cuerpo es IR inválido.
     llvm::Function* declararFuncion(FuncionDef& f, llvm::Module& modulo);
+
+    // (Fase L8) Registra en las tablas internas clases_/estructuras_/
+    // interfaces_ cada ClaseDef/EstructuraDef/InterfazDef de nivel superior
+    // de 'programa' -- equivalente a GeneradorC::recolectarTipos. Debe
+    // llamarse antes de traducir cualquier NuevoExpr/llamada a método
+    // estático/genClase/genEstructura que dependa de esas tablas, igual que
+    // GeneradorC::generarCuerpo llama a recolectarTipos antes de generar
+    // cualquier cuerpo -- así una clase puede referenciar (con `nuevo` o un
+    // método estático) otra definida más adelante en el mismo programa. No
+    // desciende dentro de cuerpos de función/método (solo mira las
+    // sentencias de nivel superior de 'programa').
+    void recolectarTipos(Programa& programa);
+
+    // (Fase L8) Declara (o recupera, si ya se declaró antes) el prototipo
+    // LLVM del método 'metodo' de la clase/estructura 'claseNombre':
+    // `void @lat_fn_<claseNombre>_<metodo.nombre>(ptr sret %ret, i32 %nargs,
+    // ptr %args)`. Firma distinta de la que usa declararFuncion (Fase L6,
+    // un puntero por parámetro fijo): aquí los argumentos llegan
+    // empaquetados como un array contiguo de %struct.LatValor (`args`) más
+    // su longitud real (`nargs`) -- necesario porque el despacho dinámico
+    // (`lat_obj_llamar_metodo`, Fase L7) solo conoce el número de argumentos
+    // de una llamada concreta en tiempo de EJECUCIÓN, nunca en tiempo de
+    // compilación (a diferencia de una llamada directa a una función de
+    // usuario). Esta firma es, a nivel de ABI, la misma que `LatFnModulo`
+    // (`typedef LatValor (*LatFnModulo)(int, LatValor*)` en runtime/latino.h)
+    // exige en la práctica en este target (LatValor por valor siempre vía
+    // sret, Fase L2) -- por eso un puntero a esta función es válido para
+    // pasarse a `lat_funcion_nueva`/`lat_obj_set_metodo` sin ningún ajuste.
+    // Enlaza con linkage interno, con el atributo `sret` puesto a mano en el
+    // parámetro 0 (igual que declararFuncion, Fase L6 -- aquí tampoco hay
+    // ningún `.ll` de origen del que copiarlo). No consulta
+    // `metodo.esAbstracto` (eso es responsabilidad de quien llama --
+    // genMetodo/genClase/genEstructura -- igual que declararFuncion tampoco
+    // sabe nada de si su función de usuario "debería" existir).
+    llvm::Function* declararMetodo(const std::string& claseNombre, MetodoDef& metodo, llvm::Module& modulo);
+
+    // (Fase L8) Traduce el cuerpo de 'metodo' (declarando su prototipo
+    // primero, vía declararMetodo, idempotente igual que genFuncion). No
+    // hace nada si 'metodo.esAbstracto' -- paridad exacta con
+    // GeneradorC::genMetodo, que tampoco emite nada para un método
+    // abstracto.
+    //
+    // Dentro del cuerpo:
+    //  - Si el método no es estático, "este" es una celda local fresca
+    //    poblada con una rama real (nargs > 0) ? args[0] : lat_nulo() --
+    //    igual patrón de basic blocks que ya usa Ternaria (Fase L4): nargs
+    //    es un i32 de EJECUCIÓN (parámetro real de la función), nunca una
+    //    constante de compilación, así que hace falta una comprobación en
+    //    tiempo de ejecución, a diferencia del relleno con lat_nulo() de una
+    //    llamada directa a función de usuario (Fase L6), que sí conoce el
+    //    conteo de argumentos en tiempo de compilación. `AccesoEste` (más
+    //    abajo, en genExpr) busca esta celda en `variables["este"]`.
+    //  - Cada parámetro declarado recibe el mismo tratamiento -- celda local
+    //    fresca con (nargs > idx) ? args[idx] : lat_nulo() -- paridad exacta
+    //    con GeneradorC::genMetodo. Ningún parámetro se lee directamente de
+    //    `args` sin esa comprobación: hacerlo sería leer más allá del
+    //    tamaño real del array que construyó el llamador cuando la llamada
+    //    trae menos argumentos que parámetros declarados.
+    //  - actualClase_/actualPadre_ (estado nuevo) se fijan a claseNombre/
+    //    padreNombre mientras se traduce el cuerpo -- los usa
+    //    genSentencia(LlamadaBase) para resolver el constructor de la clase
+    //    padre -- y se restauran al salir, igual que
+    //    GeneradorC::genMetodo/genClase/genEstructura.
+    // Si el cuerpo no termina ya con un `retornar` explícito en todas sus
+    // ramas, añade un `retornar nulo` implícito al final -- igual criterio
+    // que genFuncion (Fase L6) y GeneradorC::genMetodo.
+    void genMetodo(const std::string& claseNombre, MetodoDef& metodo,
+                   const std::string& padreNombre, llvm::Module& modulo);
+
+    // (Fase L8) genMetodo sobre cada método de 'c' (fijando
+    // actualClase_/actualPadre_ a c.nombre/c.padre durante toda la
+    // traducción, además del fijado interno de cada genMetodo individual --
+    // doble fijado redundante pero inofensivo, replica exactamente
+    // GeneradorC::genClase). Un método abstracto se salta (genMetodo no
+    // emite nada para él).
+    void genClase(ClaseDef& c, llvm::Module& modulo);
+
+    // (Fase L8) Igual que genClase, pero sin clase padre: actualPadre_ se
+    // limpia (una estructura nunca hereda) -- paridad exacta con
+    // GeneradorC::genEstructura.
+    void genEstructura(EstructuraDef& e, llvm::Module& modulo);
+
+    // (Fase L8) No-op: una interfaz no tiene ningún cuerpo que traducir
+    // (todos sus métodos son abstractos, sin excepción) -- paridad exacta
+    // con GeneradorC::genInterfaz, que tampoco emite nada.
+    void genInterfaz(InterfazDef& i);
 
     // (Fase L6) Traduce el cuerpo de 'f' -- declara su prototipo primero
     // (vía declararFuncion, que es idempotente) si no existía ya, ANTES de
@@ -271,6 +392,35 @@ private:
     // genFuncion esté traduciendo en este momento; nullptr fuera de la
     // traducción de una función -- ver genSentencia(Retornar).
     llvm::Value* celdaRetorno_ = nullptr;
+
+    // (Fase L8) Tablas de tipos POO de nivel superior -- equivalentes a
+    // GeneradorC::clases/estructuras/interfaces -- pobladas por
+    // recolectarTipos(). NuevoExpr, la resolución de método estático
+    // (genExpr(Llamada)) y LlamadaBase (genSentencia) las consultan.
+    std::unordered_map<std::string, ClaseDef*> clases_;
+    std::unordered_map<std::string, EstructuraDef*> estructuras_;
+    std::unordered_map<std::string, InterfazDef*> interfaces_;
+
+    // (Fase L8) Nombre de la clase/estructura y de la clase padre (vacío si
+    // no hay o es una estructura) que genMetodo/genClase/genEstructura están
+    // traduciendo en este momento -- equivalente a
+    // GeneradorC::actualClase/actualPadre. LlamadaBase (genSentencia) usa
+    // actualPadre_ para resolver el constructor de la clase base.
+    std::string actualClase_;
+    std::string actualPadre_;
+
+    // (Fase L8) Copia (nargs > idx) ? args[idx] : lat_nulo() a una celda
+    // local fresca -- el patrón que necesitan "este" y cada parámetro de un
+    // método (genMetodo), replicando la lectura condicional de
+    // GeneradorC::genMetodo con basic blocks reales (Ternaria, Fase L4) en
+    // vez de un acceso directo a args[idx]: nargs es un i32 de EJECUCIÓN
+    // (no se conoce en tiempo de compilación cuántos argumentos trajo la
+    // llamada dinámica real), así que leer args[idx] sin comprobar primero
+    // sería leer más allá del array que construyó el llamador cuando la
+    // llamada trae menos argumentos que los que el método declara.
+    llvm::Value* genArgumentoDeArray(llvm::Value* argsPtr, llvm::Value* nargs, size_t idx,
+                                     llvm::IRBuilder<>& builder, llvm::Module& modulo,
+                                     const std::string& nombreCelda);
 
     // Evalúa 'celda' con lat_es_verdadero() y compara el resultado contra 0
     // -- el i1 que necesita CreateCondBr. Devuelve 'false' (i1) sin emitir
