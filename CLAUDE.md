@@ -181,14 +181,19 @@ Windows x64/MSVC, `LatValor` se pasa/retorna **por puntero** (`sret` +
 valor Latino como un puntero a una celda `alloca %LatValor`, nunca como un
 struct LLVM por registro. L3 completa (tipos/literales/expresión), L4
 completa (variables locales, asignación, expresiones compuestas), L5
-completa (control de flujo: si/desde/mientras/repetir/elegir/romper) y L6
+completa (control de flujo: si/desde/mientras/repetir/elegir/romper), L6
 completa (funciones de usuario y variádica: prototipo adelantado para
-recursión, `retornar`, llamadas a funciones de usuario) — todas verificadas
-con LLVM real vía pruebas de codegen unitarias (`tests/test_codegen_llvm.cpp`,
-subcadena de IR + `verifyModule`), no E2E todavía: `generar()` sigue
-emitiendo el módulo "hola mundo" de L1 hasta que L9 (driver) lo conecte al
-recorrido real de `Programa`. L7-L13 (FFI a runtime/librerías, POO, driver,
-JIT, tests E2E, paridad) siguen pendientes.
+recursión, `retornar`, llamadas a funciones de usuario), L7 completa
+(llamadas a builtins/las 7 bibliotecas/despacho dinámico
+`lat_obj_llamar_metodo`) y L8 completa (POO: `nuevo`/`es`/`este`/`base`,
+métodos de instancia y estáticos con la firma empaquetada `(sret, nargs,
+args)` — distinta de la de una función de usuario porque el número de
+argumentos de una llamada dinámica solo se conoce en tiempo de ejecución) —
+todas verificadas con LLVM real vía pruebas de codegen unitarias
+(`tests/test_codegen_llvm.cpp`, subcadena de IR + `verifyModule`, 206
+comprobaciones), no E2E todavía: `generar()` sigue emitiendo el módulo
+"hola mundo" de L1 hasta que L9 (driver) lo conecte al recorrido real de
+`Programa`. L9-L13 (driver, JIT, tests E2E, paridad) siguen pendientes.
 
 ## Ramas y PRs
 
