@@ -98,12 +98,17 @@ struct CasoTest {
 // ---------------------------------------------------------------------------
 
 class Harness {
-    std::string comp_, rt_, tmp_;
+    std::string comp_, rt_, tmp_, backend_;
     int pasaron_ = 0, fallaron_ = 0;
 
 public:
-    Harness(const char* comp, const char* rt, const char* tmp)
-        : comp_(comp), rt_(rt), tmp_(tmp) {}
+    // 'backend' (Fase L11 de input/PLAN_LLVM.md): "c" (default) o "llvm" --
+    // el mismo arnés de las suites test_lib_*/test_poo_e2e/
+    // test_funciones_base/test_incluir se reutiliza contra --backend=llvm,
+    // registrado por tests/CMakeLists.txt como pruebas "<suite>_llvm"
+    // adicionales cuando LATINO_LLVM_BACKEND está habilitado.
+    Harness(const char* comp, const char* rt, const char* tmp, const char* backend = "c")
+        : comp_(comp), rt_(rt), tmp_(tmp), backend_(backend) {}
 
     bool ejecutar(const CasoTest& tc) {
         std::string nombre = tc.nombre;
@@ -126,7 +131,8 @@ public:
         // 2. Compilar con latino
         std::string cmd_comp = q(comp_) + " " + q(lat_path)
                              + " -o " + q(exe_path)
-                             + " --runtime " + q(rt_) + " 2>&1";
+                             + " --runtime " + q(rt_)
+                             + " --backend " + backend_ + " 2>&1";
         std::string out_comp;
         int rc_comp = capturar_salida(cmd_comp, out_comp);
         if (rc_comp != 0) {
@@ -177,10 +183,11 @@ static int ejecutar_main(int argc, char* argv[],
                          const CasoTest* casos, std::size_t n) {
     if (argc < 4) {
         std::cerr << "Uso: " << argv[0]
-                  << " <compilador> <runtime_dir> <temp_dir>\n";
+                  << " <compilador> <runtime_dir> <temp_dir> [backend c|llvm]\n";
         return 2;
     }
-    Harness h(argv[1], argv[2], argv[3]);
+    const char* backend = (argc >= 5) ? argv[4] : "c";
+    Harness h(argv[1], argv[2], argv[3], backend);
     for (std::size_t i = 0; i < n; i++)
         h.ejecutar(casos[i]);
     return h.resumen();

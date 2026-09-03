@@ -82,6 +82,54 @@ if(LATINO_LLVM_BACKEND)
   add_custom_target(latino_runtime_abi DEPENDS "${LATINO_RUNTIME_ABI_LL}")
 endif()
 
+# Fase L10 (ver input/PLAN_LLVM.md, Decisión 4): modo --jit. El runtime +
+# las 7 bibliotecas se compilan una segunda vez aquí y se cargan JUNTO a
+# latino.exe (ver src/CMakeLists.txt) -- distinto del uso normal, donde
+# invocador_c.cpp los recompila desde cero en cada invocación para el
+# ejecutable del USUARIO. El propósito de esta copia es que sus símbolos
+# lat_* sean resolubles en el propio proceso de latino.exe, para que
+# llvm::orc::DynamicLibrarySearchGenerator::GetForCurrentProcess() los
+# encuentre por nombre. Solo se agrega si el backend LLVM está habilitado --
+# el modo --jit no existe sin él.
+#
+# Hallazgo real (no anticipado en el texto original de la Decisión 4): en
+# Windows, GetForCurrentProcess() resuelve símbolos vía GetProcAddress()
+# sobre los módulos cargados del proceso -- y GetProcAddress() SOLO ve
+# símbolos que un módulo EXPORTA explícitamente. Un símbolo enlazado
+# ESTÁTICAMENTE dentro de latino.exe (STATIC, la lectura literal de
+# "estático" en el nombre del target) nunca aparece en la tabla de
+# exportación de latino.exe (MSVC no exporta nada de un .exe sin un .def o
+# __declspec(dllexport) explícitos) y por tanto es invisible para ORC en
+# Windows, aunque perfectamente enlazado y llamable desde C++ normal --
+# confirmado en la práctica: el runtime estaba enlazado y el programa AOT
+# equivalente funcionaba, pero el JIT fallaba con "Symbols not found:
+# [lat_abi_verificar, lat_cadena, lat_escribir, lat_set_args]" seguido de un
+# segfault al intentar ejecutar un `main` nunca materializado. La solución
+# que sí resuelve esto en la práctica (y que la propia Decisión 4 ya preveía
+# como alternativa): compilar el runtime como biblioteca DINÁMICA en vez de
+# estática, con CMAKE_WINDOWS_EXPORT_ALL_SYMBOLS (exporta automáticamente
+# todo símbolo de función del target en Windows, sin necesitar un .def a
+# mano para las ~185 funciones del runtime; no-op en Linux/macOS, donde los
+# símbolos de una biblioteca dinámica ya son visibles por defecto). Cargada
+# implícitamente al iniciar latino.exe (enlace dinámico normal), sus
+# símbolos exportados sí quedan dentro del conjunto de módulos que
+# GetForCurrentProcess() enumera. El nombre del target se conserva
+# (`latino_runtime_estatico`) porque es el que fija la Decisión 4 del plan;
+# lo que cambió es CÓMO se enlaza dentro de latino.exe, no su propósito.
+if(LATINO_LLVM_BACKEND)
+  add_library(latino_runtime_estatico SHARED
+    runtime/latino.c
+    runtime/libs/archivo.c
+    runtime/libs/cadena.c
+    runtime/libs/dic.c
+    runtime/libs/lista.c
+    runtime/libs/mate.c
+    runtime/libs/paquete.c
+    runtime/libs/sis.c)
+  target_include_directories(latino_runtime_estatico PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/runtime)
+  set_target_properties(latino_runtime_estatico PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+endif()
+
 add_subdirectory(src)
 
 # Runtime en C que usan los programas Latino generados. Se compila aquí para

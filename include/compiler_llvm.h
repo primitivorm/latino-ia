@@ -5,14 +5,14 @@
 // paralelo al backend de C existente (GeneradorC, ver compiler.h) — ninguno
 // de los dos reemplaza al otro; se seleccionan con --backend=c|llvm.
 //
-// Fase L7 (estado actual): `generar()` todavía emite el módulo "hola mundo"
-// de plumbing de la Fase L1 (el recorrido real de `programa` -- el "main"
-// generado -- llega en la Fase L9, cuando el driver lo necesita de verdad).
-// Lo nuevo de esta fase: `genExpr()` traduce `Llamada` a los builtins
-// (`escribir`/`imprimir`/..., `imprimirf`) y a las 7 bibliotecas
-// (`cadena`/`lista`/`dic`/`mate`/`sis`/`archivo`/`paquete`) vía
-// `AccesoMiembro`, además del despacho dinámico uniforme
-// `lat_obj_llamar_metodo` para métodos de instancia/módulos dinámicos.
+// Fase L9 (estado actual): `generar()` recorre el `Programa` real -- ya no
+// emite el módulo "hola mundo" de plumbing de la Fase L1. Declara y define
+// las funciones de usuario (con prototipos adelantados, para recursión
+// indirecta), las clases/estructuras/interfaces (`recolectarTipos` +
+// `genClase`/`genEstructura`/`genInterfaz`), y construye un `main(argc,
+// argv)` que llama a `lat_set_args`/`lat_abi_verificar` antes de traducir el
+// resto de las sentencias de nivel superior -- paridad con
+// `GeneradorC::generarCuerpo`.
 #ifndef COMPILER_LLVM_H
 #define COMPILER_LLVM_H
 
@@ -44,6 +44,15 @@ public:
     // de usuario (los errores de sintaxis/semántica ya se descartaron antes
     // de llegar aquí). El módulo devuelto vive mientras viva este
     // GeneradorLLVM: ambos comparten el mismo llvm::LLVMContext.
+    //
+    // (Fase L9) recolecta tipos, declara y define cada FuncionDef/ClaseDef/
+    // EstructuraDef/InterfazDef de nivel superior, y arma un `main(int
+    // argc, char** argv)` real: llama a `lat_set_args` y a
+    // `lat_abi_verificar` (con tam/alineación/offset derivados del mismo
+    // RuntimeAbiLLVM que ya usa el resto del generador) antes de declarar
+    // las variables locales de nivel superior y traducir el resto de las
+    // sentencias del programa vía genBloque -- paridad con
+    // GeneradorC::generarCuerpo.
     std::unique_ptr<llvm::Module> generar(Programa& programa);
 
     // Traduce una expresión aislada a IR en el punto de inserción actual de
@@ -365,6 +374,16 @@ public:
 
     RuntimeAbiLLVM& abi() { return *abi_; }
     llvm::LLVMContext& contexto() { return *contexto_; }
+
+    // (Fase L10) Transfiere la posesión del llvm::LLVMContext a quien llama
+    // -- necesario para construir un llvm::orc::ThreadSafeModule/
+    // ThreadSafeContext (modo --jit, ver invocador_llvm.h), que exige poseer
+    // el LLVMContext, no solo una referencia: el JIT debe poder mantenerlo
+    // vivo mientras ejecuta, más allá de la vida de este GeneradorLLVM. Tras
+    // llamar a esto, este GeneradorLLVM no debe usarse de nuevo (abi_ sigue
+    // apuntando al mismo LLVMContext ya movido, pero el flujo --jit de
+    // main.cpp no vuelve a invocar a este generador después).
+    std::unique_ptr<llvm::LLVMContext> tomarContexto() { return std::move(contexto_); }
 
 private:
     std::unique_ptr<llvm::LLVMContext> contexto_;

@@ -11,6 +11,7 @@
 #include <llvm/IR/Attributes.h>
 #include <llvm/IR/BasicBlock.h>
 #include <llvm/IR/Constants.h>
+#include <llvm/IR/DataLayout.h>
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/LLVMContext.h>
@@ -1269,39 +1270,90 @@ void GeneradorLLVM::genInterfaz(InterfazDef& /*i*/) {
     // GeneradorC::genInterfaz.
 }
 
-std::unique_ptr<llvm::Module> GeneradorLLVM::generar(Programa& /*programa*/) {
-    // Fase L1: "hola mundo" de plumbing. Se llama deliberadamente a puts()
-    // de la libc (ABI trivial: i32(ptr)) y NO a lat_escribir/lat_cadena del
-    // runtime de Latino -- el recorrido real de `programa` (declaración de
-    // variables, sentencias, funciones) llega en las Fases L4-L9, que es
-    // cuando además esto queda enlazado al driver (`main.cpp`). `genExpr()`
-    // (Fase L3, ver arriba) ya sabe traducir literales e identificadores,
-    // pero todavía no hay desde dónde invocarlo con un `Programa` real.
+std::unique_ptr<llvm::Module> GeneradorLLVM::generar(Programa& programa) {
     auto modulo = std::make_unique<llvm::Module>("latino_modulo", *contexto_);
 
+    recolectarTipos(programa);
+
+    // Prototipos de las funciones de usuario primero -- permite recursión
+    // indirecta (mutua) exactamente igual que el patrón de dos pasadas de
+    // GeneradorC::generarCuerpo: si se generara el cuerpo de cada función
+    // inmediatamente, una función que llama a otra declarada más adelante en
+    // el programa no encontraría todavía su prototipo.
+    std::vector<FuncionDef*> funcionesUsuario;
+    for (auto& s : programa.sentencias)
+        if (auto* f = dynamic_cast<FuncionDef*>(s.get()))
+            funcionesUsuario.push_back(f);
+    for (FuncionDef* f : funcionesUsuario)
+        declararFuncion(*f, *modulo);
+    for (FuncionDef* f : funcionesUsuario)
+        genFuncion(*f, *modulo);
+
+    for (auto& [nombre, c] : clases_)
+        genClase(*c, *modulo);
+    for (auto& [nombre, e] : estructuras_)
+        genEstructura(*e, *modulo);
+    for (auto& [nombre, i] : interfaces_)
+        genInterfaz(*i);
+
+    // main(int argc, char** argv) -- equivalente al "int main(int argc,
+    // char *argv[])" que emite GeneradorC::generarCuerpo.
     llvm::IRBuilder<> builder(*contexto_);
-
-    // declare i32 @puts(ptr)
     llvm::PointerType* tipoPuntero = llvm::PointerType::get(*contexto_, /*AddressSpace=*/0);
-    llvm::FunctionType* tipoPuts =
-        llvm::FunctionType::get(builder.getInt32Ty(), {tipoPuntero}, /*isVarArg=*/false);
-    llvm::FunctionCallee puts = modulo->getOrInsertFunction("puts", tipoPuts);
-
-    // define i32 @main() { ... ; ret i32 0 }
-    llvm::FunctionType* tipoMain = llvm::FunctionType::get(builder.getInt32Ty(), false);
+    llvm::FunctionType* tipoMain = llvm::FunctionType::get(
+        builder.getInt32Ty(), {builder.getInt32Ty(), tipoPuntero}, /*isVarArg=*/false);
     llvm::Function* main = llvm::Function::Create(
         tipoMain, llvm::Function::ExternalLinkage, "main", modulo.get());
+    llvm::Value* argc = main->getArg(0);
+    llvm::Value* argv = main->getArg(1);
+    argc->setName("argc");
+    argv->setName("argv");
+
     llvm::BasicBlock* entrada = llvm::BasicBlock::Create(*contexto_, "entrada", main);
     builder.SetInsertPoint(entrada);
 
-    llvm::Value* saludo = builder.CreateGlobalStringPtr("hola LLVM", "saludo");
-    builder.CreateCall(puts, {saludo});
-    builder.CreateRet(builder.getInt32(0));
+    // lat_set_args(argc, argv) -- paridad con GeneradorC::generarCuerpo.
+    llvm::Function* fnSetArgs = abi_->declarar(*modulo, "lat_set_args");
+    builder.CreateCall(fnSetArgs, {argc, argv});
+
+    // lat_abi_verificar(tam, alineacion, offset_tipo) -- Decisión 2 del
+    // plan: confirma en runtime que el layout de LatValor que Clang derivó
+    // en runtime_abi.ll (el que este generador asumió durante toda la
+    // traducción) coincide con el que usó el compilador de C que construyó
+    // latino.c -- pueden ser toolchains distintos. Los tres valores se leen
+    // del mismo DataLayout que ya usa test_codegen_llvm.cpp para esta
+    // comprobación (abi_->moduloOrigen(), nunca el del módulo destino, que
+    // todavía no tiene DataLayout hasta que invocador_llvm.cpp lo fija).
+    llvm::StructType* tipoLatValor = abi_->tipoLatValor();
+    const llvm::DataLayout& dl = abi_->moduloOrigen().getDataLayout();
+    const llvm::StructLayout* layout = dl.getStructLayout(tipoLatValor);
+    llvm::Function* fnAbiVerificar = abi_->declarar(*modulo, "lat_abi_verificar");
+    builder.CreateCall(fnAbiVerificar,
+                       {llvm::ConstantInt::get(fnAbiVerificar->getArg(0)->getType(),
+                                                layout->getSizeInBytes()),
+                        llvm::ConstantInt::get(fnAbiVerificar->getArg(1)->getType(),
+                                                dl.getABITypeAlign(tipoLatValor).value()),
+                        llvm::ConstantInt::get(fnAbiVerificar->getArg(2)->getType(),
+                                                layout->getElementOffset(0))});
+
+    // Variables locales de nivel superior + el resto de las sentencias
+    // (genBloque/genSentencia ya no traducen Incluir/FuncionDef/ClaseDef/
+    // EstructuraDef/InterfazDef -- ver el comentario al final de
+    // genSentencia -- así que no hace falta filtrarlas aquí, a diferencia de
+    // GeneradorC::generarCuerpo, que sí filtra FuncionDef a mano).
+    std::set<std::string> nombresLocales;
+    recolectarVariables(programa.sentencias, nombresLocales, {});
+    std::unordered_map<std::string, llvm::Value*> variables =
+        declararLocales(nombresLocales, builder, *modulo);
+
+    genBloque(programa.sentencias, builder, *modulo, variables);
+    if (!bloqueTerminado(builder))
+        builder.CreateRet(builder.getInt32(0));
 
     if (llvm::verifyModule(*modulo, &llvm::errs())) {
-        // No debería ocurrir para este módulo trivial; si ocurre, es un bug
-        // del generador (o del propio código de esta fase), no del programa
-        // de usuario.
+        // Indica un bug del propio generador -- los errores de sintaxis/
+        // semántica del programa de usuario ya se descartaron antes de
+        // llegar aquí.
         return nullptr;
     }
 
