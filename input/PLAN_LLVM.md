@@ -223,7 +223,7 @@ biblioteca dinámica (`latino_runtime.dll`/`.so`) y usar
 | L9 | Driver AOT: flag `--backend`, extensión de `invocador_c.cpp`, `--solo-ir` |
 | L10 | Modo JIT vía LLVM ORC (`--jit`) |
 | L11 | Tests (unitarios de codegen LLVM + E2E comparativo contra backend C) |
-| L12 | Paridad y decisión de default |
+| L12 | Paridad y decisión de default ✅ |
 | L13 | *(fuera de alcance temporal)* Retiro de `GeneradorC` — plan de seguimiento |
 
 ### Fase L0 — Preparación ✅
@@ -1267,21 +1267,51 @@ sobre paralelismo de pruebas) — no se intenta arreglar en este plan
 backend) más que dejar constancia de que **`ctest` para este proyecto debe
 correrse sin `-j`** hasta que se corrija esa ruta fija.
 
-### Fase L12 — Paridad y decisión de default
+### Fase L12 — Paridad y decisión de default ✅ verificada con LLVM real
 
-- Ejecutar toda la suite con ambos backends; medir tiempo de compilación
-  end-to-end y tiempo/tamaño de los binarios resultantes.
-- Criterio objetivo de "paridad" para considerar cambiar el default de
-  `--backend` a `llvm`:
-  1. Los 22 ejemplos de `ejemplos/*.lat` producen salida idéntica en ambos
-     backends.
-  2. Todas las suites de librería (`test_lib_*`, `test_poo_e2e`,
-     `test_incluir`, `test_funciones_base`) pasan también contra
-     `--backend=llvm`.
-  3. Sin regresión de tiempo de compilación end-to-end mayor a lo razonable
-     frente al backend C.
-- Si se cumple, cambiar el default en `main.cpp`; si no, documentar los
-  gaps restantes como fases de seguimiento.
+**Archivos:** `src/main.cpp` (default de `backend` condicionado a
+`LATINO_CON_LLVM`, más el ajuste de `--solo-c`).
+
+- [x] Corrida completa de la suite de CTest (80 pruebas, serie, ver hallazgo
+  de `ctest -j` de L11): **100% pasan, 2680.82 s reales.** Incluye las 27
+  `e2e_*_llvm` (paridad exacta de salida contra la misma anotación
+  `#salida:` que ya validaba el backend C) y las 9 variantes `_llvm` de
+  `test_lib_cadena/lista/dic/mate/sis/archivo`, `test_funciones_base`,
+  `test_incluir`, `test_poo_e2e`.
+- [x] Medición dedicada de tiempo de compilación y tamaño de binario
+  (`build/medir_paridad_l12.ps1`, no forma parte del build ni de CTest —
+  script ad-hoc de esta fase): compiló los 27 ejemplos con `--backend c` y
+  con `--backend llvm` por separado, cronometrando cada invocación de
+  `latino.exe` y midiendo el tamaño del `.exe` resultante.
+  - Backend C: 27/27 compilan, 127.3 s totales, ~360.5 KB promedio por
+    ejecutable.
+  - Backend LLVM: 27/27 compilan, 120.8 s totales (~5% más rápido, no hay
+    regresión), ~360.1 KB promedio por ejecutable (tamaño prácticamente
+    idéntico al de C).
+- [x] **Criterio de paridad cumplido en sus tres puntos** (salida idéntica,
+  suites de librería en verde, sin regresión de tiempo) → se cambió el
+  default de `--backend` a `llvm` en `src/main.cpp`, condicionado a
+  `#ifdef LATINO_CON_LLVM` (si el build no tiene el backend LLVM habilitado,
+  el único backend disponible sigue siendo `c`, preservando la Decisión 1
+  del plan: sin LLVM instalado, el compilador debe seguir funcionando
+  igual que siempre).
+- [x] **Ajuste de compatibilidad no anticipado en el texto original:**
+  `--solo-c` solo tiene sentido para el backend C (emite el C intermedio), y
+  antes de esta fase dependía implícitamente de que el default fuera `c`
+  (`latino archivo.lat --solo-c`, sin `--backend`, documentado así en
+  `README.md`/`CLAUDE.md`). Cambiar el default rompía ese uso documentado
+  con el error "`--solo-c` no es válido con `--backend llvm`". Se agregó una
+  bandera `backendExplicito` en `main.cpp`: si el usuario pide `--solo-c` y
+  no fijó `--backend` explícitamente, se usa `c` en vez del nuevo default —
+  si sí lo fijó (p. ej. `--backend llvm --solo-c`), el error de
+  incompatibilidad se mantiene sin cambios.
+
+**Criterio de aceptación — cumplido:** salida idéntica en los 27 ejemplos,
+las 9 suites de librería/POO/módulos en verde contra `--backend=llvm`, y sin
+regresión de tiempo de compilación (LLVM incluso ~5% más rápido en esta
+medición). Default cambiado a `llvm` en builds con `LATINO_LLVM_BACKEND`
+habilitado; sin gaps pendientes que documentar como fases de seguimiento
+más allá de L13 (ya fuera de alcance temporal por diseño).
 
 ### Fase L13 — *(fuera de alcance temporal)* Retiro de `GeneradorC`
 

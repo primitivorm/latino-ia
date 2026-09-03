@@ -102,9 +102,10 @@ static void uso() {
         "                     indica, si no a stdout), sin compilar\n"
         "  --ast              vuelca el AST (depuración)\n"
         "  --runtime <dir>    carpeta del runtime (latino.h/latino.c)\n"
-        "  --backend <c|llvm> backend de generación de código (por defecto: c)\n"
-        "                     'llvm' requiere un build con LATINO_LLVM_BACKEND\n"
-        "                     (ver input/PLAN_LLVM.md)\n"
+        "  --backend <c|llvm> backend de generación de código (por defecto: llvm\n"
+        "                     si el build lo incluye, si no c; ver Fase L12 de\n"
+        "                     input/PLAN_LLVM.md). 'llvm' requiere un build con\n"
+        "                     LATINO_LLVM_BACKEND\n"
         "  --jit              ejecuta el programa directamente en memoria (solo\n"
         "                     con --backend llvm), sin generar ningún .obj/.exe\n"
         "                     intermedio en disco -- ignora -o\n";
@@ -114,11 +115,21 @@ int main(int argc, char** argv) {
     std::string ruta;
     std::string salida;
     std::string runtimeDir;
+#ifdef LATINO_CON_LLVM
+    // Fase L12 (input/PLAN_LLVM.md): paridad de salida confirmada contra los
+    // 27 ejemplos con '#salida:' y las 9 suites de librería/POO/módulos, sin
+    // regresión de tiempo de compilación -- LLVM pasa a ser el backend por
+    // defecto. Si el build no incluye LLVM (LATINO_CON_LLVM no definido), el
+    // único backend disponible sigue siendo 'c' (Decisión 1 del plan).
+    std::string backend = "llvm";
+#else
     std::string backend = "c";
+#endif
     bool modoAst = false;
     bool soloC = false;
     bool soloIr = false;
     bool modoJit = false;
+    bool backendExplicito = false;
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
@@ -139,6 +150,7 @@ int main(int argc, char** argv) {
         } else if (arg == "--backend") {
             if (i + 1 >= argc) { uso(); return 2; }
             backend = argv[++i];
+            backendExplicito = true;
             if (backend != "c" && backend != "llvm") {
                 std::cerr << "Backend desconocido: " << backend << " (use 'c' o 'llvm')\n";
                 return 2;
@@ -150,6 +162,13 @@ int main(int argc, char** argv) {
         } else if (ruta.empty()) {
             ruta = arg;
         }
+    }
+
+    // --solo-c es exclusivo del backend C (emite el código C intermedio);
+    // si el usuario no fijó --backend explícitamente, respetarlo implica usar
+    // ese backend en vez del nuevo default 'llvm' de la Fase L12.
+    if (soloC && !backendExplicito) {
+        backend = "c";
     }
 
     if (ruta.empty()) {
