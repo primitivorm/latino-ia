@@ -35,6 +35,7 @@ LatValor lat_valor_layout_probe(LatValor v) {
  * #include no genera 'declare' para símbolos que nunca se referencian. */
 void lat_abi_referenciar_todo(void) {
     (void)lat_a_cadena;
+    (void)lat_abi_verificar;
     (void)lat_acadena;
     (void)lat_alogico;
     (void)lat_anumero;

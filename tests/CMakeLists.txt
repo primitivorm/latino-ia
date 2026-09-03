@@ -151,6 +151,32 @@ foreach(EJEMPLO ${EJEMPLOS_LAT})
             "${SALIDA_EXE}"
             "${CMAKE_SOURCE_DIR}/runtime"
   )
+
+  # Fase L11 (input/PLAN_LLVM.md): el mismo ejemplo, compilado y ejecutado
+  # con --backend=llvm -- test_e2e compara ambos contra la misma anotación
+  # '#salida:' del .lat, así que una coincidencia de las dos pruebas ya
+  # implica paridad de salida entre los dos backends (no hace falta un
+  # segundo binario "test_e2e_llvm" que los diffee directamente). Ruta de
+  # salida distinta a la del backend C para que ambas puedan ejecutarse sin
+  # pisarse el mismo .exe. Solo se registra si el build tiene LLVM
+  # habilitado (Decisión 1 del plan: sin LLVM, la suite del backend C debe
+  # seguir corriendo completa).
+  if(LATINO_LLVM_BACKEND)
+    set(SALIDA_EXE_LLVM "${CMAKE_CURRENT_BINARY_DIR}/e2e_${EJEMPLO_NOMBRE}_llvm")
+    if(WIN32)
+      set(SALIDA_EXE_LLVM "${SALIDA_EXE_LLVM}.exe")
+    endif()
+
+    add_test(
+      NAME "e2e_${EJEMPLO_NOMBRE}_llvm"
+      COMMAND test_e2e
+              $<TARGET_FILE:latino>
+              "${EJEMPLO}"
+              "${SALIDA_EXE_LLVM}"
+              "${CMAKE_SOURCE_DIR}/runtime"
+              llvm
+    )
+  endif()
 endforeach()
 
 # -----------------------------------------------------------------------
@@ -170,6 +196,24 @@ macro(add_suite20 TARGET)
             "${CMAKE_SOURCE_DIR}/runtime"
             "${CMAKE_CURRENT_BINARY_DIR}"
   )
+
+  # Fase L11 (input/PLAN_LLVM.md): la misma suite (mismo ejecutable, ya
+  # compilado arriba) contra --backend=llvm, vía el parámetro de backend
+  # que test_harness.h acepta desde esa fase. Directorio temporal propio
+  # (subcarpeta "llvm") para que los .lat/.exe que cada variante escribe con
+  # el mismo nombre de caso no se pisen entre sí. Solo si LATINO_LLVM_BACKEND
+  # está habilitado (Decisión 1 del plan).
+  if(LATINO_LLVM_BACKEND)
+    file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/llvm")
+    add_test(
+      NAME ${TARGET}_llvm
+      COMMAND ${TARGET}
+              $<TARGET_FILE:latino>
+              "${CMAKE_SOURCE_DIR}/runtime"
+              "${CMAKE_CURRENT_BINARY_DIR}/llvm"
+              llvm
+    )
+  endif()
 endmacro()
 
 add_suite20(test_funciones_base)

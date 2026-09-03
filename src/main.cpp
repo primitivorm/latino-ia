@@ -1,3 +1,5 @@
+#include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -13,7 +15,9 @@
 #include "parser.h"
 
 #ifdef LATINO_CON_LLVM
+#include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
+#include <llvm/Support/raw_ostream.h>
 
 #include "compiler_llvm.h"
 #include "invocador_llvm.h"
@@ -92,13 +96,18 @@ static void uso() {
     std::cerr <<
         "Uso: latino <archivo.lat> [opciones]\n"
         "  (por defecto)      compila el programa a un ejecutable\n"
-        "  -o <ruta>          ruta de salida (ejecutable, o el .c con --solo-c)\n"
+        "  -o <ruta>          ruta de salida (ejecutable, o el .c/.ll con --solo-c/--solo-ir)\n"
         "  --solo-c           emite el código C (a -o si se indica, si no a stdout)\n"
+        "  --solo-ir          emite el IR de LLVM textual (--backend llvm; a -o si se\n"
+        "                     indica, si no a stdout), sin compilar\n"
         "  --ast              vuelca el AST (depuración)\n"
         "  --runtime <dir>    carpeta del runtime (latino.h/latino.c)\n"
         "  --backend <c|llvm> backend de generación de código (por defecto: c)\n"
         "                     'llvm' requiere un build con LATINO_LLVM_BACKEND\n"
-        "                     (ver input/PLAN_LLVM.md)\n";
+        "                     (ver input/PLAN_LLVM.md)\n"
+        "  --jit              ejecuta el programa directamente en memoria (solo\n"
+        "                     con --backend llvm), sin generar ningún .obj/.exe\n"
+        "                     intermedio en disco -- ignora -o\n";
 }
 
 int main(int argc, char** argv) {
@@ -108,6 +117,8 @@ int main(int argc, char** argv) {
     std::string backend = "c";
     bool modoAst = false;
     bool soloC = false;
+    bool soloIr = false;
+    bool modoJit = false;
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
@@ -115,6 +126,10 @@ int main(int argc, char** argv) {
             modoAst = true;
         } else if (arg == "--solo-c") {
             soloC = true;
+        } else if (arg == "--solo-ir") {
+            soloIr = true;
+        } else if (arg == "--jit") {
+            modoJit = true;
         } else if (arg == "-o") {
             if (i + 1 >= argc) { uso(); return 2; }
             salida = argv[++i];
@@ -183,10 +198,66 @@ int main(int argc, char** argv) {
     if (backend == "llvm") {
 #ifdef LATINO_CON_LLVM
         if (soloC) {
-            std::cerr << "--solo-c no es válido con --backend llvm "
-                         "(--solo-ir llega en la Fase L9 de PLAN_LLVM.md)\n";
+            std::cerr << "--solo-c no es válido con --backend llvm (use --solo-ir)\n";
             return 2;
         }
+        if (modoJit && soloIr) {
+            std::cerr << "--jit y --solo-ir no se pueden usar juntos\n";
+            return 2;
+        }
+
+        GeneradorLLVM generadorLlvm;
+        std::unique_ptr<llvm::Module> modulo = generadorLlvm.generar(*programa);
+        if (!modulo) {
+            std::cerr << "Error: el generador LLVM produjo un módulo inválido." << std::endl;
+            return 1;
+        }
+
+        // --jit (Fase L10): ejecuta el módulo directamente en memoria vía
+        // llvm::orc::LLJIT, sin pasar por objeto + enlazador -- ignora -o.
+        if (modoJit) {
+            std::unique_ptr<llvm::LLVMContext> contexto = generadorLlvm.tomarContexto();
+            int codigoJit = ejecutarJit(std::move(modulo), std::move(contexto));
+
+            // Hallazgo real: el programa JIT-eado ejecuta y retorna
+            // correctamente (confirmado paso a paso: el LLJIT se destruye
+            // sin problema dentro de ejecutarJit), pero el proceso
+            // termina en una violación de acceso MÁS TARDE, durante el
+            // desenrollado normal del resto de este main()/la limpieza
+            // global de C++ al salir -- muy probablemente por el orden en
+            // que Windows descarga latino_runtime_estatico.dll (cargada
+            // explícitamente por ruta, ver ejecutarJit) frente al de la
+            // propia salida del proceso. Para cuando llegamos aquí, todo
+            // el trabajo real ya terminó (el programa del usuario ya
+            // ejecutó y ya imprimió su salida), así que se evita el
+            // problema saliendo del proceso de inmediato -- vaciando antes
+            // los búferes de stdio, que _Exit (a diferencia de exit) no
+            // vacía por sí solo -- en vez de dejar que continúe el
+            // desenrollado normal de C++.
+            std::fflush(nullptr);
+            std::_Exit(codigoJit);
+        }
+
+        // --solo-ir: volcar el IR textual (a -o si se indica, si no a
+        // stdout), sin compilar -- análogo a --solo-c para el backend C.
+        if (soloIr) {
+            std::string ir;
+            llvm::raw_string_ostream flujo(ir);
+            modulo->print(flujo, nullptr);
+            if (salida.empty()) {
+                std::cout << ir;
+            } else {
+                std::ofstream f(salida, std::ios::binary);
+                if (!f) {
+                    std::cerr << "No se pudo escribir el archivo: " << salida << std::endl;
+                    return 1;
+                }
+                f << ir;
+                std::cerr << "IR de LLVM generado: " << salida << std::endl;
+            }
+            return 0;
+        }
+
         if (salida.empty()) {
             fs::path p(ruta);
             salida = p.stem().string();
@@ -195,15 +266,6 @@ int main(int argc, char** argv) {
 #endif
         }
         std::string salidaAbs = fs::absolute(salida).string();
-
-        // Fase L1 (ver input/PLAN_LLVM.md): GeneradorLLVM todavía no recorre
-        // el AST real, solo valida el plumbing de compilación + enlace.
-        GeneradorLLVM generadorLlvm;
-        std::unique_ptr<llvm::Module> modulo = generadorLlvm.generar(*programa);
-        if (!modulo) {
-            std::cerr << "Error: el generador LLVM produjo un módulo inválido." << std::endl;
-            return 1;
-        }
 
         OpcionesLLVM opcLlvm;
         opcLlvm.runtimeDir = runtimeDir;
@@ -219,6 +281,15 @@ int main(int argc, char** argv) {
                      "Ver input/PLAN_LLVM.md para instalar LLVM 17.x.\n";
         return 2;
 #endif
+    }
+
+    if (soloIr) {
+        std::cerr << "--solo-ir solo es válido con --backend llvm\n";
+        return 2;
+    }
+    if (modoJit) {
+        std::cerr << "--jit solo es válido con --backend llvm\n";
+        return 2;
     }
 
     // Generación de código C.

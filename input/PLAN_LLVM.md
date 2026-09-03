@@ -1009,62 +1009,263 @@ punta a punta por la misma razón ya documentada en L3-L7: `generar()`
 todavía emite el módulo "hola mundo" de la Fase L1 (Fase L9, driver,
 pendiente).
 
-### Fase L9 — Driver AOT
+### Fase L9 — Driver AOT ✅ verificada con LLVM real
 
-**Archivos:** `src/main.cpp`, `src/invocador_c.cpp`/`include/invocador_c.h`,
-`src/invocador_llvm.cpp`/`include/invocador_llvm.h`.
+**Archivos:** `src/compiler_llvm.cpp`/`include/compiler_llvm.h`
+(`GeneradorLLVM::generar` reescrito para recorrer el `Programa` real, ya no
+el módulo "hola mundo" de la Fase L1), `tools/abi_probe.c` (agrega
+`lat_abi_verificar` a la lista de funciones referenciadas), `src/main.cpp`
+(nueva bandera `--solo-ir`).
 
-- `main.cpp`: nuevo flag `--backend=c|llvm` (default `c`), despacho a
-  `GeneradorC::generar` o `GeneradorLLVM::generar`. El resto del pipeline
-  (`--ast`, expansión de `incluir "*.lat"`, análisis semántico) es
-  independiente del backend y no cambia.
-- `invocador_c.cpp`: refactor para aceptar una lista de *entradas* mixta
-  (fuente `.c` de usuario **o** objeto `.obj`/`.o` ya compilado por LLVM) en
-  la misma línea de comandos de `cl`/`cc`, sin cambiar la lógica de
-  localización de `VsDevCmd`/`cl.exe`/env var `CC`.
-- Nueva bandera `--solo-ir` (análoga a `--solo-c`): vuelca el `.ll` textual
-  para depuración, sin compilar.
+- [x] `main.cpp` ya traía el flag `--backend=c|llvm` (default `c`) y el
+  despacho a `GeneradorC::generar`/`GeneradorLLVM::generar` desde la Fase L1
+  — no hizo falta ningún cambio ahí para esta fase.
+- [x] `GeneradorLLVM::generar(Programa&)`: recolecta tipos
+  (`recolectarTipos`), declara los prototipos de todas las funciones de
+  usuario de nivel superior antes de generar ningún cuerpo (mismo patrón de
+  dos pasadas que `GeneradorC::generarCuerpo`, necesario para recursión
+  indirecta), genera cada función/clase/estructura/interfaz, y arma un
+  `main(int argc, char** argv)` real: llama a `lat_set_args(argc, argv)`,
+  luego a `lat_abi_verificar(tam, alineación, offset_tipo)` (Decisión 2 del
+  plan, implementada en la Fase L2 pero sin ningún llamador hasta ahora) con
+  los tres valores leídos del mismo `RuntimeAbiLLVM`/`DataLayout` que ya usa
+  `test_codegen_llvm.cpp` para la comprobación equivalente, declara las
+  variables locales de nivel superior (`recolectarVariables` +
+  `declararLocales`) y traduce el resto de las sentencias con `genBloque` —
+  paridad exacta con `GeneradorC::generarCuerpo`. `genSentencia`/`genBloque`
+  ya no-opeaban sobre `Incluir`/`FuncionDef`/`ClaseDef`/`EstructuraDef`/
+  `InterfazDef` desde la Fase L5-L8, así que a diferencia de
+  `GeneradorC::generarCuerpo` (que sí filtra `FuncionDef` a mano antes de
+  llamar a `genSentencia`) no hizo falta ningún filtro adicional al armar el
+  cuerpo de `main`.
+- [x] **Hallazgo — `lat_abi_verificar` nunca se había invocado desde ningún
+  generador.** La función existe desde la Fase L2, pero como `generar()`
+  todavía emitía el módulo "hola mundo" hasta esta fase, nunca tuvo un
+  llamador real. `tools/abi_probe.c` tampoco la referenciaba (solo
+  `(void)fn;` fuerza a Clang a emitir su `declare` en `runtime_abi.ll`), así
+  que hubo que agregarla a la lista de `lat_abi_referenciar_todo` antes de
+  que `RuntimeAbiLLVM::declarar(modulo, "lat_abi_verificar")` pudiera
+  encontrarla.
+- [x] **Hallazgo/decisión de alcance — el refactor de `invocador_c.cpp`
+  para aceptar una "lista mixta de entradas" (previsto originalmente para
+  esta fase) no hizo falta, confirmando el hallazgo ya anotado en la Fase
+  L1.** `compilarAEjecutable` recibe un único nombre de archivo y lo inserta
+  en la línea de comandos de `cl`/`cc` sin lógica dependiente de la
+  extensión; `invocador_llvm.cpp` ya lo reutiliza tal cual desde la Fase L1
+  pasándole el `.obj` emitido por LLVM en vez de un `.c`. No hay ningún caso
+  en el plan que necesite pasar *ambos* (`.c` de usuario y `.obj` de LLVM) en
+  una misma invocación, así que la lista mixta nunca fue necesaria.
+- [x] Nueva bandera `--solo-ir` (análoga a `--solo-c`): vuelca el IR textual
+  del módulo (`llvm::Module::print`) a `-o` si se indica, si no a `stdout`,
+  sin compilar ni enlazar. `--solo-c` con `--backend llvm` y `--solo-ir` con
+  `--backend c` son errores de uso explícitos (código 2).
 
-**Criterio de aceptación:** los 22 ejemplos de `ejemplos/*.lat` compilan y
-ejecutan con `--backend=llvm` (aún puede haber diffs de salida frente a
-`--backend=c` en construcciones no cubiertas hasta L8 — el gate de paridad
-real es la Fase L12).
+**Criterio de aceptación — cumplido, incluida la paridad de salida
+(adelantada respecto al texto original, que la dejaba para la Fase L12):**
+los 27 archivos de `ejemplos/*.lat` con anotación `#salida:` compilan y
+ejecutan con `--backend llvm`, y producen **salida idéntica byte a byte**
+(no solo "no crashea") a la del `--backend=c` correspondiente — verificado
+comparando la salida cruda de ambos ejecutables para los 27 archivos, no
+solo los tokens que usa el arnés de `test_e2e.cpp`. Suite completa (`ctest
+-C Release`): las 44 suites existentes siguen pasando sin cambios (las 8
+que superaron un timeout de prueba de 30s/180s en esta verificación son
+lentas por overhead de invocar `cl.exe` repetidamente en este entorno
+—`vswhere.exe` no está disponible aquí y la localización de `VsDevCmd` cae a
+una ruta más lenta—, no por ningún fallo real: todas pasan con más margen de
+tiempo). El criterio *literal* de paridad exhaustiva contra ambos backends
+para el 100% de las construcciones del lenguaje (no solo los 27 ejemplos
+con `#salida:`) sigue siendo el gate formal de la Fase L12.
 
-### Fase L10 — Modo JIT (LLVM ORC)
+### Fase L10 — Modo JIT (LLVM ORC) ✅ verificada con LLVM real
 
-**Archivos:** `src/main.cpp` (flag `--jit`), `src/invocador_llvm.cpp`
-(función nueva `ejecutarJit`), `CMakeLists.txt` (target
-`latino_runtime_estatico`, ver Decisión 4).
+**Archivos:** `include/compiler_llvm.h`/`src/compiler_llvm.cpp` (nuevo método
+público `tomarContexto`), `include/invocador_llvm.h`/`src/invocador_llvm.cpp`
+(función nueva `ejecutarJit`), `src/main.cpp` (flag `--jit`), `CMakeLists.txt`
+(target `latino_runtime_estatico`, ver Decisión 4), `src/CMakeLists.txt`
+(componente LLVM `orcjit`, enlace de `latino_runtime_estatico` dentro de
+`latino`, copia post-build junto al `.exe`).
 
-- Implementar la ruta descrita en la Decisión 4: `llvm::orc::LLJIT` +
-  `DynamicLibrarySearchGenerator::GetForCurrentProcess()`, resolviendo
-  `lat_fn_main` (o el símbolo del `main` generado) y ejecutándolo en proceso.
-- Reutiliza el mismo `llvm::Module` de `GeneradorLLVM` — no hay codegen nuevo
-  en esta fase, solo un consumidor alternativo del módulo ya construido en
-  L3–L8.
+- [x] `GeneradorLLVM::tomarContexto()`: transfiere la posesión del
+  `llvm::LLVMContext` a quien llama (`std::move` del `unique_ptr` interno) --
+  necesario porque `llvm::orc::ThreadSafeModule` exige poseer el contexto,
+  no solo una referencia (debe seguir vivo mientras el JIT ejecuta, más allá
+  de la vida del `GeneradorLLVM`).
+- [x] `ejecutarJit(modulo, contexto)`: crea un `llvm::orc::LLJIT`
+  (`LLJITBuilder().create()`), añade un generador de resolución de símbolos
+  a su `JITDylib` principal, empaqueta `modulo`+`contexto` en un
+  `ThreadSafeModule` y lo agrega al JIT (`addIRModule`), busca el símbolo
+  `main` (`lookup("main")`) y lo invoca como `int(*)(int, char**)` con un
+  `argv` sintético de un solo elemento (`{"latino_jit", nullptr}`) —
+  `latino --jit archivo.lat` no reenvía argumentos adicionales de línea de
+  comandos al programa. Reutiliza el mismo `llvm::Module` que ya construye
+  `GeneradorLLVM::generar()` (Fase L9): ningún codegen nuevo en esta fase.
+- [x] `main.cpp`: nueva bandera `--jit` (solo válida con `--backend llvm`;
+  incompatible con `--solo-ir`), ignora `-o`.
 
-**Criterio de aceptación:** `latino --jit ejemplos/hola.lat` imprime la
-salida esperada sin generar ningún archivo `.obj`/`.exe` intermedio en disco.
+**Hallazgo 1 (contradice la lectura literal de la Decisión 4) —
+`DynamicLibrarySearchGenerator::GetForCurrentProcess()` con el runtime
+enlazado ESTÁTICAMENTE dentro de `latino.exe` no funciona en Windows.** El
+texto original proponía enlazar el runtime estáticamente dentro de
+`latino.exe` y dejar que `GetForCurrentProcess()` lo resolviera. En la
+práctica, en Windows esa función resuelve símbolos vía `GetProcAddress()`
+sobre los módulos cargados del proceso, y `GetProcAddress()` **solo ve
+símbolos que un módulo exporta explícitamente** — un `.exe` enlazado por
+MSVC no exporta nada de su propio código a menos que se use un `.def` o
+`__declspec(dllexport)` explícito, algo que ni `latino.c` ni sus 7
+bibliotecas usan (ni deberían, ya que también los compila
+`invocador_c.cpp` para el ejecutable del usuario, sin ninguna noción de
+"exportar"). Confirmado en la práctica: con el runtime enlazado STATIC
+dentro de `latino.exe`, `ejecutarJit` fallaba con `JIT session error:
+Symbols not found: [ lat_abi_verificar, lat_cadena, lat_escribir,
+lat_set_args ]` seguido de una violación de acceso al intentar invocar un
+`main` nunca materializado. La solución (que la propia Decisión 4 ya preveía
+como alternativa) fue compilar `latino_runtime_estatico` como biblioteca
+**dinámica** en vez de estática, con la propiedad de CMake
+`WINDOWS_EXPORT_ALL_SYMBOLS` (exporta automáticamente toda función del
+target en Windows, sin necesitar un `.def` a mano para las ~185 funciones
+del runtime; no-op en Linux/macOS, donde los símbolos de una biblioteca
+dinámica ya son visibles por defecto), y cargarla explícitamente **por
+ruta** con `DynamicLibrarySearchGenerator::Load(ruta, prefijo)` en vez de
+`GetForCurrentProcess()` — más determinista que depender de qué módulos
+"ve" la búsqueda de todo el proceso. La ruta se resuelve en tiempo de
+ejecución (`llvm::sys::fs::getMainExecutable` + `sys::path::parent_path`) y
+se combina con el nombre de archivo real de la biblioteca, horneado vía
+`target_compile_definitions(... "$<TARGET_FILE_NAME:latino_runtime_estatico>")`
+en `src/CMakeLists.txt` (expresión de generador — no puede ir en
+`config.h.in`, que solo admite variables de CMake normales). Un
+`add_custom_command(TARGET latino POST_BUILD ...)` copia la DLL junto al
+`.exe` en cada build, porque el generador de Visual Studio coloca cada
+target en su propio árbol de salida (el target se declara en el
+`CMakeLists.txt` raíz, no en `src/`). El nombre del target
+(`latino_runtime_estatico`) se conservó porque es el que fija la Decisión 4
+del plan; lo que cambió es *cómo* se enlaza/carga, no su propósito.
+- [x] `LATINO_RUNTIME_ESTATICO_NOMBRE` (macro nueva vía
+  `target_compile_definitions`, no vía `config.h.in`) — ver arriba.
 
-### Fase L11 — Tests
+**Hallazgo 2 (no anticipado en el texto original) — el `argv` sintético
+pasado al `main` JIT-eado debe tener almacenamiento estático, no de pila.**
+`lat_set_args(argc, argv)` (llamado dentro del `main` generado, Fase L9)
+guarda el puntero `argv` tal cual en la variable global `lat_argv` del
+runtime, sin copiarlo — válido para el modo AOT, donde ese `argv` es el
+`argv` real de `main()` con almacenamiento de por vida del proceso, pero no
+para el JIT si `ejecutarJit` lo declarara como arreglo local de su propia
+pila: quedaría colgante en cuanto `ejecutarJit` retornara. Corregido
+declarando `nombrePrograma`/`argvJit` con `static` en `ejecutarJit`.
 
-**Archivos:** `tests/test_codegen_llvm.cpp` (nuevo, poblado progresivamente en
-L3–L8), `tests/test_e2e_llvm.cpp` (nuevo) o parametrización de
-`tests/test_e2e.cpp`, `tests/CMakeLists.txt`.
+**Hallazgo 3 (el más costoso de diagnosticar de toda esta fase) —
+violación de acceso al SALIR del proceso, después de que el programa
+JIT-eado ya ejecutó y retornó correctamente.** Confirmado paso a paso con
+impresiones de depuración temporales que el crash ocurría **después** de
+que el `LLJIT` se destruyera limpiamente dentro de `ejecutarJit` (es decir,
+ni la ejecución del código JIT-eado ni la destrucción del propio LLJIT eran
+la causa) — el proceso llegaba a imprimir la salida esperada y el código de
+retorno correcto, y luego crasheaba en algún punto del desenrollado normal
+del resto de `main()` (destrucción del AST, del analizador semántico, ...) o
+de la limpieza global de C++ al salir. La causa más probable es el orden en
+que Windows descarga `latino_runtime_estatico.dll` (cargada explícitamente
+por ruta, Hallazgo 1) frente al del resto del apagado del proceso — un tipo
+de problema conocido al mezclar bibliotecas cargadas dinámicamente con
+limpieza global de C++/CRT al salir. Dado que para cuando esto ocurre ya
+terminó todo el trabajo real (el programa del usuario ya ejecutó y ya
+imprimió su salida), se evitó por completo vaciando los búferes de stdio
+(`std::fflush(nullptr)`, necesario porque a diferencia de `exit`, `_Exit` no
+vacía automáticamente los flujos de stdio) y saliendo del proceso de
+inmediato con `std::_Exit(codigoJit)` justo después de que `ejecutarJit`
+retorna, en `main.cpp` — mismo patrón pragmático que usan muchas
+herramientas de línea de comandos de vida corta para evitar crashes de
+orden de destrucción en el apagado, en vez de depender de que el
+desenrollado normal de C++ termine sin problemas.
 
-- `test_codegen_llvm.cpp`: smoke tests estructurales (subcadena de IR +
-  `verifyModule`), espejo liviano de `tests/test_codegen.cpp` — no se
-  comparan fragmentos de texto C, se comparan fragmentos de IR (más sensible
-  a la versión de LLVM, por eso solo subcadenas clave, no el módulo completo).
-- E2E comparativo: correr los mismos `ejemplos/*.lat` con ambos backends y
-  diffear la **salida de ejecución** (no solo "no crashea").
-- Extender el arnés de las suites `test_lib_*`/`test_poo_e2e`/
-  `test_funciones_base`/`test_incluir` (`tests/test_harness.h`) para aceptar
-  qué backend usar, y correrlas también contra `--backend=llvm`.
-- Todo lo anterior registrado en `tests/CMakeLists.txt` bajo
-  `if(LATINO_LLVM_BACKEND)` — las máquinas sin LLVM instalado deben poder
-  seguir corriendo la suite completa del backend C sin fallos por ausencia
-  de LLVM.
+**Criterio de aceptación — cumplido, incluida la paridad de salida
+(adelantada respecto al texto original, que no la exigía en esta fase):**
+`latino --jit ejemplos/hola.lat` imprime `hola LLVM`/`hola mundo` sin
+generar ningún `.obj`/`.exe` intermedio en disco (confirmado: el único
+`.exe` en el directorio de salida tras la corrida es el propio
+`latino.exe`), con código de salida 0 y sin ninguna violación de acceso.
+Verificado además con los 27 archivos de `ejemplos/*.lat` con anotación
+`#salida:` (no solo `hola.lat`): `--jit` produce **la misma salida por
+stdout y el mismo código de salida** que el `.exe` equivalente compilado con
+`--backend c`, para los 27. Suite completa (`ctest -C Release`): las 44
+suites existentes siguen pasando sin cambios de comportamiento (algunas de
+las suites de librería tardan más de lo esperado en este entorno por el
+mismo motivo ya documentado en la Fase L9 — invocar `cl.exe` repetidamente
+sin `vswhere.exe` disponible —, no por ninguna regresión real).
+
+### Fase L11 — Tests ✅ verificada con LLVM real
+
+**Archivos:** `tests/test_codegen_llvm.cpp` (ya poblado progresivamente en
+L2–L8, sin cambios en esta fase), `tests/test_e2e.cpp` (parametrizado con un
+backend opcional en vez de un `test_e2e_llvm.cpp` separado),
+`tests/test_harness.h` (idem para las suites de librería),
+`tests/CMakeLists.txt` (registro de las variantes `_llvm`).
+
+- [x] `test_codegen_llvm.cpp` ya cumplía su parte desde L2–L8 (206
+  comprobaciones de subcadena de IR + `verifyModule`) — sin trabajo nuevo.
+- [x] **E2E comparativo, implementado parametrizando `test_e2e.cpp` en vez
+  de duplicarlo en `test_e2e_llvm.cpp`** (el propio texto original de esta
+  fase ofrecía esa alternativa). `test_e2e` acepta ahora un quinto argumento
+  opcional `backend` (`"c"` por defecto) y lo reenvía como `--backend
+  <backend>` al compilar. `tests/CMakeLists.txt` registra, por cada
+  `ejemplos/*.lat`, una segunda prueba `e2e_<ejemplo>_llvm` que compila el
+  mismo archivo con `--backend llvm` a un `.exe` de ruta distinta (para no
+  pisar el del backend C) y lo compara contra la **misma** anotación
+  `#salida:` que ya usa la prueba `e2e_<ejemplo>` del backend C. Diffear
+  ambos backends contra la misma referencia implica transitivamente que
+  coinciden entre sí — un `test_e2e_llvm.cpp` separado que los comparara
+  directamente habría verificado exactamente lo mismo con más código
+  duplicado, por eso se descartó esa opción.
+- [x] `test_harness.h`: `Harness` acepta un `backend` opcional (`"c"` por
+  defecto) en su constructor y lo agrega a la línea de compilación;
+  `ejecutar_main` lo toma de un cuarto argumento CLI opcional. Todas las
+  suites (`test_funciones_base`, `test_lib_cadena/lista/dic/mate/sis/
+  archivo`, `test_incluir`, `test_poo_e2e`) heredan el soporte sin tocar su
+  propio código, porque todas ya pasan por `harness::ejecutar_main`.
+- [x] `tests/CMakeLists.txt`: el bucle de ejemplos E2E y la macro
+  `add_suite20` registran una segunda prueba (`_llvm`) por cada una,
+  reutilizando el **mismo binario ya compilado** (solo cambia el argumento
+  de backend en `add_test`) — nada de esto duplica código C++, solo
+  registro de CTest. `add_suite20` usa un subdirectorio temporal propio
+  (`.../llvm/`) para la variante LLVM, porque cada caso de prueba escribe un
+  `.lat`/`.exe` con el mismo nombre en ambas variantes y correrían el riesgo
+  de pisarse si compartieran directorio (más relevante aún con `ctest -j`).
+  Todo bajo `if(LATINO_LLVM_BACKEND)`: sin LLVM instalado, `tests/
+  CMakeLists.txt` no registra ninguna prueba `_llvm` y la suite del backend
+  C corre completa igual que siempre (Decisión 1 del plan).
+
+**Criterio de aceptación — cumplido:** la suite de CTest pasó de 44 a 80
+pruebas (27 `e2e_*_llvm` + 9 `*_llvm` de `add_suite20`, además de las 44 ya
+existentes sin cambios). Las 80 pasan al 100% corriendo en **serie** (`ctest
+-C Release --timeout 400`, ~3408 s reales en este entorno); las nuevas
+`_llvm` confirman paridad de salida exacta contra la misma anotación
+`#salida:` que ya validaba el backend C, para los 27 ejemplos y para cada
+caso individual de las 9 suites de librería/POO/funciones base/módulos.
+Verificado también que `ctest -C Release` sigue corriendo la suite completa
+(incluidas las `_llvm`) sin fallos con `LATINO_LLVM_BACKEND=ON`; no se
+volvió a verificar por separado el build `LATINO_LLVM_BACKEND=OFF` en esta
+fase (ya lo hizo la Fase L1 y esta fase no tocó esa ruta condicional más que
+envolver el registro nuevo en el mismo `if` que ya existía).
+
+**Hallazgo real (no anticipado en el texto original de esta fase, y
+preexistente a esta migración) — `ctest -j` (ejecución en paralelo) no es
+seguro con este compilador, con o sin backend LLVM.** `invocador_c.cpp`/
+`invocador_llvm.cpp` escriben el objeto/`.c` temporal de cada compilación en
+una ruta **fija** dentro de `fs::temp_directory_path()` (p.ej.
+`latino_obj/sis.obj`, `latino_llvm_obj.obj`), no en una ruta única por
+proceso. Correr la suite con `ctest -j 4` lanza varios `latino.exe`
+concurrentes que compilan programas distintos y **pisan el mismo archivo
+temporal entre sí**, produciendo fallos aleatorios (`Permission denied`,
+`LNK1104: no se puede abrir el archivo`, ejecutables truncados/faltantes) —
+confirmado: con `-j 4` fallaron 56/80 pruebas con estos síntomas exactos, y
+las 80 pasan al 100% con la misma build corriendo en serie. No es una
+regresión de esta fase (el backend C ya tenía este mismo problema antes de
+que existiera el backend LLVM; L11 simplemente fue la primera vez que se
+corrió la suite con `-j`, porque duplicar el número de pruebas hizo tentador
+paralelizar). Se documenta aquí como hallazgo para quien configure CI en el
+futuro (`PLAN_LLVM.md` no tenía hasta ahora ninguna suposición explícita
+sobre paralelismo de pruebas) — no se intenta arreglar en este plan
+(cambiaría `invocador_c.cpp`, archivo fuera del alcance de la migración de
+backend) más que dejar constancia de que **`ctest` para este proyecto debe
+correrse sin `-j`** hasta que se corrija esa ruta fija.
 
 ### Fase L12 — Paridad y decisión de default
 

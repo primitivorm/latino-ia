@@ -48,6 +48,12 @@ cd build
 ctest --output-on-failure
 ```
 
+**No usar `ctest -j` (paralelo):** `invocador_c.cpp`/`invocador_llvm.cpp`
+escriben el objeto/`.c` temporal de cada compilación en una ruta fija
+(no única por proceso), así que varios `latino.exe` concurrentes se pisan
+el mismo archivo temporal entre sí y producen fallos aleatorios (hallazgo
+real de la Fase L11 de `PLAN_LLVM.md`).
+
 Suites de prueba disponibles:
 
 | Suite | Qué cubre |
@@ -191,9 +197,39 @@ args)` — distinta de la de una función de usuario porque el número de
 argumentos de una llamada dinámica solo se conoce en tiempo de ejecución) —
 todas verificadas con LLVM real vía pruebas de codegen unitarias
 (`tests/test_codegen_llvm.cpp`, subcadena de IR + `verifyModule`, 206
-comprobaciones), no E2E todavía: `generar()` sigue emitiendo el módulo
-"hola mundo" de L1 hasta que L9 (driver) lo conecte al recorrido real de
-`Programa`. L9-L13 (driver, JIT, tests E2E, paridad) siguen pendientes.
+comprobaciones). L9 completa (driver AOT): `GeneradorLLVM::generar()` ya
+recorre el `Programa` real (ya no el módulo "hola mundo" de L1) y arma un
+`main` que llama a `lat_set_args`/`lat_abi_verificar` antes de traducir el
+resto del programa; nueva bandera `--solo-ir`. Verificado con LLVM real: los
+27 ejemplos de `ejemplos/*.lat` con anotación `#salida:` compilan y ejecutan
+con `--backend llvm` produciendo salida **idéntica byte a byte** a
+`--backend c` (adelanta el gate de paridad de salida de la Fase L12 para
+estos ejemplos; la paridad exhaustiva de todas las construcciones del
+lenguaje sigue siendo el gate formal de L12), y las 44 suites de CTest
+existentes siguen pasando. L10 completa (modo `--jit` vía `llvm::orc::LLJIT`,
+ver `ejecutarJit` en `src/invocador_llvm.cpp`): ejecuta el mismo
+`llvm::Module` en memoria, sin `.obj`/`.exe` intermedio. Tres hallazgos
+reales de Windows documentados en el plan: (1) `DynamicLibrarySearchGenerator
+::GetForCurrentProcess()` no resuelve símbolos enlazados STATIC dentro de
+`latino.exe` (MSVC no exporta nada de un `.exe`) — el runtime para el modo
+JIT (`latino_runtime_estatico`, target CMake) es una biblioteca DINÁMICA con
+`WINDOWS_EXPORT_ALL_SYMBOLS`, cargada explícitamente por ruta con `Load()`,
+copiada junto a `latino.exe` en cada build; (2) el `argv` sintético que
+recibe el `main` JIT-eado debe ser `static` (no de pila), porque
+`lat_set_args` guarda el puntero tal cual en una global del runtime; (3) el
+proceso podía crashear DESPUÉS de que el programa ya ejecutó y retornó
+correctamente, durante el desenrollado normal de C++ al salir (probable
+orden de descarga de la DLL) — mitigado con `fflush(nullptr)` +
+`std::_Exit()` inmediatamente después de `ejecutarJit`. Verificado con los
+27 ejemplos con `#salida:`: salida y código de salida idénticos a
+`--backend c`, sin archivos intermedios, sin crashes; 44 suites de CTest
+siguen pasando. L11 completa: la suite de CTest pasó de 44 a 80 pruebas —
+`tests/test_e2e.cpp`/`tests/test_harness.h` aceptan un backend opcional
+(`c`/`llvm`) y `tests/CMakeLists.txt` registra una variante `_llvm` de cada
+prueba E2E y de cada suite de librería/POO/funciones base/módulos,
+reutilizando los mismos binarios ya compilados. Las 80 pasan al 100%
+corriendo en serie (ver nota de `ctest -j` arriba, hallazgo de esta fase).
+L12-L13 (paridad formal, retiro futuro de GeneradorC) siguen pendientes.
 
 ## Ramas y PRs
 

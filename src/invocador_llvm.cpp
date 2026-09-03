@@ -18,10 +18,17 @@
 #include <memory>
 #include <system_error>
 
+#include <llvm/ADT/SmallString.h>
+#include <llvm/ExecutionEngine/Orc/ExecutionUtils.h>
+#include <llvm/ExecutionEngine/Orc/LLJIT.h>
+#include <llvm/ExecutionEngine/Orc/ThreadSafeModule.h>
+#include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/LegacyPassManager.h>
 #include <llvm/IR/Module.h>
 #include <llvm/MC/TargetRegistry.h>
+#include <llvm/Support/Error.h>
 #include <llvm/Support/FileSystem.h>
+#include <llvm/Support/Path.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Target/TargetMachine.h>
@@ -105,4 +112,74 @@ int compilarLLVMAEjecutable(llvm::Module& modulo, const std::string& salidaExe,
     OpcionesC opcionesC;
     opcionesC.runtimeDir = opciones.runtimeDir;
     return compilarAEjecutable(rutaObj.string(), salidaExe, opcionesC);
+}
+
+int ejecutarJit(std::unique_ptr<llvm::Module> modulo, std::unique_ptr<llvm::LLVMContext> contexto) {
+    inicializarTargetNativoUnaVez();
+
+    auto jit = llvm::orc::LLJITBuilder().create();
+    if (!jit) {
+        std::cerr << "Error: no se pudo crear el LLJIT: " << llvm::toString(jit.takeError())
+                  << std::endl;
+        return 1;
+    }
+
+    // Resuelve lat_set_args/lat_abi_verificar/lat_escribir/... contra
+    // latino_runtime_estatico (Decisión 4 del plan), cargada explícitamente
+    // por ruta desde junto al propio ejecutable (ver el `add_custom_command`
+    // en src/CMakeLists.txt que la copia ahí en cada build).
+    //
+    // Hallazgo real (ver el comentario extenso junto al target
+    // latino_runtime_estatico en el CMakeLists.txt raíz): en Windows,
+    // DynamicLibrarySearchGenerator::GetForCurrentProcess() resuelve vía
+    // GetProcAddress() sobre el propio latino.exe, que nunca exporta nada
+    // (MSVC no exporta símbolos de un .exe sin un .def/dllexport
+    // explícitos) -- por eso no basta enlazar el runtime dentro de
+    // latino.exe (STATIC): hay que cargarlo como biblioteca DINÁMICA y
+    // apuntar el generador directamente a su ruta con Load(), no a "el
+    // proceso actual".
+    llvm::SmallString<260> rutaRuntimeDll(
+        llvm::sys::path::parent_path(llvm::sys::fs::getMainExecutable(
+            nullptr, reinterpret_cast<void*>(&ejecutarJit))));
+    llvm::sys::path::append(rutaRuntimeDll, LATINO_RUNTIME_ESTATICO_NOMBRE);
+
+    auto generadorSimbolos = llvm::orc::DynamicLibrarySearchGenerator::Load(
+        rutaRuntimeDll.c_str(), (*jit)->getDataLayout().getGlobalPrefix());
+    if (!generadorSimbolos) {
+        std::cerr << "Error: no se pudo cargar " << rutaRuntimeDll.c_str() << ": "
+                  << llvm::toString(generadorSimbolos.takeError()) << std::endl;
+        return 1;
+    }
+    (*jit)->getMainJITDylib().addGenerator(std::move(*generadorSimbolos));
+
+    // ThreadSafeModule toma posesión tanto del módulo como del contexto --
+    // ambos deben seguir vivos mientras el JIT los use, cosa que ya
+    // garantiza el propio ThreadSafeModule/LLJIT.
+    llvm::orc::ThreadSafeModule moduloSeguro(std::move(modulo), std::move(contexto));
+    if (llvm::Error err = (*jit)->addIRModule(std::move(moduloSeguro))) {
+        std::cerr << "Error: no se pudo agregar el módulo al JIT: " << llvm::toString(std::move(err))
+                  << std::endl;
+        return 1;
+    }
+
+    auto simboloMain = (*jit)->lookup("main");
+    if (!simboloMain) {
+        std::cerr << "Error: no se encontró el símbolo 'main' en el módulo JIT: "
+                  << llvm::toString(simboloMain.takeError()) << std::endl;
+        return 1;
+    }
+
+    // El main generado tiene la firma int main(int argc, char** argv) --
+    // paridad con GeneradorLLVM::generar() (Fase L9). En este modo no hay
+    // argumentos de línea de comandos adicionales que reenviar: latino
+    // --jit archivo.lat no toma más argumentos que el propio archivo.
+    // Almacenamiento estático (no de pila): lat_set_args (llamado dentro de
+    // este main JIT-eado) guarda 'argv' tal cual en la variable global
+    // lat_argv del runtime -- si fuera un arreglo de pila de esta función,
+    // quedaría colgante en cuanto ejecutarJit retornara.
+    using FnMain = int (*)(int, char**);
+    FnMain fnMain = simboloMain->toPtr<FnMain>();
+    static char nombrePrograma[] = "latino_jit";
+    static char* argvJit[] = {nombrePrograma, nullptr};
+    return fnMain(1, argvJit);
 }
