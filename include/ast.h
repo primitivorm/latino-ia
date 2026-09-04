@@ -37,6 +37,22 @@ struct ParamFuncion {
     std::string tipoClase;        // nombre de clase si tipo == Objeto
 };
 
+// --- Módulos (PLAN_MODULOS.md: exportar / importar) ------------------------
+// Forma de un "importar": nombrado con alias, espacio de nombres completo, o
+// por defecto. Ver "Sintaxis propuesta" en input/PLAN_MODULOS.md.
+enum class TipoImportar {
+    Nombrado,    // importar { a, b como c } desde "ruta"
+    Espacio,     // importar * como ns desde "ruta"
+    PorDefecto   // importar Nombre desde "ruta"
+};
+
+// Un nombre importado/re-exportado, con su alias local opcional.
+// alias == origen cuando no hay "como".
+struct NombreImportado {
+    std::string origen;
+    std::string alias;
+};
+
 // --- Declaraciones adelantadas de todos los nodos concretos ---------------
 struct LitNumero;
 struct LitCadena;
@@ -61,6 +77,8 @@ struct AccesoEste;
 
 struct Programa;
 struct Incluir;
+struct ImportarDecl;
+struct ExportarDesde;
 struct Asignacion;
 struct ExprSentencia;
 struct Si;
@@ -111,6 +129,10 @@ struct Visitante {
     // Sentencias
     virtual void visitar(Programa&) = 0;
     virtual void visitar(Incluir&) {}   // no-op por defecto; los visitantes que no la necesiten no deben sobreescribirla
+    // no-op por defecto: el ResolutorModulos los consume y elimina del árbol
+    // antes de AnalizadorSemantico/GeneradorC/GeneradorLLVM (PLAN_MODULOS.md)
+    virtual void visitar(ImportarDecl&) {}
+    virtual void visitar(ExportarDesde&) {}
     virtual void visitar(Asignacion&) = 0;
     virtual void visitar(ExprSentencia&) = 0;
     virtual void visitar(Si&) = 0;
@@ -293,6 +315,28 @@ struct Incluir : Sentencia {
     LATINO_ACEPTAR
 };
 
+// importar { a, b como c } desde "ruta"        (tipo == Nombrado)
+// importar * como ns desde "ruta"              (tipo == Espacio, usa aliasEspacio)
+// importar Nombre desde "ruta"                 (tipo == PorDefecto, usa nombreLocal)
+// Ver PLAN_MODULOS.md. El ResolutorModulos resuelve y elimina este nodo del
+// árbol antes del análisis semántico; no requiere visitar() en los backends.
+struct ImportarDecl : Sentencia {
+    std::string ruta;
+    TipoImportar tipo = TipoImportar::Nombrado;
+    std::vector<NombreImportado> nombres;  // usado si tipo == Nombrado
+    std::string aliasEspacio;              // usado si tipo == Espacio
+    std::string nombreLocal;               // usado si tipo == PorDefecto
+    LATINO_ACEPTAR
+};
+
+// exportar { a, b como c } desde "ruta"   (re-export / barril, sin binding local)
+// Ver PLAN_MODULOS.md.
+struct ExportarDesde : Sentencia {
+    std::string ruta;
+    std::vector<NombreImportado> nombres;  // origen en el módulo referenciado -> alias re-exportado
+    LATINO_ACEPTAR
+};
+
 // Asignación (posiblemente múltiple): destinos = valores
 //   a = 1                -> 1 destino, 1 valor
 //   a, b, c = 1, 2, 3    -> 3 destinos, 3 valores
@@ -305,6 +349,8 @@ struct Asignacion : Sentencia {
     std::vector<TipoAnotado> tiposDestino;
     bool esVar = false;
     bool esConst = false;
+    bool exportado = false;  // PLAN_MODULOS.md: prefijo "exportar" en nivel superior
+    bool esDefecto = false;  // "exportar por defecto ..."
     LATINO_ACEPTAR
 };
 
@@ -383,6 +429,8 @@ struct FuncionDef : Sentencia {
     std::string tipoRetornoClase;  // nombre de clase si tipoRetorno == Objeto
     bool variadico = false;  // true si el último parámetro es "..."
     ListaSent cuerpo;
+    bool exportado = false;  // PLAN_MODULOS.md: prefijo "exportar"
+    bool esDefecto = false;  // "exportar por defecto funcion ..."
     LATINO_ACEPTAR
 };
 
@@ -405,6 +453,8 @@ struct ClaseDef : Sentencia {
     bool esAbstracta = false;
     std::vector<CampoDef> campos;
     std::vector<MetodoDef> metodos;
+    bool exportado = false;  // PLAN_MODULOS.md: prefijo "exportar"
+    bool esDefecto = false;  // "exportar por defecto clase ..."
     LATINO_ACEPTAR
 };
 
@@ -416,6 +466,8 @@ struct EstructuraDef : Sentencia {
     std::string nombre;
     std::vector<CampoDef> campos;
     std::vector<MetodoDef> metodos;
+    bool exportado = false;  // PLAN_MODULOS.md: prefijo "exportar"
+    bool esDefecto = false;
     LATINO_ACEPTAR
 };
 
@@ -425,6 +477,8 @@ struct EstructuraDef : Sentencia {
 struct InterfazDef : Sentencia {
     std::string nombre;
     std::vector<MetodoDef> metodos;  // todos sin cuerpo
+    bool exportado = false;  // PLAN_MODULOS.md: prefijo "exportar"
+    bool esDefecto = false;
     LATINO_ACEPTAR
 };
 

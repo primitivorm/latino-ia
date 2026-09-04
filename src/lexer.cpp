@@ -222,7 +222,9 @@ bool Lexer::esPalabraReservada(const std::string& palabra) const {
         "extiende", "implementa",
         "publico", "privado", "protegido",
         "abstracto", "estatico", "sobreescribir",
-        "es"
+        "es",
+        // Nuevas palabras reservadas para módulos (PLAN_MODULOS.md)
+        "exportar", "importar", "como"
     };
 
     return palabrasReservadas.count(palabra) > 0;

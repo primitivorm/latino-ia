@@ -252,6 +252,16 @@ static void prueba_concatenacion_vs_punto() {
     });
 }
 
+static void prueba_palabras_reservadas_modulos() {
+    // PLAN_MODULOS.md: exportar / importar / como.
+    auto t = lex("exportar importar como");
+    esperarSecuencia("palabras_reservadas_modulos", t, {
+        {TokenType::PalabraReservada, "exportar"},
+        {TokenType::PalabraReservada, "importar"},
+        {TokenType::PalabraReservada, "como"},
+    });
+}
+
 static void prueba_archivo_vacio() {
     auto t = lex("");
     CHECK(t.size() == 1 && t[0].type == TokenType::FinDeArchivo,
@@ -271,6 +281,7 @@ int main() {
     prueba_fin_de_linea_colapsa_blancos();
     prueba_regresion_caracter_perdido();
     prueba_concatenacion_vs_punto();
+    prueba_palabras_reservadas_modulos();
     prueba_archivo_vacio();
 
     std::cout << "\nComprobaciones: " << g_checks

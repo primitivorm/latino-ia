@@ -287,12 +287,134 @@ static void prueba_todos_los_nodos() {
     CHECK(contiene(t, "Elegir") && contiene(t, "caso:") && contiene(t, "defecto:"), "elegir");
 }
 
+// PLAN_MODULOS.md (M1): construcción de los nodos nuevos ImportarDecl /
+// ExportarDesde y de los campos exportado/esDefecto. Todavía no hay parser
+// ni ResolutorModulos, así que los árboles se arman a mano; se verifican
+// leyendo los campos directamente (ImpresorAST no los imprime: el
+// ResolutorModulos los consume antes de esa etapa).
+static void prueba_importar_exportar() {
+    // importar { area_circulo, Circulo como C } desde "geometria.lat"
+    {
+        ImportarDecl imp;
+        imp.ruta = "geometria.lat";
+        imp.tipo = TipoImportar::Nombrado;
+        imp.nombres.push_back({"area_circulo", "area_circulo"});
+        imp.nombres.push_back({"Circulo", "C"});
+
+        CHECK(imp.ruta == "geometria.lat", "importar nombrado: ruta");
+        CHECK(imp.tipo == TipoImportar::Nombrado, "importar nombrado: tipo");
+        CHECK(imp.nombres.size() == 2, "importar nombrado: cantidad de nombres");
+        CHECK(imp.nombres[0].origen == "area_circulo" && imp.nombres[0].alias == "area_circulo",
+              "importar nombrado: sin alias -> alias == origen");
+        CHECK(imp.nombres[1].origen == "Circulo" && imp.nombres[1].alias == "C",
+              "importar nombrado: con alias 'como'");
+    }
+
+    // importar * como geo desde "geometria.lat"
+    {
+        ImportarDecl imp;
+        imp.ruta = "geometria.lat";
+        imp.tipo = TipoImportar::Espacio;
+        imp.aliasEspacio = "geo";
+
+        CHECK(imp.tipo == TipoImportar::Espacio, "importar espacio: tipo");
+        CHECK(imp.aliasEspacio == "geo", "importar espacio: alias");
+        CHECK(imp.nombres.empty(), "importar espacio: sin lista de nombres");
+    }
+
+    // importar Config desde "config.lat"
+    {
+        ImportarDecl imp;
+        imp.ruta = "config.lat";
+        imp.tipo = TipoImportar::PorDefecto;
+        imp.nombreLocal = "Config";
+
+        CHECK(imp.tipo == TipoImportar::PorDefecto, "importar defecto: tipo");
+        CHECK(imp.nombreLocal == "Config", "importar defecto: nombre local");
+    }
+
+    // exportar { Circulo, area_circulo } desde "geometria.lat"  (re-export)
+    {
+        ExportarDesde exp;
+        exp.ruta = "geometria.lat";
+        exp.nombres.push_back({"Circulo", "Circulo"});
+        exp.nombres.push_back({"area_circulo", "area_circulo"});
+
+        CHECK(exp.ruta == "geometria.lat", "exportar desde: ruta");
+        CHECK(exp.nombres.size() == 2, "exportar desde: cantidad de nombres");
+    }
+
+    // Dispatch del Visitante: aceptar() no debe fallar (no-op por defecto).
+    {
+        ImportarDecl imp;
+        ExportarDesde exp;
+        std::string t1 = volcar(imp);
+        std::string t2 = volcar(exp);
+        CHECK(t1.empty(), "ImportarDecl: no-op por defecto en ImpresorAST");
+        CHECK(t2.empty(), "ExportarDesde: no-op por defecto en ImpresorAST");
+    }
+
+    // exportar const PI = 3.14159   (campo exportado en Asignacion)
+    {
+        Asignacion a;
+        a.destinos.push_back(id("PI"));
+        a.valores.push_back(num(3.14159, false));
+        a.esConst = true;
+        a.exportado = true;
+        CHECK(a.exportado, "asignacion: campo exportado");
+        CHECK(!a.esDefecto, "asignacion: esDefecto por defecto en falso");
+    }
+
+    // exportar funcion area_circulo(r) ... fin
+    {
+        FuncionDef f;
+        f.nombre = "area_circulo";
+        f.exportado = true;
+        CHECK(f.exportado, "funcion: campo exportado");
+        CHECK(!f.esDefecto, "funcion: esDefecto por defecto en falso");
+    }
+
+    // exportar por defecto funcion saludar(nombre) ... fin
+    {
+        FuncionDef f;
+        f.nombre = "saludar";
+        f.exportado = true;
+        f.esDefecto = true;
+        CHECK(f.exportado && f.esDefecto, "funcion: exportar por defecto");
+    }
+
+    // exportar clase Circulo ... fin
+    {
+        ClaseDef c;
+        c.nombre = "Circulo";
+        c.exportado = true;
+        CHECK(c.exportado, "clase: campo exportado");
+    }
+
+    // exportar estructura Punto ... fin
+    {
+        EstructuraDef e;
+        e.nombre = "Punto";
+        e.exportado = true;
+        CHECK(e.exportado, "estructura: campo exportado");
+    }
+
+    // exportar interfaz Figura ... fin
+    {
+        InterfazDef i;
+        i.nombre = "Figura";
+        i.exportado = true;
+        CHECK(i.exportado, "interfaz: campo exportado");
+    }
+}
+
 int main() {
     prueba_asignacion_y_llamada();
     prueba_si_sino();
     prueba_funcion();
     prueba_funcion_variadica();
     prueba_todos_los_nodos();
+    prueba_importar_exportar();
 
     std::cout << "\nComprobaciones: " << g_checks
               << "   Fallos: " << g_fallos << std::endl;
