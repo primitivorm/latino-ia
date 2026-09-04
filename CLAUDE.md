@@ -229,7 +229,23 @@ siguen pasando. L11 completa: la suite de CTest pasó de 44 a 80 pruebas —
 prueba E2E y de cada suite de librería/POO/funciones base/módulos,
 reutilizando los mismos binarios ya compilados. Las 80 pasan al 100%
 corriendo en serie (ver nota de `ctest -j` arriba, hallazgo de esta fase).
-L12-L13 (paridad formal, retiro futuro de GeneradorC) siguen pendientes.
+L12 completa (paridad y decisión de default): corrida completa de las 80
+pruebas de CTest en serie (100% verde, 2680.82 s reales) más una medición
+dedicada de tiempo de compilación y tamaño de binario sobre los 27 ejemplos
+con ambos backends (`build/medir_paridad_l12.ps1`, script ad-hoc de esta
+fase) — backend C: 127.3 s totales / ~360.5 KB promedio por ejecutable;
+backend LLVM: 120.8 s totales (~5% más rápido) / ~360.1 KB promedio. Los
+tres criterios de paridad del plan (salida idéntica, suites de librería en
+verde, sin regresión de tiempo) se cumplieron, así que `--backend llvm` pasó
+a ser el default en `src/main.cpp`, condicionado a `#ifdef LATINO_CON_LLVM`
+(sin ese backend en el build, el único disponible sigue siendo `c`). Hallazgo
+de esta fase: `--solo-c` (emite el C intermedio, solo tiene sentido para ese
+backend) dependía implícitamente del viejo default `c`; se agregó una
+bandera `backendExplicito` para que `--solo-c` sin `--backend` explícito siga
+usando `c` en vez del nuevo default `llvm`, preservando el uso documentado en
+README/CLAUDE.md sin romper la simetría de errores cuando el usuario sí pide
+`--backend llvm --solo-c`. L13 (retiro futuro de `GeneradorC`) sigue fuera de
+alcance temporal, sin cambios.
 
 ## Ramas y PRs
 

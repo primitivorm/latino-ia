@@ -4,10 +4,13 @@ Compilador para el lenguaje de programación **Latino**, escrito en C++17.
 
 La especificación del lenguaje está en [SINTAXIS.md](SINTAXIS.md).
 
-## Estado actual — backend de C 100 % implementado ✅ · backend LLVM en desarrollo 🚧
+## Estado actual — backend de C 100 % implementado ✅ · backend LLVM predeterminado ✅ (L13 pendiente, fuera de alcance temporal)
 
-El compilador transpila código `.lat` → C → ejecutable nativo (backend
-`--backend=c`, predeterminado). Todas las librerías estándar documentadas en
+El compilador transpila código `.lat` a un ejecutable nativo, vía dos
+backends de generación de código intercambiables: LLVM (`--backend=llvm`,
+predeterminado en builds con `LATINO_LLVM_BACKEND` habilitado, ver
+[Backend LLVM](#backend-llvm-en-desarrollo)) y C (`--backend=c`, usado por
+defecto si el build no incluye LLVM). Todas las librerías estándar documentadas en
 el [Manual-Latino](https://github.com/lenguaje-latino/Manual-Latino) están
 implementadas y cubiertas por pruebas E2E, incluyendo tipado gradual
 opcional y Programación Orientada a Objetos (clases, herencia, interfaces,
@@ -222,19 +225,18 @@ Las pruebas incluyen:
 ## Backend LLVM (en desarrollo)
 
 Segundo backend de generación de código basado en LLVM (`--backend=llvm`),
-que convive con el backend actual de C (`--backend=c`, que sigue siendo el
-predeterminado). Plan completo con las 13 fases (L0-L13) en
+que convive con el backend de C (`--backend=c`, mantenido como fallback en
+builds sin LLVM). Plan completo con las 13 fases (L0-L13) en
 [input/PLAN_LLVM.md](input/PLAN_LLVM.md).
 
-**Estado:** L0 y L1 completas y verificadas con LLVM real (plumbing de
-build + enlace: `latino --backend llvm ejemplos/hola.lat` produce un
-ejecutable funcional). L2 completa y verificada: el layout real de
-`LatValor` y las firmas del runtime se derivan de IR generado por Clang
-(`tools/abi_probe.c` → `generated/runtime_abi.ll`) en vez de reconstruirse a
-mano — necesario porque, en Windows x64/MSVC, `LatValor` se pasa/retorna por
-puntero, no por valor. Los recorridos reales del AST (literales, control de
-flujo, funciones, FFI, POO) llegan en las fases L3-L8, todavía no
-implementadas.
+**Estado:** L0-L11 completas y verificadas con LLVM real (ver detalle fase
+por fase en [CLAUDE.md](CLAUDE.md)). L12 completa: los 27 ejemplos de
+`ejemplos/*.lat` producen salida idéntica byte a byte en ambos backends, las
+9 suites de librería/POO/módulos pasan en su variante `--backend=llvm`, y no
+hay regresión de tiempo de compilación (LLVM resultó ~5% más rápido que C
+compilando esos 27 ejemplos) — por lo que `llvm` pasó a ser el backend
+predeterminado en builds con `LATINO_LLVM_BACKEND` habilitado. L13 (retiro
+de `GeneradorC`) queda fuera de alcance temporal, ver el plan.
 
 **Versión objetivo: LLVM 18.x.** Este backend usa la API C++ nativa de LLVM
 (`IRBuilder`), por lo que las bibliotecas de LLVM deben compilarse con el
