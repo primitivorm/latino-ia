@@ -344,14 +344,23 @@ static void prueba_importar_exportar() {
         CHECK(exp.nombres.size() == 2, "exportar desde: cantidad de nombres");
     }
 
-    // Dispatch del Visitante: aceptar() no debe fallar (no-op por defecto).
+    // Dispatch del Visitante: ImpresorAST implementa un volcado de una línea
+    // para ambos nodos (útil para depurar --ast antes de la resolución de
+    // módulos; ver PLAN_MODULOS.md, Fase 30 M2).
     {
         ImportarDecl imp;
+        imp.ruta = "config.lat";
+        imp.tipo = TipoImportar::PorDefecto;
+        imp.nombreLocal = "Config";
         ExportarDesde exp;
+        exp.ruta = "geometria.lat";
+        exp.nombres.push_back({"Circulo", "Circulo"});
         std::string t1 = volcar(imp);
         std::string t2 = volcar(exp);
-        CHECK(t1.empty(), "ImportarDecl: no-op por defecto en ImpresorAST");
-        CHECK(t2.empty(), "ExportarDesde: no-op por defecto en ImpresorAST");
+        CHECK(contiene(t1, "Importar Config desde \"config.lat\""),
+              "ImportarDecl: volcado de una linea en ImpresorAST");
+        CHECK(contiene(t2, "ExportarDesde { Circulo } desde \"geometria.lat\""),
+              "ExportarDesde: volcado de una linea en ImpresorAST");
     }
 
     // exportar const PI = 3.14159   (campo exportado en Asignacion)
