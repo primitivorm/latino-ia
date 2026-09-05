@@ -137,10 +137,48 @@ void ImpresorAST::visitar(Incluir& n) {
     linea("Incluir \"" + n.modulo + "\"");
 }
 
+void ImpresorAST::visitar(ImportarDecl& n) {
+    std::string firma = "Importar";
+    switch (n.tipo) {
+        case TipoImportar::Nombrado: {
+            firma += " {";
+            for (size_t i = 0; i < n.nombres.size(); ++i) {
+                if (i) firma += ",";
+                firma += " " + n.nombres[i].origen;
+                if (n.nombres[i].alias != n.nombres[i].origen)
+                    firma += " como " + n.nombres[i].alias;
+            }
+            firma += " }";
+            break;
+        }
+        case TipoImportar::Espacio:
+            firma += " * como " + n.aliasEspacio;
+            break;
+        case TipoImportar::PorDefecto:
+            firma += " " + n.nombreLocal;
+            break;
+    }
+    firma += " desde \"" + n.ruta + "\"";
+    linea(firma);
+}
+
+void ImpresorAST::visitar(ExportarDesde& n) {
+    std::string firma = "ExportarDesde {";
+    for (size_t i = 0; i < n.nombres.size(); ++i) {
+        if (i) firma += ",";
+        firma += " " + n.nombres[i].origen;
+        if (n.nombres[i].alias != n.nombres[i].origen)
+            firma += " como " + n.nombres[i].alias;
+    }
+    firma += " } desde \"" + n.ruta + "\"";
+    linea(firma);
+}
+
 void ImpresorAST::visitar(Asignacion& n) {
     std::string extra = "";
     if (n.esVar) extra = " [var]";
     else if (n.esConst) extra = " [const]";
+    if (n.exportado) extra += n.esDefecto ? " [exportado por defecto]" : " [exportado]";
     linea("Asignacion (" + std::to_string(n.destinos.size()) + " = " +
           std::to_string(n.valores.size()) + ")" + extra);
     ++nivel;
@@ -241,6 +279,7 @@ void ImpresorAST::visitar(FuncionDef& n) {
     firma += ")";
     if (n.tipoRetorno != TipoAnotado::Ninguno)
         firma += " -> " + nombreTipoAst(n.tipoRetorno);
+    if (n.exportado) firma += n.esDefecto ? " [exportado por defecto]" : " [exportado]";
     linea(firma);
     linea("cuerpo:");
     hijos(n.cuerpo);
@@ -311,6 +350,7 @@ void ImpresorAST::visitar(ClaseDef& n) {
             firma += n.interfaces[i];
         }
     }
+    if (n.exportado) firma += n.esDefecto ? " [exportado por defecto]" : " [exportado]";
     linea(firma);
     ++nivel;
     for (const CampoDef& c : n.campos) campo(c);
@@ -319,7 +359,9 @@ void ImpresorAST::visitar(ClaseDef& n) {
 }
 
 void ImpresorAST::visitar(EstructuraDef& n) {
-    linea("Estructura '" + n.nombre + "'");
+    std::string firma = "Estructura '" + n.nombre + "'";
+    if (n.exportado) firma += n.esDefecto ? " [exportado por defecto]" : " [exportado]";
+    linea(firma);
     ++nivel;
     for (const CampoDef& c : n.campos) campo(c);
     for (MetodoDef& m : n.metodos) metodo(m);
@@ -327,7 +369,9 @@ void ImpresorAST::visitar(EstructuraDef& n) {
 }
 
 void ImpresorAST::visitar(InterfazDef& n) {
-    linea("Interfaz '" + n.nombre + "'");
+    std::string firma = "Interfaz '" + n.nombre + "'";
+    if (n.exportado) firma += n.esDefecto ? " [exportado por defecto]" : " [exportado]";
+    linea(firma);
     ++nivel;
     for (MetodoDef& m : n.metodos) metodo(m);
     --nivel;

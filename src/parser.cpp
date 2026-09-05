@@ -144,6 +144,8 @@ SentPtr Parser::parseSentencia() {
         if (p == "incluir") return parseIncluir();
         if (p == "var")     return parseVar();
         if (p == "const")   return parseConst();
+        if (p == "exportar") return parseExportar();
+        if (p == "importar") return parseImportar();
         if (p == "romper") {
             int l = actual.line;
             avanzar();
@@ -474,6 +476,205 @@ SentPtr Parser::parseConst() {
         return s;
     }
     error("se esperaba una asignación válida para la constante después de 'const'");
+}
+
+// ---------------------------------------------------------------------------
+// Módulos (PLAN_MODULOS.md): exportar / importar
+// ---------------------------------------------------------------------------
+
+SentPtr Parser::parseImportar() {
+    int l = actual.line;
+    avanzar();  // consume "importar"
+
+    auto nodo = std::make_unique<ImportarDecl>();
+    nodo->linea = l;
+
+    if (esDelimitador("{")) {
+        nodo->tipo = TipoImportar::Nombrado;
+        avanzar();  // "{"
+        saltarNuevasLineas();
+        if (!esDelimitador("}")) {
+            for (;;) {
+                saltarNuevasLineas();
+                if (actual.type != TokenType::Identificador)
+                    error("se esperaba un nombre exportado dentro de '{ }'");
+                NombreImportado ni;
+                ni.origen = actual.lexeme;
+                avanzar();
+                if (esReservada("como")) {
+                    avanzar();
+                    if (actual.type != TokenType::Identificador)
+                        error("se esperaba un alias después de 'como'");
+                    ni.alias = actual.lexeme;
+                    avanzar();
+                } else {
+                    ni.alias = ni.origen;
+                }
+                nodo->nombres.push_back(std::move(ni));
+                saltarNuevasLineas();
+                if (esDelimitador(",")) { avanzar(); continue; }
+                break;
+            }
+        }
+        saltarNuevasLineas();
+        esperarDelimitador("}");
+    } else if (esOperador("*")) {
+        nodo->tipo = TipoImportar::Espacio;
+        avanzar();  // "*"
+        esperarReservada("como");
+        if (actual.type != TokenType::Identificador)
+            error("se esperaba un nombre después de 'como'");
+        nodo->aliasEspacio = actual.lexeme;
+        avanzar();
+    } else if (actual.type == TokenType::Identificador) {
+        nodo->tipo = TipoImportar::PorDefecto;
+        nodo->nombreLocal = actual.lexeme;
+        avanzar();
+    } else {
+        error("se esperaba '{', '*' o un nombre después de 'importar'");
+    }
+
+    esperarReservada("desde");
+    if (actual.type != TokenType::Cadena)
+        error("se esperaba la ruta del módulo entre comillas después de 'desde'");
+    nodo->ruta = actual.lexeme;
+    avanzar();
+    consumirFinDeSentencia();
+    return nodo;
+}
+
+SentPtr Parser::parseExportar() {
+    int l = actual.line;
+    avanzar();  // consume "exportar"
+
+    // Re-export (barril): exportar { a, b como c } desde "ruta"
+    if (esDelimitador("{")) {
+        auto nodo = std::make_unique<ExportarDesde>();
+        nodo->linea = l;
+        avanzar();  // "{"
+        saltarNuevasLineas();
+        if (!esDelimitador("}")) {
+            for (;;) {
+                saltarNuevasLineas();
+                if (actual.type != TokenType::Identificador)
+                    error("se esperaba un nombre exportado dentro de '{ }'");
+                NombreImportado ni;
+                ni.origen = actual.lexeme;
+                avanzar();
+                if (esReservada("como")) {
+                    avanzar();
+                    if (actual.type != TokenType::Identificador)
+                        error("se esperaba un alias después de 'como'");
+                    ni.alias = actual.lexeme;
+                    avanzar();
+                } else {
+                    ni.alias = ni.origen;
+                }
+                nodo->nombres.push_back(std::move(ni));
+                saltarNuevasLineas();
+                if (esDelimitador(",")) { avanzar(); continue; }
+                break;
+            }
+        }
+        saltarNuevasLineas();
+        esperarDelimitador("}");
+        esperarReservada("desde");
+        if (actual.type != TokenType::Cadena)
+            error("se esperaba la ruta del módulo entre comillas después de 'desde'");
+        nodo->ruta = actual.lexeme;
+        avanzar();
+        consumirFinDeSentencia();
+        return nodo;
+    }
+
+    // "exportar por defecto ...": "por" no es palabra reservada (solo tiene
+    // sentido aquí), así que llega como Identificador de lexema "por".
+    bool esDefecto = false;
+    if (actual.type == TokenType::Identificador && actual.lexeme == "por") {
+        avanzar();  // "por"
+        esperarReservada("defecto");
+        esDefecto = true;
+    }
+
+    if (esReservada("funcion") || esReservada("fun")) {
+        SentPtr s = parseFuncion();
+        auto* f = static_cast<FuncionDef*>(s.get());
+        f->exportado = true;
+        f->esDefecto = esDefecto;
+        return s;
+    }
+    if (esReservada("abstracto")) {
+        avanzar();
+        if (!esReservada("clase"))
+            error("se esperaba 'clase' después de 'abstracto'");
+        SentPtr s = parseClase(true);
+        auto* c = static_cast<ClaseDef*>(s.get());
+        c->exportado = true;
+        c->esDefecto = esDefecto;
+        return s;
+    }
+    if (esReservada("clase")) {
+        SentPtr s = parseClase();
+        auto* c = static_cast<ClaseDef*>(s.get());
+        c->exportado = true;
+        c->esDefecto = esDefecto;
+        return s;
+    }
+    if (esReservada("estructura")) {
+        if (esDefecto) error("'exportar por defecto' no admite 'estructura'");
+        SentPtr s = parseEstructura();
+        auto* e = static_cast<EstructuraDef*>(s.get());
+        e->exportado = true;
+        return s;
+    }
+    if (esReservada("interfaz")) {
+        if (esDefecto) error("'exportar por defecto' no admite 'interfaz'");
+        SentPtr s = parseInterfaz();
+        auto* i = static_cast<InterfazDef*>(s.get());
+        i->exportado = true;
+        return s;
+    }
+    if (esReservada("var")) {
+        if (esDefecto) error("'exportar por defecto' no admite 'var'");
+        SentPtr s = parseVar();
+        auto* a = static_cast<Asignacion*>(s.get());
+        a->exportado = true;
+        return s;
+    }
+    if (esReservada("const")) {
+        if (esDefecto) error("'exportar por defecto' no admite 'const'");
+        SentPtr s = parseConst();
+        auto* a = static_cast<Asignacion*>(s.get());
+        a->exportado = true;
+        return s;
+    }
+
+    if (esDefecto) {
+        // exportar por defecto <expresión>  (p.ej. un literal de diccionario)
+        int le = actual.line;
+        ExprPtr valor = parseExpresion();
+        consumirFinDeSentencia();
+        auto a = std::make_unique<Asignacion>();
+        a->linea = le;
+        auto id = std::make_unique<Identificador>();
+        id->linea = le;
+        id->nombre = "__defecto__";
+        a->destinos.push_back(std::move(id));
+        a->valores.push_back(std::move(valor));
+        a->esConst = true;
+        a->exportado = true;
+        a->esDefecto = true;
+        return a;
+    }
+
+    // exportar <identificador> = <valor>   (asignación simple de nivel superior)
+    SentPtr s = parseSentenciaSimple();
+    auto* a = dynamic_cast<Asignacion*>(s.get());
+    if (!a)
+        error("se esperaba una declaración exportable (funcion, clase, estructura, "
+              "interfaz, var, const o asignación) después de 'exportar'");
+    a->exportado = true;
+    return s;
 }
 
 std::vector<ExprPtr> Parser::parseListaExpresiones() {

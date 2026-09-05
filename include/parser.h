@@ -70,6 +70,10 @@ private:
     SentPtr parseVar();
     SentPtr parseConst();
 
+    // Módulos (PLAN_MODULOS.md): exportar / importar
+    SentPtr parseExportar();
+    SentPtr parseImportar();
+
     // Nuevos parseos para POO
     SentPtr parseClase(bool esAbstracta = false);
     SentPtr parseEstructura();

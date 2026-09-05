@@ -36,6 +36,8 @@ public:
     // Sentencias
     void visitar(Programa&) override;
     void visitar(Incluir&) override;
+    void visitar(ImportarDecl&) override;
+    void visitar(ExportarDesde&) override;
     void visitar(Asignacion&) override;
     void visitar(ExprSentencia&) override;
     void visitar(Si&) override;

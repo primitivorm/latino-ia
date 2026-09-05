@@ -456,7 +456,25 @@ necesitan saber que existieron módulos.
 
 ## Estado
 
-Sin empezar. Este documento fija sintaxis y estrategia de implementación
-(resolución en el AST antes del análisis semántico, sin tocar
-`AnalizadorSemantico`/`GeneradorC`/`GeneradorLLVM`/runtime) para que M1
-pueda arrancar directamente.
+M1 completa (lexer y AST): 3 palabras reservadas nuevas (`exportar`,
+`importar`, `como`) en `src/lexer.cpp`; nodos `ImportarDecl`/`ExportarDesde`
+y campos `exportado`/`esDefecto` en `FuncionDef`/`ClaseDef`/`EstructuraDef`/
+`InterfazDef`/`Asignacion` en `include/ast.h`. Sin lógica de resolución
+todavía. M2 completa (parser): `Parser::parseExportar()`/`parseImportar()`
+en `src/parser.cpp`, con despacho desde `parseSentencia()`. Cubre las tres
+formas de `importar` (nombrado con alias, `* como ns`, por defecto),
+`exportar` como prefijo de `funcion`/`clase`/`abstracto clase`/`estructura`/
+`interfaz`/`var`/`const`/asignación simple, `exportar por defecto` (envolviendo
+`funcion`, `clase`, o una expresión arbitraria — modelada como una
+`Asignacion` sintética al identificador `__defecto__`, según lo previsto en
+"Nodos de AST nuevos") y `exportar { a, b como c } desde "ruta"` (re-export/
+barril). `ImpresorAST` gana `visitar(ImportarDecl&)`/`visitar(ExportarDesde&)`
+(volcado de una línea, ya no no-op) y marca `[exportado]`/
+`[exportado por defecto]` en los nodos que llevan esos campos, para poder
+depurar `--ast` antes de que exista el `ResolutorModulos`. Pruebas:
+`test_parser` (variantes de "Sintaxis propuesta"), `test_ast` actualizado
+(ya no asume no-op). `AnalizadorSemantico`/`GeneradorC`/`GeneradorLLVM` siguen
+sin cambios: un `importar`/`exportar ... desde` de nivel superior en un
+programa real hoy se ignora en silencio (no crea bindings) hasta que M4
+implemente la resolución — comportamiento esperado en esta fase, no un bug.
+M3 (resolución de un solo módulo) sigue sin empezar.

@@ -221,6 +221,73 @@ static void prueba_error_de_sintaxis() {
     CHECK(contiene(cap.str(), "Error de sintaxis"), "debe reportar error de sintaxis");
 }
 
+// --- Módulos (PLAN_MODULOS.md, Fase 30 M2) ---------------------------------
+
+static void prueba_exportar_declaraciones() {
+    std::string t1 = volcar("exportar const PI = 3.14159\n");
+    CHECK(contiene(t1, "Asignacion (1 = 1) [const] [exportado]"), "exportar const");
+
+    std::string t2 = volcar("exportar funcion area(r)\n  retornar r\nfin\n");
+    CHECK(contiene(t2, "Funcion 'area' (r)") && contiene(t2, "[exportado]"),
+          "exportar funcion");
+
+    std::string t3 = volcar("funcion privada(r)\n  retornar r\nfin\n");
+    CHECK(!contiene(t3, "[exportado]"), "funcion sin exportar no lleva la marca");
+
+    std::string t4 = volcar("exportar clase Circulo\n  funcion Circulo(r)\n    este.r = r\n  fin\nfin\n");
+    CHECK(contiene(t4, "Clase 'Circulo'") && contiene(t4, "[exportado]"), "exportar clase");
+
+    std::string t5 = volcar("exportar estructura Punto\n  x: numero\nfin\n");
+    CHECK(contiene(t5, "Estructura 'Punto'") && contiene(t5, "[exportado]"),
+          "exportar estructura");
+
+    std::string t6 = volcar("exportar interfaz Figura\n  funcion area()\nfin\n");
+    CHECK(contiene(t6, "Interfaz 'Figura'") && contiene(t6, "[exportado]"),
+          "exportar interfaz");
+
+    std::string t7 = volcar("exportar var x = 1\n");
+    CHECK(contiene(t7, "Asignacion (1 = 1) [var] [exportado]"), "exportar var");
+
+    std::string t8 = volcar("exportar x = 1\n");
+    CHECK(contiene(t8, "Asignacion (1 = 1) [exportado]"), "exportar asignacion simple");
+}
+
+static void prueba_exportar_por_defecto() {
+    std::string t1 = volcar("exportar por defecto funcion saludar(nombre)\n"
+                             "  retornar nombre\n"
+                             "fin\n");
+    CHECK(contiene(t1, "Funcion 'saludar' (nombre)") &&
+          contiene(t1, "[exportado por defecto]"), "exportar por defecto funcion");
+
+    std::string t2 = volcar("exportar por defecto { \"version\": \"1.0\" }\n");
+    CHECK(contiene(t2, "Asignacion (1 = 1) [const] [exportado por defecto]"),
+          "exportar por defecto expresion");
+    CHECK(contiene(t2, "Identificador '__defecto__'"), "destino sintetico __defecto__");
+    CHECK(contiene(t2, "Diccionario (1)"), "valor del export por defecto");
+}
+
+static void prueba_importar_nombrado() {
+    std::string t = volcar("importar { area_circulo, Circulo como C } desde \"geometria.lat\"\n");
+    CHECK(contiene(t, "Importar { area_circulo, Circulo como C } desde \"geometria.lat\""),
+          "importar nombrado con alias");
+}
+
+static void prueba_importar_espacio() {
+    std::string t = volcar("importar * como geo desde \"geometria.lat\"\n");
+    CHECK(contiene(t, "Importar * como geo desde \"geometria.lat\""), "importar espacio de nombres");
+}
+
+static void prueba_importar_por_defecto() {
+    std::string t = volcar("importar Config desde \"config.lat\"\n");
+    CHECK(contiene(t, "Importar Config desde \"config.lat\""), "importar por defecto");
+}
+
+static void prueba_exportar_reexport() {
+    std::string t = volcar("exportar { Circulo, area_circulo } desde \"geometria.lat\"\n");
+    CHECK(contiene(t, "ExportarDesde { Circulo, area_circulo } desde \"geometria.lat\""),
+          "reexport (barril)");
+}
+
 int main() {
     prueba_precedencia_aritmetica();
     prueba_precedencia_concatenacion();
@@ -236,6 +303,12 @@ int main() {
     prueba_elegir();
     prueba_error_de_sintaxis();
     prueba_var_y_const();
+    prueba_exportar_declaraciones();
+    prueba_exportar_por_defecto();
+    prueba_importar_nombrado();
+    prueba_importar_espacio();
+    prueba_importar_por_defecto();
+    prueba_exportar_reexport();
 
     std::cout << "\nComprobaciones: " << g_checks
               << "   Fallos: " << g_fallos << std::endl;
