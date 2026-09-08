@@ -20,6 +20,7 @@ add_executable(latino
   ast_impresor.cpp
   parser.cpp
   analizador_semantico.cpp
+  resolutor_modulos.cpp
   compiler.cpp
   fn_binaria.cpp
   recolector_variables.cpp

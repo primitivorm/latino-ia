@@ -477,4 +477,79 @@ depurar `--ast` antes de que exista el `ResolutorModulos`. Pruebas:
 sin cambios: un `importar`/`exportar ... desde` de nivel superior en un
 programa real hoy se ignora en silencio (no crea bindings) hasta que M4
 implemente la resolución — comportamiento esperado en esta fase, no un bug.
-M3 (resolución de un solo módulo) sigue sin empezar.
+
+M3 completa (resolución de un solo módulo, sin `importar`): nuevo
+`ResolutorModulos` (`include/resolutor_modulos.h`, `src/resolutor_modulos.cpp`),
+invocado desde `src/main.cpp` **antes** de `procesarInclusioneesLat` — solo
+sobre el archivo de entrada, nunca sobre uno alcanzado por `incluir`
+(Decisión de diseño 6: bajo `incluir`, `exportar` sigue siendo puramente
+documental). Si el archivo de entrada tiene al menos una declaración de
+nivel superior `exportar` y ninguna sentencia `importar`/`exportar ...
+desde` (`participaDeModulos` + chequeo en `main.cpp`; con imports de por
+medio se deja tal cual, comportamiento M2 sin cambios hasta M4), se manglan
+**todas** las declaraciones de nivel superior (función, clase, estructura,
+interfaz, destinos de asignación/var/const) — exportadas o no, la
+privacidad y el mangling son independientes — a `__mod_<slug>__<nombre>`
+(`ResolutorModulos::slugDesdeRuta`, sin resolución de colisiones entre rutas
+todavía: llega en M4 con el registro multi-módulo) y se reescriben las
+referencias internas (llamadas, `nuevo`, `es`, `base`, tipos por nombre de
+clase vía `CampoDef::tipoClase`/`FuncionDef`/`MetodoDef::tipoRetornoClase`/
+`ParamFuncion::tipoClase`/`ClaseDef::padre`/`interfaces`) con un
+`ReescritorReferencias` (Visitante interno, no expuesto en el header) que
+respeta el sombreado de parámetros/locales de cada función/método. El flag
+`exportado`/`esDefecto` se limpia tras resolver (paso 8 del algoritmo:
+declaración "desnuda"). Devuelve la tabla de exportación
+(`nombre_exportado`/`"__defecto__"` → nombre interno), que M3 todavía no usa
+para nada (no hay a quién entregársela sin `importar`); queda lista para
+que M4 la consuma.
+
+Hallazgos de esta fase:
+- **Latino no tiene ámbito de bloque** (`AnalizadorSemantico::analizarBloque`
+  no abre ámbito para `si`/`desde`/`mientras`/`repetir`/`elegir`, solo
+  `FuncionDef`/método lo hacen): cualquier asignación en cualquier punto del
+  cuerpo de una función declara una variable local a la función *completa*
+  (no existe `global`, aunque la palabra está reservada desde antes de este
+  plan — no se implementó nunca). El sombreado de `ReescritorReferencias`
+  replica esto "levantando" (hoisting) todos los destinos de asignación del
+  cuerpo entero antes de decidir qué queda sombreado, en vez de sombrear
+  incrementalmente en el orden textual.
+- **Descubierto por accidente, no introducido por este plan:** Latino no
+  soporta mutar ni leer una variable de nivel superior desde dentro de una
+  función salvo pasándola como parámetro — ausencia total de captura de
+  variables externas por closures/global. `AnalizadorSemantico` no lo
+  detecta (su chequeo de "variable no declarada" mira *todos* los ámbitos
+  activos, incluido el externo, así que una lectura previa a la
+  auto-declaración local pasa el análisis semántico sin error) pero
+  `GeneradorC` sí falla en compilación C (`identificador no declarado`) si
+  esa variable nunca se asigna dentro de la función, y da un resultado
+  silenciosamente incorrecto (lee `nulo`/0, no el valor externo) si sí se le
+  asigna algo dentro (crea una local nueva, no reutiliza la externa). No es
+  un bug de `ResolutorModulos`: se reproduce igual sin ningún `exportar` de
+  por medio (ver `tests/test_modulos_e2e.cpp`, comentario en el caso
+  `modulos_exportar_var_y_const`, y no lo intenta arreglar). Cualquier plan
+  futuro de módulos/closures debería revisar esto.
+- **`AnalizadorSemantico::visitar(NuevoExpr&)`/`visitar(LlamadaBase&)` ubican
+  el constructor buscando, en el mapa de métodos del tipo, la clave
+  **igual al nombre de la clase** (`tipo->metodos.find(n.clase)` /
+  `padre->metodos.find(actual->padre)`), no el flag `esConstructor` — a
+  diferencia de `GeneradorC`, que sí usa ese flag. Por eso
+  `ResolutorModulos` tiene que renombrar también el `MetodoDef::nombre` del
+  constructor (`esConstructor == true`) al mismo nombre nuevo de su clase,
+  además del nombre de la clase — omitir este paso rompe la validación de
+  aridad del constructor con un mensaje confuso ("no tiene constructor que
+  reciba N argumentos") apenas se manglan clases con constructor explícito.
+- `escribir(...)` toma un solo argumento (no es variádico para imprimir
+  varios valores separados por espacio); `tests/test_modulos_e2e.cpp` usa
+  llamadas separadas donde antes se intentó `escribir(a, b)`.
+
+Pruebas: `tests/test_modulos.cpp` (unitarias sobre `Programa` construido por
+el parser real, volcado con `ImpresorAST`: mangling de exportadas/privadas,
+`exportar por defecto` sin binding nombrado, sombreado de parámetro y de
+variable local "levantada", herencia/`nuevo`/`es`, tipos por nombre de clase
+en campos y retornos, asignación múltiple de nivel superior) y
+`tests/test_modulos_e2e.cpp` (compila y ejecuta `.lat` reales vía `latino`,
+registrado con la macro `add_suite20`: el mangling debe ser invisible en el
+comportamiento observable).
+
+Siguiente paso: M4 (import nombrado + alias entre dos archivos, DFS con
+memoización por ruta canónica y detección de import circular).

@@ -13,6 +13,7 @@
 #include "invocador_c.h"
 #include "lexer.h"
 #include "parser.h"
+#include "resolutor_modulos.h"
 
 #ifdef LATINO_CON_LLVM
 #include <llvm/IR/LLVMContext.h>
@@ -192,6 +193,26 @@ int main(int argc, char** argv) {
     std::unique_ptr<Programa> programa = parser.parse();
     if (!programa)
         return 1;  // error de sintaxis (ya reportado)
+
+    // PLAN_MODULOS.md (M3): resolución de módulo único, sin 'importar'
+    // todavía (M4). Se aplica al archivo de entrada ANTES de expandir sus
+    // 'incluir': un archivo alcanzado por 'incluir' nunca se mangla
+    // ('exportar' es solo documental bajo 'incluir', Decisión de diseño 6).
+    // Si el archivo además usa 'importar'/'exportar ... desde', se deja tal
+    // cual (comportamiento previo a M3: esas sentencias se ignoran en
+    // silencio hasta que M4 implemente la resolución multi-archivo).
+    if (ResolutorModulos::participaDeModulos(*programa)) {
+        bool tieneImports = false;
+        for (auto& s : programa->sentencias) {
+            if (dynamic_cast<ImportarDecl*>(s.get()) || dynamic_cast<ExportarDesde*>(s.get())) {
+                tieneImports = true;
+                break;
+            }
+        }
+        if (!tieneImports) {
+            ResolutorModulos::resolverModuloUnico(*programa, fs::absolute(ruta).generic_string());
+        }
+    }
 
     // 17.3: Expansión de archivos .lat antes del análisis semántico.
     {
