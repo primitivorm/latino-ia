@@ -93,6 +93,20 @@ target_include_directories(test_poo PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
 add_test(NAME test_poo COMMAND test_poo)
 
+# Pruebas de resolución de módulos exportar/importar (PLAN_MODULOS.md, M3).
+add_executable(test_modulos
+  test_modulos.cpp
+  ${CMAKE_SOURCE_DIR}/src/lexer.cpp
+  ${CMAKE_SOURCE_DIR}/src/parser.cpp
+  ${CMAKE_SOURCE_DIR}/src/ast.cpp
+  ${CMAKE_SOURCE_DIR}/src/ast_impresor.cpp
+  ${CMAKE_SOURCE_DIR}/src/analizador_semantico.cpp
+  ${CMAKE_SOURCE_DIR}/src/resolutor_modulos.cpp
+)
+target_include_directories(test_modulos PRIVATE ${CMAKE_SOURCE_DIR}/include)
+
+add_test(NAME test_modulos COMMAND test_modulos)
+
 # Pruebas del mecanismo de ABI del backend LLVM (Fase L2 de
 # input/PLAN_LLVM.md). Solo se registran si el build tiene LLVM habilitado;
 # las máquinas sin LLVM instalado siguen corriendo el resto de la suite sin
@@ -224,5 +238,6 @@ add_suite20(test_lib_mate)
 add_suite20(test_lib_sis)
 add_suite20(test_lib_archivo)
 add_suite20(test_incluir)
+add_suite20(test_modulos_e2e)
 add_suite20(test_poo_e2e)
 
