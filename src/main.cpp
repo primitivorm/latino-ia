@@ -194,24 +194,18 @@ int main(int argc, char** argv) {
     if (!programa)
         return 1;  // error de sintaxis (ya reportado)
 
-    // PLAN_MODULOS.md (M3): resolución de módulo único, sin 'importar'
-    // todavía (M4). Se aplica al archivo de entrada ANTES de expandir sus
-    // 'incluir': un archivo alcanzado por 'incluir' nunca se mangla
-    // ('exportar' es solo documental bajo 'incluir', Decisión de diseño 6).
-    // Si el archivo además usa 'importar'/'exportar ... desde', se deja tal
-    // cual (comportamiento previo a M3: esas sentencias se ignoran en
-    // silencio hasta que M4 implemente la resolución multi-archivo).
+    // PLAN_MODULOS.md: resolución de módulos ('exportar'/'importar'). Se
+    // aplica al archivo de entrada ANTES de expandir sus 'incluir': un
+    // archivo alcanzado por 'incluir' nunca se mangla ('exportar' es solo
+    // documental bajo 'incluir', Decisión de diseño 6). Sin 'importar'/
+    // 'exportar ... desde', resuelve un solo módulo (M3); con ellos, resuelve
+    // el grafo de módulos completo (M4), leyendo del disco cada módulo
+    // referenciado.
     if (ResolutorModulos::participaDeModulos(*programa)) {
-        bool tieneImports = false;
-        for (auto& s : programa->sentencias) {
-            if (dynamic_cast<ImportarDecl*>(s.get()) || dynamic_cast<ExportarDesde*>(s.get())) {
-                tieneImports = true;
-                break;
-            }
-        }
-        if (!tieneImports) {
-            ResolutorModulos::resolverModuloUnico(*programa, fs::absolute(ruta).generic_string());
-        }
+        programa = ResolutorModulos::resolverProyecto(std::move(programa),
+                                                       fs::absolute(ruta).generic_string());
+        if (!programa)
+            return 1;  // error de resolución de módulos (ya reportado)
     }
 
     // 17.3: Expansión de archivos .lat antes del análisis semántico.

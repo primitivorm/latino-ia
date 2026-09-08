@@ -551,5 +551,70 @@ en campos y retornos, asignación múltiple de nivel superior) y
 registrado con la macro `add_suite20`: el mangling debe ser invisible en el
 comportamiento observable).
 
-Siguiente paso: M4 (import nombrado + alias entre dos archivos, DFS con
-memoización por ruta canónica y detección de import circular).
+M4 completa (import nombrado + alias, DFS con memoización): nuevo
+`ResolutorModulos::resolverProyecto(Programa, rutaEntrada)` (declarado en
+`include/resolutor_modulos.h`, implementado en `src/resolutor_modulos.cpp`)
+reemplaza, en `src/main.cpp`, la llamada directa a `resolverModuloUnico` —
+si el archivo de entrada no tiene ninguna sentencia `ImportarDecl`/
+`ExportarDesde` delega en `resolverModuloUnico` sin cambios (M3 intacto); si
+las tiene, resuelve el grafo completo con una clase interna
+`ResolutorProyecto` (anónima, solo en el `.cpp`): DFS con memoización por
+ruta canónica (`fs::path::lexically_normal`, sin requerir que el archivo
+exista para el cálculo de la clave — sí para poder abrirlo), pila de rutas
+"en proceso" para detectar un import circular (mensaje con la cadena de
+archivos, por nombre de archivo, ver más abajo), y acumulación de las
+sentencias ya resueltas de cada módulo en orden de dependencia (los
+importados antes que quien importa, paso 8 del algoritmo). La pieza clave
+para que el sombreado de `ReescritorReferencias` funcione igual que en M3
+fue separar el manglado de las declaraciones propias de un módulo
+(`manglarDeclaracionesPropias`, función libre extraída del antiguo cuerpo de
+`resolverModuloUnico`) de la reescritura de referencias: por cada módulo se
+calculan primero los renombres propios, LUEGO se resuelven sus sentencias
+`importar` (agregando al mismo mapa el alias local → nombre interno del
+módulo de origen) y recién entonces corre una única pasada de
+`ReescritorReferencias` sobre todo el mapa fusionado — así una variable
+local que sombrea a un nombre importado se comporta igual que si sombreara
+a un nombre propio del módulo.
+
+Alcance de esta fase, tal como lo definió el plan: solo `importar { a, b
+como c } desde "ruta"` (`TipoImportar::Nombrado`). Si `resolverProyecto`
+encuentra `importar * como ns ...`/`importar Nombre desde ...`
+(`TipoImportar::Espacio`/`PorDefecto`) o `exportar { ... } desde ...`
+(`ExportarDesde`, re-export/barril), reporta un error de compilación
+explícito citando M5/M7 respectivamente, en vez de ignorarlos en silencio
+(evita el resultado confuso de un `importar` que no crea ningún binding).
+
+Mensajes de error implementados (`stderr`, sin colores, con la ruta tal como
+se escribió en el `importar`): `el módulo 'X.lat' no exporta 'nombre'`,
+`no se pudo abrir el módulo importado: 'ruta'`, `'X.lat' no usa 'exportar'`
+(cuando el archivo importado nunca declaró nada exportado — sugiere
+`incluir`), e `import circular detectado: A.lat -> B.lat -> A.lat` (cadena
+armada a partir de la pila de módulos "en proceso", impresa por nombre de
+archivo en vez de ruta canónica completa, para legibilidad). Se usa `->`
+ASCII en vez de la flecha Unicode de la sección "Mensajes de error" del plan
+para evitar problemas de code page en la consola de Windows.
+
+Hallazgo de esta fase: la suite `test_harness.h` (Fase 20) solo sabía
+compilar un único archivo `.lat` por caso, insuficiente para probar
+`importar ... desde "otro.lat"` de extremo a extremo. Se agregó
+`harness::CasoTestMulti`/`Harness::ejecutarMulti`/`ejecutar_main_multi` (el
+mismo arnés, extendido para escribir N archivos auxiliares junto al de
+entrada antes de compilar), sin tocar el comportamiento de
+`harness::CasoTest`/`ejecutar_main` existentes. Nueva suite
+`tests/test_modulos_multi.cpp` (registrada con `add_suite20`, igual que
+`test_modulos_e2e`): import nombrado simple, con alias, de una función que
+internamente usa un privado del módulo importado, de varios nombres en una
+sola sentencia, de una clase (incluye `nuevo`/constructor/método), e import
+transitivo (A importa de B, que importa de C). Pruebas unitarias nuevas en
+`tests/test_modulos.cpp` (con archivos reales escritos en un directorio
+temporal, ya que `resolverProyecto` lee del disco cada módulo referenciado
+por `importar`): import nombrado + alias exitoso, nombre no exportado,
+módulo sin `exportar`, módulo inexistente, import circular entre dos
+archivos, y memoización (un módulo importado por dos importadores distintos
+se procesa una sola vez — verificado contando ocurrencias de un literal
+único de ese módulo en el `Programa` final).
+
+Siguiente paso: M5 (import de namespace `importar * como ns` — incluye
+reescribir `ns.X`, un `AccesoMiembro` cuyo objeto es un `Identificador`, al
+nombre interno de `X`, cosa que `ReescritorReferencias` no maneja todavía
+— y de import por defecto `importar Nombre desde "ruta"`).

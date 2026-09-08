@@ -93,6 +93,21 @@ struct CasoTest {
     const char* esperado;   // tokens esperados separados por espacios
 };
 
+// Archivo .lat auxiliar escrito junto al archivo de entrada de un
+// CasoTestMulti (PLAN_MODULOS.md, M4: 'importar ... desde "otro.lat"' entre
+// archivos reales, no soportado por CasoTest de un solo archivo).
+struct ArchivoAux {
+    const char* nombre;    // p.ej. "geometria.lat"
+    const char* codigo;
+};
+
+struct CasoTestMulti {
+    const char* nombre;              // nombre del caso (y del .lat de entrada)
+    const char* codigo_lat;          // contenido del archivo de entrada
+    const char* esperado;            // tokens esperados separados por espacios
+    std::vector<ArchivoAux> auxiliares;  // archivos adicionales, mismo directorio
+};
+
 // ---------------------------------------------------------------------------
 // Harness principal
 // ---------------------------------------------------------------------------
@@ -113,21 +128,44 @@ public:
     bool ejecutar(const CasoTest& tc) {
         std::string nombre = tc.nombre;
         std::string lat_path = tmp_ + "/" + nombre + ".lat";
+        // 1. Escribir código fuente .lat
+        if (!escribirArchivo(lat_path, tc.codigo_lat, nombre)) return false;
+        return compilarYComparar(nombre, lat_path, tc.esperado);
+    }
+
+    // PLAN_MODULOS.md (M4): igual que ejecutar(), pero además escribe los
+    // archivos auxiliares del caso (mismo directorio que el .lat de entrada)
+    // ANTES de compilar -- necesario para 'importar { ... } desde "x.lat"',
+    // que resuelve rutas relativas al archivo que importa.
+    bool ejecutarMulti(const CasoTestMulti& tc) {
+        std::string nombre = tc.nombre;
+        for (const auto& aux : tc.auxiliares) {
+            std::string aux_path = tmp_ + "/" + aux.nombre;
+            if (!escribirArchivo(aux_path, aux.codigo, nombre)) return false;
+        }
+        std::string lat_path = tmp_ + "/" + nombre + ".lat";
+        if (!escribirArchivo(lat_path, tc.codigo_lat, nombre)) return false;
+        return compilarYComparar(nombre, lat_path, tc.esperado);
+    }
+
+private:
+    bool escribirArchivo(const std::string& ruta, const char* contenido, const std::string& nombre) {
+        std::ofstream f(ruta);
+        if (!f) {
+            std::cerr << "[FALLO] " << nombre << ": no se pudo crear " << ruta << "\n";
+            fallaron_++;
+            return false;
+        }
+        f << contenido;
+        return true;
+    }
+
+    bool compilarYComparar(const std::string& nombre, const std::string& lat_path,
+                            const std::string& esperado_str) {
         std::string exe_path = tmp_ + "/" + nombre;
 #ifdef _WIN32
         exe_path += ".exe";
 #endif
-        // 1. Escribir código fuente .lat
-        {
-            std::ofstream f(lat_path);
-            if (!f) {
-                std::cerr << "[FALLO] " << nombre << ": no se pudo crear " << lat_path << "\n";
-                fallaron_++;
-                return false;
-            }
-            f << tc.codigo_lat;
-        }
-
         // 2. Compilar con latino
         std::string cmd_comp = q(comp_) + " " + q(lat_path)
                              + " -o " + q(exe_path)
@@ -154,7 +192,7 @@ public:
 
         // 4. Comparar tokens
         auto real     = tokenizar(limpiarAnsi(out_exec));
-        auto esperado = tokenizar(std::string(tc.esperado));
+        auto esperado = tokenizar(esperado_str);
         if (real == esperado) {
             std::cout << "[PASO] " << nombre << "\n";
             pasaron_++;
@@ -162,11 +200,13 @@ public:
         }
 
         std::cerr << "[FALLO] " << nombre << "\n"
-                  << "  Esperado : " << tc.esperado << "\n"
+                  << "  Esperado : " << esperado_str << "\n"
                   << "  Real     : " << out_exec;
         fallaron_++;
         return false;
     }
+
+public:
 
     int resumen() const {
         std::cout << "\nResultado: " << pasaron_ << " pasaron, "
@@ -190,6 +230,22 @@ static int ejecutar_main(int argc, char* argv[],
     Harness h(argv[1], argv[2], argv[3], backend);
     for (std::size_t i = 0; i < n; i++)
         h.ejecutar(casos[i]);
+    return h.resumen();
+}
+
+// Igual que ejecutar_main(), para suites de CasoTestMulti (PLAN_MODULOS.md,
+// M4: casos con archivos .lat auxiliares además del de entrada).
+static int ejecutar_main_multi(int argc, char* argv[],
+                                const CasoTestMulti* casos, std::size_t n) {
+    if (argc < 4) {
+        std::cerr << "Uso: " << argv[0]
+                  << " <compilador> <runtime_dir> <temp_dir> [backend c|llvm]\n";
+        return 2;
+    }
+    const char* backend = (argc >= 5) ? argv[4] : "c";
+    Harness h(argv[1], argv[2], argv[3], backend);
+    for (std::size_t i = 0; i < n; i++)
+        h.ejecutarMulti(casos[i]);
     return h.resumen();
 }
 

@@ -6,6 +6,8 @@
 // mecanismo que tests/test_parser.cpp), además de inspeccionar la tabla de
 // exportación devuelta.
 
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <memory>
 #include <sstream>
@@ -16,6 +18,8 @@
 #include "lexer.h"
 #include "parser.h"
 #include "resolutor_modulos.h"
+
+namespace fs = std::filesystem;
 
 // --- Framework mínimo de aserciones ---------------------------------------
 static int g_fallos = 0;
@@ -235,6 +239,199 @@ static void prueba_asignacion_multiple_top_level() {
     CHECK(tabla["b"] == PREFIJO + "b", "segundo destino exportado");
 }
 
+// ---------------------------------------------------------------------------
+// M4 — resolución multi-módulo (importar { a, b como c } desde "ruta")
+//
+// resolverProyecto lee del disco cada módulo referenciado por "importar"
+// (igual que 'incluir "archivo.lat"' hace hoy con procesarInclusioneesLat),
+// así que estas pruebas escriben archivos .lat reales en un directorio
+// temporal propio de la suite.
+// ---------------------------------------------------------------------------
+
+static fs::path dirTemporalM4() {
+    fs::path dir = fs::temp_directory_path() / "latino_test_modulos_m4";
+    fs::create_directories(dir);
+    return dir;
+}
+
+static std::string escribirArchivoM4(const std::string& nombre, const std::string& contenido) {
+    fs::path ruta = dirTemporalM4() / nombre;
+    std::ofstream f(ruta, std::ios::binary);
+    f << contenido;
+    f.close();
+    return ruta.generic_string();
+}
+
+static void prueba_import_nombrado_con_alias() {
+    escribirArchivoM4("geometria_m4.lat",
+        "exportar funcion area_circulo(r)\n"
+        "  retornar r * r\n"
+        "fin\n"
+        "funcion privada_geo()\n"
+        "  retornar 0\n"
+        "fin\n");
+
+    std::string rutaEntrada = escribirArchivoM4("main_m4.lat",
+        "importar { area_circulo como area } desde \"geometria_m4.lat\"\n"
+        "escribir(area(2))\n");
+
+    auto entrada = parsear(
+        "importar { area_circulo como area } desde \"geometria_m4.lat\"\n"
+        "escribir(area(2))\n");
+    auto resultado = ResolutorModulos::resolverProyecto(std::move(entrada), rutaEntrada);
+    CHECK(resultado != nullptr, "import nombrado con alias entre dos archivos resuelve sin error");
+    if (!resultado) return;
+
+    std::string t = volcar(*resultado);
+    CHECK(contiene(t, "area_circulo"), "la declaracion del modulo importado esta en el Programa final");
+    CHECK(!contiene(t, "Identificador 'area'"),
+          "el alias local 'area' quedo reescrito al nombre interno (no aparece sin reescribir)");
+    CHECK(contiene(t, "privada_geo"),
+          "la funcion privada del modulo importado tambien viaja al Programa final (mangleada)");
+    CHECK(!contiene(t, "Importar"),
+          "el nodo ImportarDecl ya resuelto no queda en el arbol final");
+}
+
+static void prueba_import_nombre_no_exportado() {
+    escribirArchivoM4("geo_sin_export_m4.lat",
+        "exportar funcion area_circulo(r)\n"
+        "  retornar r * r\n"
+        "fin\n"
+        "funcion normalizar(r)\n"
+        "  retornar r\n"
+        "fin\n");
+
+    std::string rutaEntrada = escribirArchivoM4("main_falla_m4.lat",
+        "importar { normalizar } desde \"geo_sin_export_m4.lat\"\n"
+        "escribir(normalizar(1))\n");
+
+    auto entrada = parsear(
+        "importar { normalizar } desde \"geo_sin_export_m4.lat\"\n"
+        "escribir(normalizar(1))\n");
+
+    std::ostringstream cap;
+    std::streambuf* viejo = std::cerr.rdbuf(cap.rdbuf());
+    auto resultado = ResolutorModulos::resolverProyecto(std::move(entrada), rutaEntrada);
+    std::cerr.rdbuf(viejo);
+
+    CHECK(resultado == nullptr, "importar un nombre no exportado falla");
+    CHECK(contiene(cap.str(), "no exporta"), "el mensaje de error menciona 'no exporta'");
+}
+
+static void prueba_import_modulo_sin_exportar() {
+    escribirArchivoM4("script_plano_m4.lat",
+        "funcion f(x)\n"
+        "  retornar x\n"
+        "fin\n");
+
+    std::string rutaEntrada = escribirArchivoM4("main_plano_m4.lat",
+        "importar { f } desde \"script_plano_m4.lat\"\n"
+        "escribir(f(1))\n");
+
+    auto entrada = parsear(
+        "importar { f } desde \"script_plano_m4.lat\"\n"
+        "escribir(f(1))\n");
+
+    std::ostringstream cap;
+    std::streambuf* viejo = std::cerr.rdbuf(cap.rdbuf());
+    auto resultado = ResolutorModulos::resolverProyecto(std::move(entrada), rutaEntrada);
+    std::cerr.rdbuf(viejo);
+
+    CHECK(resultado == nullptr, "importar un modulo que nunca usa 'exportar' falla");
+    CHECK(contiene(cap.str(), "no usa 'exportar'"), "el mensaje sugiere usar 'incluir'");
+}
+
+static void prueba_import_modulo_inexistente() {
+    std::string rutaEntrada = escribirArchivoM4("main_no_existe_m4.lat",
+        "importar { x } desde \"no_existe_m4.lat\"\n"
+        "escribir(x)\n");
+
+    auto entrada = parsear(
+        "importar { x } desde \"no_existe_m4.lat\"\n"
+        "escribir(x)\n");
+
+    std::ostringstream cap;
+    std::streambuf* viejo = std::cerr.rdbuf(cap.rdbuf());
+    auto resultado = ResolutorModulos::resolverProyecto(std::move(entrada), rutaEntrada);
+    std::cerr.rdbuf(viejo);
+
+    CHECK(resultado == nullptr, "importar un archivo inexistente falla");
+    CHECK(contiene(cap.str(), "no se pudo abrir"), "el mensaje reporta que no se pudo abrir el modulo");
+}
+
+static void prueba_import_circular() {
+    // a_m4.lat importa de b_m4.lat, que a su vez importa de a_m4.lat.
+    escribirArchivoM4("a_m4.lat",
+        "exportar funcion desde_a()\n"
+        "  retornar 1\n"
+        "fin\n"
+        "importar { desde_b } desde \"b_m4.lat\"\n");
+    escribirArchivoM4("b_m4.lat",
+        "exportar funcion desde_b()\n"
+        "  retornar 2\n"
+        "fin\n"
+        "importar { desde_a } desde \"a_m4.lat\"\n");
+
+    std::string rutaEntrada = escribirArchivoM4("main_circular_m4.lat",
+        "importar { desde_a } desde \"a_m4.lat\"\n"
+        "escribir(desde_a())\n");
+
+    auto entrada = parsear(
+        "importar { desde_a } desde \"a_m4.lat\"\n"
+        "escribir(desde_a())\n");
+
+    std::ostringstream cap;
+    std::streambuf* viejo = std::cerr.rdbuf(cap.rdbuf());
+    auto resultado = ResolutorModulos::resolverProyecto(std::move(entrada), rutaEntrada);
+    std::cerr.rdbuf(viejo);
+
+    CHECK(resultado == nullptr, "un import circular entre dos modulos falla");
+    CHECK(contiene(cap.str(), "import circular"), "el mensaje reporta el import circular");
+}
+
+static void prueba_import_memoizado_una_sola_vez() {
+    // Dos importadores distintos de "compartido_m4.lat": debe procesarse una
+    // sola vez (sus sentencias no deben duplicarse en el Programa final).
+    escribirArchivoM4("compartido_m4.lat",
+        "exportar funcion valor()\n"
+        "  retornar 42\n"
+        "fin\n");
+    escribirArchivoM4("puente_m4.lat",
+        "exportar funcion desde_puente()\n"
+        "  retornar 1\n"
+        "fin\n"
+        "importar { valor } desde \"compartido_m4.lat\"\n"
+        "exportar funcion usa_valor()\n"
+        "  retornar valor()\n"
+        "fin\n");
+
+    std::string rutaEntrada = escribirArchivoM4("main_memo_m4.lat",
+        "importar { valor } desde \"compartido_m4.lat\"\n"
+        "importar { usa_valor } desde \"puente_m4.lat\"\n"
+        "escribir(valor() + usa_valor())\n");
+
+    auto entrada = parsear(
+        "importar { valor } desde \"compartido_m4.lat\"\n"
+        "importar { usa_valor } desde \"puente_m4.lat\"\n"
+        "escribir(valor() + usa_valor())\n");
+
+    auto resultado = ResolutorModulos::resolverProyecto(std::move(entrada), rutaEntrada);
+    CHECK(resultado != nullptr, "dos importadores del mismo modulo resuelven sin error");
+    if (!resultado) return;
+
+    // '42' es un literal único de compartido_m4.lat en todo este programa: si
+    // el módulo se procesara dos veces (una por cada importador, sin
+    // memoización) su declaración -- y por lo tanto el literal -- aparecería
+    // duplicada en el Programa final.
+    std::string t = volcar(*resultado);
+    size_t apariciones = 0, pos = 0;
+    while ((pos = t.find("Numero 42", pos)) != std::string::npos) {
+        apariciones++;
+        pos += 1;
+    }
+    CHECK(apariciones == 1, "el modulo compartido por dos importadores se procesa una sola vez");
+}
+
 int main() {
     prueba_slug_desde_ruta();
     prueba_participa_de_modulos();
@@ -245,6 +442,13 @@ int main() {
     prueba_clase_herencia_nuevo_y_es();
     prueba_tipo_por_nombre_en_campo_y_retorno();
     prueba_asignacion_multiple_top_level();
+
+    prueba_import_nombrado_con_alias();
+    prueba_import_nombre_no_exportado();
+    prueba_import_modulo_sin_exportar();
+    prueba_import_modulo_inexistente();
+    prueba_import_circular();
+    prueba_import_memoizado_una_sola_vez();
 
     std::cout << "\nComprobaciones: " << g_checks
               << "   Fallos: " << g_fallos << std::endl;
