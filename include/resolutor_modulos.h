@@ -5,16 +5,26 @@
 // requerir que AnalizadorSemantico/GeneradorC/GeneradorLLVM sepan que
 // existen módulos.
 //
-// M3 (esta fase): resolución de un solo módulo, SIN "importar" todavía
-// (llega en M4). Dado el Programa del archivo de entrada, si contiene al
-// menos una declaración de nivel superior marcada con "exportar" (y ninguna
-// sentencia "importar"/"exportar ... desde", ver participaDeModulos),
-// renombra toda declaración de nivel superior (función, clase, estructura,
-// interfaz, destino de var/const/asignación simple) a
+// M3: resolución de un solo módulo, SIN "importar" (resolverModuloUnico).
+// Dado el Programa del archivo de entrada, si contiene al menos una
+// declaración de nivel superior marcada con "exportar" (y ninguna sentencia
+// "importar"/"exportar ... desde", ver participaDeModulos), renombra toda
+// declaración de nivel superior (función, clase, estructura, interfaz,
+// destino de var/const/asignación simple) a
 // "__mod_<slug>__<nombre_original>" y reescribe toda referencia interna
 // (llamadas recursivas, `nuevo`, `es`, `base`, tipos por nombre de clase),
 // respetando el sombreado de parámetros/variables locales. Ver "Riesgos
 // técnicos" del plan.
+//
+// M4 (esta fase): resolución multi-módulo con "importar { a, b como c }
+// desde ..." nombrado (resolverProyecto). DFS con memoización por ruta
+// canónica: cada módulo referenciado se parsea y se procesa una sola vez,
+// en orden de dependencias (los importados antes que quien importa), y un
+// import circular se reporta como error de compilación con la cadena de
+// archivos involucrados. "importar * como ns"/"importar Nombre desde ..."
+// (namespace/por defecto) y "exportar { ... } desde ..." (re-export) quedan
+// para M5/M7 respectivamente: si se encuentran, resolverProyecto reporta un
+// error explícito en vez de ignorarlos en silencio.
 //
 // Un archivo alcanzado por `incluir "x.lat"` (en vez de compilado
 // directamente o alcanzado por `importar`) nunca pasa por este resolutor:
@@ -57,6 +67,31 @@ public:
     // hay imports, dejando el archivo con el comportamiento previo a M3).
     static TablaExportacion resolverModuloUnico(Programa& programa,
                                                  const std::string& rutaCanonica);
+
+    // M4: resuelve el sistema de módulos completo a partir del archivo de
+    // entrada ya parseado (`entrada`, ubicado en `rutaEntrada`).
+    //
+    // Si `entrada` no contiene ninguna sentencia ImportarDecl/ExportarDesde,
+    // delega en resolverModuloUnico (comportamiento M3, sin cambios) y
+    // devuelve `entrada` tal cual (mutado in-place).
+    //
+    // Si contiene "importar"/"exportar ... desde", resuelve transitivamente
+    // el grafo de módulos referenciado: parsea cada módulo desde disco
+    // (memoizado por ruta canónica, así que un módulo importado por varios
+    // otros se procesa una sola vez), en orden de dependencias (DFS
+    // post-order), y devuelve un único Programa nuevo con todas las
+    // declaraciones de nivel superior de todos los módulos alcanzados ya
+    // manglados/reescritas y las sentencias importar/exportar-desde
+    // eliminadas -- indistinguible, para AnalizadorSemantico/GeneradorC/
+    // GeneradorLLVM, de un programa escrito a mano sin módulos.
+    //
+    // Devuelve nullptr en error de compilación (ya reportado por stderr):
+    // módulo no encontrado, error de sintaxis en un módulo importado,
+    // nombre no exportado, import circular, módulo importado que nunca usa
+    // "exportar", o formas de import/export todavía no implementadas
+    // (namespace, por defecto, re-export -- ver M5/M7 en PLAN_MODULOS.md).
+    static std::unique_ptr<Programa> resolverProyecto(std::unique_ptr<Programa> entrada,
+                                                        const std::string& rutaEntrada);
 };
 
 #endif  // RESOLUTOR_MODULOS_H
