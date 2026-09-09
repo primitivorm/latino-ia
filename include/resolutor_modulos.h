@@ -16,15 +16,20 @@
 // respetando el sombreado de parámetros/variables locales. Ver "Riesgos
 // técnicos" del plan.
 //
-// M4 (esta fase): resolución multi-módulo con "importar { a, b como c }
-// desde ..." nombrado (resolverProyecto). DFS con memoización por ruta
-// canónica: cada módulo referenciado se parsea y se procesa una sola vez,
-// en orden de dependencias (los importados antes que quien importa), y un
-// import circular se reporta como error de compilación con la cadena de
-// archivos involucrados. "importar * como ns"/"importar Nombre desde ..."
-// (namespace/por defecto) y "exportar { ... } desde ..." (re-export) quedan
-// para M5/M7 respectivamente: si se encuentran, resolverProyecto reporta un
-// error explícito en vez de ignorarlos en silencio.
+// M4: resolución multi-módulo con "importar { a, b como c } desde ..."
+// nombrado (resolverProyecto). DFS con memoización por ruta canónica: cada
+// módulo referenciado se parsea y se procesa una sola vez, en orden de
+// dependencias (los importados antes que quien importa), y un import
+// circular se reporta como error de compilación con la cadena de archivos
+// involucrados.
+//
+// M5 (esta fase): "importar * como ns desde ..." (namespace: "ns.X" se
+// reescribe al nombre interno de X; usar "ns" sin calificar o calificar un
+// nombre que no exporta es error semántico) e "importar Nombre desde ..."
+// (por defecto: se resuelve contra la entrada especial "__defecto__" de la
+// tabla de exportación). "exportar { ... } desde ..." (re-export) queda
+// para M7: si se encuentra, resolverProyecto reporta un error explícito en
+// vez de ignorarlo en silencio.
 //
 // Un archivo alcanzado por `incluir "x.lat"` (en vez de compilado
 // directamente o alcanzado por `importar`) nunca pasa por este resolutor:
@@ -87,9 +92,11 @@ public:
     //
     // Devuelve nullptr en error de compilación (ya reportado por stderr):
     // módulo no encontrado, error de sintaxis en un módulo importado,
-    // nombre no exportado, import circular, módulo importado que nunca usa
-    // "exportar", o formas de import/export todavía no implementadas
-    // (namespace, por defecto, re-export -- ver M5/M7 en PLAN_MODULOS.md).
+    // nombre no exportado (incluida la exportación por defecto o un miembro
+    // de namespace), import circular, módulo importado que nunca usa
+    // "exportar", uso indebido de un import de namespace ("ns" sin calificar
+    // o calificando un nombre que no exporta), o re-export todavía no
+    // implementado (ver M7 en PLAN_MODULOS.md).
     static std::unique_ptr<Programa> resolverProyecto(std::unique_ptr<Programa> entrada,
                                                         const std::string& rutaEntrada);
 };

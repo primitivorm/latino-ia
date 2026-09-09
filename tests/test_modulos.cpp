@@ -432,6 +432,137 @@ static void prueba_import_memoizado_una_sola_vez() {
     CHECK(apariciones == 1, "el modulo compartido por dos importadores se procesa una sola vez");
 }
 
+// ---------------------------------------------------------------------------
+// M5 — import de espacio de nombres ("importar * como ns desde ...") y
+// import por defecto ("importar Nombre desde ..." + "exportar por defecto").
+// ---------------------------------------------------------------------------
+
+static void prueba_import_espacio_de_nombres() {
+    escribirArchivoM4("geo_ns_m5.lat",
+        "exportar funcion area_circulo(r)\n"
+        "  retornar r * r\n"
+        "fin\n"
+        "funcion normalizar(r)\n"
+        "  retornar r\n"
+        "fin\n");
+
+    std::string rutaEntrada = escribirArchivoM4("main_ns_m5.lat",
+        "importar * como geo desde \"geo_ns_m5.lat\"\n"
+        "escribir(geo.area_circulo(2))\n");
+
+    auto entrada = parsear(
+        "importar * como geo desde \"geo_ns_m5.lat\"\n"
+        "escribir(geo.area_circulo(2))\n");
+    auto resultado = ResolutorModulos::resolverProyecto(std::move(entrada), rutaEntrada);
+    CHECK(resultado != nullptr, "import de namespace resuelve sin error");
+    if (!resultado) return;
+
+    std::string t = volcar(*resultado);
+    CHECK(contiene(t, "Identificador '__mod_") && contiene(t, "geo_ns_m5_lat__area_circulo'"),
+          "'geo.area_circulo' se reescribe al nombre interno de area_circulo");
+    CHECK(!contiene(t, "AccesoMiembro '.area_circulo'"),
+          "el AccesoMiembro 'geo.area_circulo' no sobrevive a la reescritura");
+}
+
+static void prueba_import_espacio_de_nombres_miembro_no_exportado() {
+    escribirArchivoM4("geo_ns_priv_m5.lat",
+        "exportar funcion area_circulo(r)\n"
+        "  retornar r * r\n"
+        "fin\n"
+        "funcion normalizar(r)\n"
+        "  retornar r\n"
+        "fin\n");
+
+    std::string rutaEntrada = escribirArchivoM4("main_ns_priv_m5.lat",
+        "importar * como geo desde \"geo_ns_priv_m5.lat\"\n"
+        "escribir(geo.normalizar(2))\n");
+
+    auto entrada = parsear(
+        "importar * como geo desde \"geo_ns_priv_m5.lat\"\n"
+        "escribir(geo.normalizar(2))\n");
+
+    std::ostringstream cap;
+    std::streambuf* viejo = std::cerr.rdbuf(cap.rdbuf());
+    auto resultado = ResolutorModulos::resolverProyecto(std::move(entrada), rutaEntrada);
+    std::cerr.rdbuf(viejo);
+
+    CHECK(resultado == nullptr, "calificar un nombre no exportado por el namespace falla");
+    CHECK(contiene(cap.str(), "geo.normalizar") && contiene(cap.str(), "no esta exportado"),
+          "el mensaje identifica el miembro calificado no exportado");
+}
+
+static void prueba_import_espacio_de_nombres_uso_sin_calificar() {
+    escribirArchivoM4("geo_ns_bare_m5.lat",
+        "exportar funcion area_circulo(r)\n"
+        "  retornar r * r\n"
+        "fin\n");
+
+    std::string rutaEntrada = escribirArchivoM4("main_ns_bare_m5.lat",
+        "importar * como geo desde \"geo_ns_bare_m5.lat\"\n"
+        "escribir(geo)\n");
+
+    auto entrada = parsear(
+        "importar * como geo desde \"geo_ns_bare_m5.lat\"\n"
+        "escribir(geo)\n");
+
+    std::ostringstream cap;
+    std::streambuf* viejo = std::cerr.rdbuf(cap.rdbuf());
+    auto resultado = ResolutorModulos::resolverProyecto(std::move(entrada), rutaEntrada);
+    std::cerr.rdbuf(viejo);
+
+    CHECK(resultado == nullptr, "usar el alias de namespace sin calificar falla");
+    CHECK(contiene(cap.str(), "'geo' no es un import de espacio de nombres"),
+          "el mensaje identifica el uso indebido del alias de namespace");
+}
+
+static void prueba_import_por_defecto() {
+    escribirArchivoM4("config_def_m5.lat",
+        "exportar por defecto funcion saludar(nombre)\n"
+        "  retornar \"Hola, \" .. nombre\n"
+        "fin\n");
+
+    std::string rutaEntrada = escribirArchivoM4("main_def_m5.lat",
+        "importar Saludar desde \"config_def_m5.lat\"\n"
+        "escribir(Saludar(\"Ana\"))\n");
+
+    auto entrada = parsear(
+        "importar Saludar desde \"config_def_m5.lat\"\n"
+        "escribir(Saludar(\"Ana\"))\n");
+    auto resultado = ResolutorModulos::resolverProyecto(std::move(entrada), rutaEntrada);
+    CHECK(resultado != nullptr, "import por defecto resuelve sin error");
+    if (!resultado) return;
+
+    std::string t = volcar(*resultado);
+    CHECK(contiene(t, "Identificador '__mod_") && contiene(t, "config_def_m5_lat__saludar'"),
+          "el alias local 'Saludar' se reescribe al nombre interno de la funcion por defecto");
+    CHECK(!contiene(t, "Identificador 'Saludar'"),
+          "el alias local sin reescribir no sobrevive en el arbol final");
+}
+
+static void prueba_import_por_defecto_sin_export_default() {
+    escribirArchivoM4("sin_default_m5.lat",
+        "exportar funcion f(x)\n"
+        "  retornar x\n"
+        "fin\n");
+
+    std::string rutaEntrada = escribirArchivoM4("main_sin_default_m5.lat",
+        "importar F desde \"sin_default_m5.lat\"\n"
+        "escribir(F(1))\n");
+
+    auto entrada = parsear(
+        "importar F desde \"sin_default_m5.lat\"\n"
+        "escribir(F(1))\n");
+
+    std::ostringstream cap;
+    std::streambuf* viejo = std::cerr.rdbuf(cap.rdbuf());
+    auto resultado = ResolutorModulos::resolverProyecto(std::move(entrada), rutaEntrada);
+    std::cerr.rdbuf(viejo);
+
+    CHECK(resultado == nullptr, "importar por defecto un modulo sin 'exportar por defecto' falla");
+    CHECK(contiene(cap.str(), "no tiene 'exportar por defecto'"),
+          "el mensaje indica que el modulo no tiene exportacion por defecto");
+}
+
 int main() {
     prueba_slug_desde_ruta();
     prueba_participa_de_modulos();
@@ -449,6 +580,12 @@ int main() {
     prueba_import_modulo_inexistente();
     prueba_import_circular();
     prueba_import_memoizado_una_sola_vez();
+
+    prueba_import_espacio_de_nombres();
+    prueba_import_espacio_de_nombres_miembro_no_exportado();
+    prueba_import_espacio_de_nombres_uso_sin_calificar();
+    prueba_import_por_defecto();
+    prueba_import_por_defecto_sin_export_default();
 
     std::cout << "\nComprobaciones: " << g_checks
               << "   Fallos: " << g_fallos << std::endl;
