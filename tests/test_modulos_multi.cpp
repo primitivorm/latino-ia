@@ -1,5 +1,7 @@
 // test_modulos_multi.cpp — Pruebas de extremo a extremo de PLAN_MODULOS.md
-// (M4: "importar { a, b como c } desde \"ruta\"" entre archivos reales).
+// (M4: "importar { a, b como c } desde \"ruta\"" entre archivos reales; M5:
+// "importar * como ns desde ..." e "importar Nombre desde ..." + "exportar
+// por defecto").
 //
 // A diferencia de test_modulos_e2e.cpp (un solo archivo, sin "importar"),
 // cada caso aquí escribe uno o más archivos .lat auxiliares junto al de
@@ -93,6 +95,44 @@ static const harness::CasoTestMulti CASOS[] = {
           "importar { valor_base } desde \"base_mm.lat\"\n"
           "exportar funcion desde_puente()\n"
           "  retornar valor_base()\n"
+          "fin\n" } } },
+
+    // M5 — import de espacio de nombres: "geo.X" se resuelve en tiempo de
+    // compilacion al nombre interno de X, sin diccionario "geo" en runtime.
+    { "modmulti_import_namespace",
+      "importar * como geo desde \"geo_ns_mm.lat\"\n"
+      "escribir(geo.area_circulo(2))\n",
+      "12.56",
+      { { "geo_ns_mm.lat",
+          "exportar funcion area_circulo(r)\n"
+          "  retornar 3.14 * r * r\n"
+          "fin\n" } } },
+
+    // Namespace calificando una constante exportada (no solo funciones):
+    // "geo.PI" tambien se resuelve al nombre interno. Se lee a nivel
+    // superior (no dentro de una funcion): Latino no soporta hoy leer una
+    // variable/const de nivel superior desde dentro de una funcion, ver el
+    // hallazgo de M3 en PLAN_MODULOS.md -- limitacion preexistente del
+    // lenguaje, no de este resolutor. (Calificar un nombre de clase en
+    // "nuevo geo.Clase(...)" es una interaccion POO/modulos que queda fuera
+    // de alcance de M5 -- ver PLAN_MODULOS.md, M6: "nuevo" solo acepta hoy
+    // un identificador simple, no un nombre calificado.)
+    { "modmulti_import_namespace_constante",
+      "importar * como geo desde \"geo_const_ns_mm.lat\"\n"
+      "escribir(geo.PI)\n",
+      "3.14",
+      { { "geo_const_ns_mm.lat",
+          "exportar const PI = 3.14\n" } } },
+
+    // M5 — import por defecto: "importar Nombre desde ..." se resuelve
+    // contra la entrada especial "__defecto__" de la tabla de exportacion.
+    { "modmulti_import_por_defecto",
+      "importar Saludar desde \"saludo_mm.lat\"\n"
+      "escribir(Saludar(\"Ana\"))\n",
+      "Hola, Ana",
+      { { "saludo_mm.lat",
+          "exportar por defecto funcion saludar(nombre)\n"
+          "  retornar \"Hola, \" .. nombre\n"
           "fin\n" } } },
 
 };

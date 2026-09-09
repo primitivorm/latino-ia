@@ -614,7 +614,85 @@ archivos, y memoización (un módulo importado por dos importadores distintos
 se procesa una sola vez — verificado contando ocurrencias de un literal
 único de ese módulo en el `Programa` final).
 
-Siguiente paso: M5 (import de namespace `importar * como ns` — incluye
-reescribir `ns.X`, un `AccesoMiembro` cuyo objeto es un `Identificador`, al
-nombre interno de `X`, cosa que `ReescritorReferencias` no maneja todavía
-— y de import por defecto `importar Nombre desde "ruta"`).
+M5 completa (import de namespace y por defecto): `ResolutorProyecto::
+procesarModulo` ya no rechaza `TipoImportar::Espacio`/`PorDefecto` (el
+rechazo explícito citando esta fase, agregado en M4, se reemplazó por la
+resolución real). Import por defecto (`importar Nombre desde "ruta"`) se
+resuelve igual que un import nombrado: busca la clave especial
+`"__defecto__"` en la tabla de exportación del módulo referenciado y agrega
+`nombreLocal → nombre_interno` a `propias.renombres` — mismo mecanismo, sin
+nodos ni pasada nueva. Error si el módulo no tiene `exportar por defecto`:
+`el modulo 'X.lat' no tiene 'exportar por defecto'`.
+
+Import de namespace (`importar * como ns desde "ruta"`) sí requirió una
+pieza nueva: `ns.X` no es una simple sustitución de nombre (no hay ningún
+identificador de nivel superior llamado `ns.X`), sino un `AccesoMiembro`
+completo — `objeto` = `Identificador("ns")`, `miembro` = `"X"` — que debe
+reescribirse *como nodo* a un `Identificador` nuevo con el nombre interno de
+`X`. `ReescritorReferencias` (que hasta M4 solo mutaba campos `std::string`
+dentro de nodos ya existentes) ganó `visitarExpr(ExprPtr&)`: en vez de
+`campo->aceptar(*this)` sobre el `Expresion` apuntado, cada sitio del
+visitante que posee una ranura `ExprPtr` propia (había que auditar y migrar
+~20 sitios: `Binaria::izq/der`, `Llamada::destino`/`argumentos`,
+`Asignacion::valores`/`destinos`, condiciones de `Si`/`Elegir`/`Mientras`/
+`Repetir`/`Desde`, `Retornar::valor`, elementos de `ListaLiteral`/
+`DiccionarioLiteral`, `CampoDef::valorDefecto`, etc. — la lista completa de
+`Sentencia`/`Expresion` con campos `ExprPtr` en `include/ast.h`) pasa por
+`visitarExpr`, que puede reasignar el `unique_ptr` del padre en vez de solo
+mutar el nodo apuntado. `visitarExpr` detecta el patrón (`AccesoMiembro` con
+`objeto` = `Identificador` cuyo nombre es un alias de namespace conocido,
+sin sombrear) y reemplaza el nodo completo por el `Identificador` renombrado
+si el miembro está en la tabla de exportación, o reporta
+`'ns.miembro' no esta exportado por 'modulo.lat'` si no. Un uso de `ns` sin
+calificar (el propio `Identificador` `ns` como valor, no como objeto de un
+`AccesoMiembro`) reporta `'ns' no es un import de espacio de nombres` desde
+`renombrarUso` (ambos casos respetan sombreado: un parámetro/local llamado
+igual que un alias de namespace lo sombrea, igual que sombrea un nombre
+renombrado normal). `ReescritorReferencias` ganó `tuvoError()` para que
+`ResolutorProyecto` pueda detectar estos dos errores nuevos (antes la clase
+no tenía forma de fallar; toda validación ocurría antes de construirla).
+
+Hallazgo de esta fase (bug propio, no de diseño): el primer intento pasó el
+mapa de namespaces por `const&` con un parámetro por defecto `= {}` en el
+constructor de `ReescritorReferencias`, para no tener que tocar la llamada
+de M3 (`resolverModuloUnico`, sin imports). Eso crea una referencia
+colgante: el `{}` es un temporal que vive solo hasta el fin de la
+expresión-llamada al constructor, pero el miembro `namespaces_` (una
+referencia) sobrevive al propio objeto `ReescritorReferencias` — todo uso
+posterior de `namespaces_` es comportamiento indefinido (se manifestó como
+segfault en `test_modulos` y como fallos de compilación con código de
+retorno "-1073741819"/0xC0000005 en los casos *M3* de `test_modulos_e2e`,
+ninguno de los cuales usa `importar` — la ruta de M3 pasa por el mismo
+constructor con el argumento por defecto). Arreglo: `namespaces_` pasó de
+`const&` a valor propio (`std::unordered_map<...> namespaces_`, tomado por
+valor en el constructor y movido al miembro) — sin este error no habría
+sido evidente solo con revisión de código, ctest lo detectó de inmediato en
+la primera corrida de `test_modulos`/`test_modulos_e2e` tras el cambio.
+
+Alcance de esta fase, tal como lo definió el plan: `nuevo ns.Clase(...)`
+(calificar un nombre de *tipo* con namespace, no una función/constante) NO
+se probó — `Parser::parseNuevo` solo acepta un `Identificador` simple
+después de `nuevo` (`error("se esperaba el nombre de la clase después de
+'nuevo'")` si no lo es), así que `nuevo geo.Circulo(3)` (el ejemplo textual
+de "Sintaxis propuesta" en este plan) hoy es un error de sintaxis, no
+solo de resolución. Namespace calificando una función o una
+constante/variable de nivel superior (`geo.area_circulo(...)`, `geo.PI`) sí
+está cubierto y probado end-to-end (`tests/test_modulos_multi.cpp`,
+`modmulti_import_namespace`/`_constante`). Extender `nuevo`/`es`/anotaciones
+de tipo para aceptar un nombre calificado por namespace queda para M6
+("Interacción con POO"), que ya preveía auditar referencias de tipo por
+nombre en `CampoDef::tipoClase`/`tipoRetornoClase`/etc.
+
+Pruebas: `tests/test_modulos.cpp` (unitarias: namespace exitoso con
+`ImpresorAST` volcando el `Identificador` renombrado en vez del
+`AccesoMiembro` original, miembro no exportado por el namespace, uso sin
+calificar del alias, import por defecto exitoso, módulo sin `exportar por
+defecto`) y `tests/test_modulos_multi.cpp` (E2E reales vía `latino`:
+`modmulti_import_namespace` — función a través de `geo.area_circulo`,
+`modmulti_import_namespace_constante` — `geo.PI` leído a nivel superior,
+ver limitación de lectura de top-level dentro de función documentada en
+M3, y `modmulti_import_por_defecto`).
+
+Siguiente paso: M6 (interacción con módulos y POO — herencia/interfaz
+importada desde otro módulo, tipos anotados de una clase importada, y la
+limitación de `nuevo ns.Clase(...)` recién encontrada).
