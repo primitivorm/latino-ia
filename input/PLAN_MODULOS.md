@@ -693,6 +693,88 @@ defecto`) y `tests/test_modulos_multi.cpp` (E2E reales vía `latino`:
 ver limitación de lectura de top-level dentro de función documentada en
 M3, y `modmulti_import_por_defecto`).
 
-Siguiente paso: M6 (interacción con módulos y POO — herencia/interfaz
-importada desde otro módulo, tipos anotados de una clase importada, y la
-limitación de `nuevo ns.Clase(...)` recién encontrada).
+M6 completa (interacción con módulos y POO): dos piezas.
+
+Primero, se confirmó con pruebas nuevas (sin cambio de código) que herencia
+(`extiende`), interfaces (`implementa`) y tipos anotados
+(`CampoDef::tipoClase`, `tipoRetornoClase`, `ParamFuncion::tipoClase`) que
+referencian un nombre importado **sin** namespace (`importar { Figura,
+Dibujable } desde "..."`) ya funcionaban desde M4: `padre`/`interfaces`/
+`tipoClase` son el mismo tipo de referencia por nombre de tipo que
+`NuevoExpr::clase`/`EsExpr::clase`, y `ReescritorReferencias::renombrarTipo`
+ya los reescribía contra el mapa `renombres_` fusionado (propios + import)
+desde que M4 introdujo ese mapa fusionado — no había ningún caso especial
+pendiente, solo faltaba la prueba que lo confirmara.
+
+Segundo, se implementó lo que sí faltaba: nombre de tipo calificado por
+**namespace** (`nuevo ns.Clase(...)`, `expr es ns.Clase`, `extiende
+ns.Clase`, `implementa ns.Iface`, y `ns.Tipo` en `CampoDef`/parámetro/
+retorno), bloqueado hasta ahora porque `Parser::parseNuevo` y los demás
+sitios que leen un nombre de tipo solo aceptaban un `Identificador` simple
+(ver el hallazgo de M5). Se agregó `Parser::parseNombreTipoCalificado()`
+(`include/parser.h`, `src/parser.cpp`): consume el `Identificador` base y,
+mientras siga un operador `.`, encadena `.Identificador` al resultado (p.
+ej. `"geo.Circulo"`), sin nodo de AST nuevo — sigue siendo el mismo
+`std::string` suelto que ya usaban `NuevoExpr::clase`, `EsExpr::clase`,
+`ClaseDef::padre`/`interfaces`, `CampoDef::tipoClase`,
+`FuncionDef`/`MetodoDef::tipoRetornoClase` y `ParamFuncion::tipoClase`; los
+7 sitios de parseo de esos campos se migraron a este helper. Del lado del
+resolutor, `ReescritorReferencias::renombrarTipo` (`src/resolutor_modulos.cpp`)
+gana el mismo tratamiento que ya tenía `visitarExpr` para `ns.X` como valor,
+pero más simple: como el nombre de tipo es un `std::string` suelto (no una
+expresión), no hace falta reemplazar ningún nodo del AST -- solo partir el
+string en `.`, buscar el namespace en `namespaces_` y el miembro en su tabla
+de exportación, y reescribir el string completo al nombre interno resuelto
+(o reportar `'ns' no es un import de espacio de nombres'` /
+`'ns.miembro' no esta exportado por '...'`, mismos mensajes que ya usaba el
+caso de valor).
+
+Alcance verificado explícitamente por el plan original de M6: clase
+exportada con herencia de una clase exportada de *otro* módulo, interfaz
+exportada implementada desde otro módulo, y parámetros/retorno con tipo
+anotado de una clase importada -- las tres variantes probadas primero sin
+namespace (M4) y luego con namespace (`nuevo ns.Clase(...)`/`extiende
+ns.Clase`, la limitación específica que había quedado abierta en M5).
+
+Hallazgo de esta fase (no un bug, un límite ya existente del lenguaje que
+solo se hizo visible al escribir las pruebas): una `interfaz` no declara
+`este` como parámetro explícito de sus firmas de método (a diferencia del
+ejemplo ilustrativo `funcion area(este)` de la sección "Sintaxis propuesta"
+de este plan, que nunca fue literal) -- `este` es una palabra reservada y
+`Parser::parseMetodoDef` exige un `Identificador` para cada parámetro, así
+que una firma de interfaz debe escribirse `funcion area(): numero`, igual
+que ya lo hacía `tests/test_poo.cpp` (`prueba_parser_interfaz`). Además,
+`resolverModuloUnico` (M3, ruta sin ningún `importar`/`exportar ... desde`
+de nivel superior) nunca revisó `ReescritorReferencias::tuvoError()` -- no
+es una regresión de esta fase (nunca tuvo un caso que pudiera fallar antes
+de M6, porque un nombre calificado por namespace solo puede aparecer si el
+archivo tiene al menos un `importar`, lo que lo saca de la ruta
+`resolverModuloUnico` hacia `ResolutorProyecto`), pero significa que un
+`ns.Tipo` calificado escrito por error en un archivo sin ningún `importar`
+no aborta la compilación: el error se imprime por `stderr` pero el nombre
+calificado queda sin reescribir en el árbol, y recién `AnalizadorSemantico`
+lo rechaza más adelante como "tipo desconocido" con un nombre confuso
+(`ns.Tipo` literal). Documentado con una prueba explícita
+(`prueba_tipo_calificado_con_alias_que_no_es_namespace`) en vez de
+arreglarse: es el mismo límite ya aceptado para `resolverModuloUnico` desde
+M3, no algo que este plan se propuso corregir.
+
+Pruebas: `tests/test_modulos.cpp` (5 pruebas unitarias nuevas —
+extiende/implementa/tipo-en-campo-y-retorno con import nombrado sin
+namespace; `nuevo`/`es` con nombre calificado por namespace; `extiende` con
+nombre calificado por namespace; namespace calificando un tipo no exportado
+→ error; namespace-alias inexistente en un tipo → error detectado pero no
+abortado por `resolverModuloUnico`) y `tests/test_modulos_multi.cpp` (4
+casos E2E nuevos vía `latino` real, backends `c` y `llvm`:
+`modmulti_poo_extiende_clase_importada`,
+`modmulti_poo_implementa_interfaz_importada`,
+`modmulti_poo_tipo_campo_y_retorno_importado`,
+`modmulti_poo_namespace_nuevo_y_extiende`). `AnalizadorSemantico`/
+`GeneradorC`/`GeneradorLLVM` siguen sin cambios (Decisión de diseño 3): el
+único código nuevo vive en el parser (produce el nombre de tipo calificado)
+y en `ResolutorModulos` (lo resuelve antes de que esas etapas vean el
+`Programa`).
+
+Siguiente paso: M7 (re-export/barril, opcional, puede diferirse) o M8
+(documentación y cierre: sección nueva en `SINTAXIS.md`, entrada de estado
+final en `CLAUDE.md`, pase completo de `ctest` en serie).

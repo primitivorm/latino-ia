@@ -135,6 +135,108 @@ static const harness::CasoTestMulti CASOS[] = {
           "  retornar \"Hola, \" .. nombre\n"
           "fin\n" } } },
 
+    // --- M6: interacción con POO -------------------------------------------
+
+    // Herencia (extiende) + polimorfismo + 'es', con la clase padre importada
+    // por nombre (sin namespace) desde otro módulo.
+    { "modmulti_poo_extiende_clase_importada",
+      "importar { Animal } desde \"animal_mm.lat\"\n"
+      "clase Perro extiende Animal\n"
+      "    funcion Perro(nombre: cadena)\n"
+      "        base(nombre)\n"
+      "    fin\n"
+      "    publico funcion hablar(): cadena sobreescribir\n"
+      "        retornar este.nombre .. \" dice: Guau\"\n"
+      "    fin\n"
+      "fin\n"
+      "p = nuevo Perro(\"Rex\")\n"
+      "escribir(p.hablar())\n"
+      "si p es Animal\n"
+      "    escribir(\"Es un animal\")\n"
+      "fin\n",
+      "Rex dice: Guau Es un animal",
+      { { "animal_mm.lat",
+          "exportar clase Animal\n"
+          "    publico nombre: cadena\n"
+          "    funcion Animal(nombre: cadena)\n"
+          "        este.nombre = nombre\n"
+          "    fin\n"
+          "    publico funcion hablar(): cadena\n"
+          "        retornar este.nombre .. \" hace un sonido\"\n"
+          "    fin\n"
+          "fin\n" } } },
+
+    // Interfaz importada (implementa) desde otro módulo.
+    { "modmulti_poo_implementa_interfaz_importada",
+      "importar { IImprimible } desde \"iimprimible_mm.lat\"\n"
+      "clase Producto implementa IImprimible\n"
+      "    publico nombre: cadena\n"
+      "    funcion Producto(nombre: cadena)\n"
+      "        este.nombre = nombre\n"
+      "    fin\n"
+      "    publico funcion aCadena(): cadena\n"
+      "        retornar este.nombre\n"
+      "    fin\n"
+      "fin\n"
+      "p = nuevo Producto(\"Pan\")\n"
+      "escribir(p.aCadena())\n",
+      "Pan",
+      { { "iimprimible_mm.lat",
+          "exportar interfaz IImprimible\n"
+          "    funcion aCadena(): cadena\n"
+          "fin\n" } } },
+
+    // Campo y tipo de retorno anotados con una clase importada (sin
+    // namespace) -- confirma que el mangling alcanza CampoDef::tipoClase y
+    // tipoRetornoClase, no solo el nombre de la clase en sí.
+    { "modmulti_poo_tipo_campo_y_retorno_importado",
+      "importar { Figura } desde \"figura_tipo_mm.lat\"\n"
+      "clase Contenedor\n"
+      "    publico contenida: Figura\n"
+      "    funcion Contenedor(f: Figura)\n"
+      "        este.contenida = f\n"
+      "    fin\n"
+      "    funcion obtener(): Figura\n"
+      "        retornar este.contenida\n"
+      "    fin\n"
+      "fin\n"
+      "f = nuevo Figura()\n"
+      "c = nuevo Contenedor(f)\n"
+      "escribir(c.obtener().area())\n",
+      "0",
+      { { "figura_tipo_mm.lat",
+          "exportar clase Figura\n"
+          "    publico funcion area(): numero\n"
+          "        retornar 0\n"
+          "    fin\n"
+          "fin\n" } } },
+
+    // 'nuevo ns.Clase(...)' y 'extiende ns.Clase' (nombre de tipo calificado
+    // por namespace, ver "Alcance de esta fase" de M5 en PLAN_MODULOS.md:
+    // hasta M6 esto era un error de sintaxis).
+    { "modmulti_poo_namespace_nuevo_y_extiende",
+      "importar * como geo desde \"figura_ns_mm.lat\"\n"
+      "clase Cuadrado extiende geo.Figura\n"
+      "    publico lado: numero\n"
+      "    funcion Cuadrado(lado: numero)\n"
+      "        este.lado = lado\n"
+      "    fin\n"
+      "    publico funcion area(): numero sobreescribir\n"
+      "        retornar este.lado * este.lado\n"
+      "    fin\n"
+      "fin\n"
+      "c = nuevo Cuadrado(5)\n"
+      "f = nuevo geo.Figura()\n"
+      "escribir(c.area())\n"
+      "escribir(f.area())\n",
+      "25 0",
+      { { "figura_ns_mm.lat",
+          "exportar clase Figura\n"
+          "    publico funcion area(): numero\n"
+          "        retornar 0\n"
+          "    fin\n"
+          "fin\n" } } },
+
 };
 
 int main(int argc, char* argv[]) {

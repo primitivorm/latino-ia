@@ -54,6 +54,16 @@ private:
     // TipoAnotado. Devuelve TipoAnotado::Ninguno si no es un tipo reconocido.
     static TipoAnotado mapearNombreTipo(const std::string& nombre);
 
+    // Nombre de tipo/clase posiblemente calificado por namespace de módulo
+    // (PLAN_MODULOS.md M6: "ns.Clase", ver "importar * como ns"). Asume que
+    // `actual` ya es el Identificador base (verificado por el llamador);
+    // consume ese identificador y, mientras siga un '.', encadena
+    // ".Identificador" al resultado (p. ej. "geo.Circulo"). Usado en todo
+    // punto donde el AST guarda un nombre de tipo como std::string suelto:
+    // NuevoExpr::clase, EsExpr::clase, ClaseDef::padre/interfaces,
+    // CampoDef::tipoClase, tipoRetornoClase, ParamFuncion::tipoClase.
+    std::string parseNombreTipoCalificado();
+
     // --- Sentencias ---
     std::unique_ptr<Programa> parsePrograma();
     SentPtr parseSentencia();

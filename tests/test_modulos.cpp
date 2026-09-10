@@ -563,6 +563,200 @@ static void prueba_import_por_defecto_sin_export_default() {
           "el mensaje indica que el modulo no tiene exportacion por defecto");
 }
 
+// ---------------------------------------------------------------------------
+// M6 — interacción con POO: herencia/interfaz/tipos anotados que cruzan
+// módulos (import nombrado sin namespace) y nombre de tipo calificado por
+// namespace ("nuevo ns.Clase(...)", "expr es ns.Clase", "extiende ns.Clase")
+// -- ver la limitación anotada en el "Alcance de esta fase" de M5 en
+// PLAN_MODULOS.md: hasta M6, "nuevo"/"es"/"extiende"/"implementa" solo
+// aceptaban un Identificador simple.
+// ---------------------------------------------------------------------------
+
+static void prueba_import_nombrado_extiende_implementa_y_tipo_en_campo() {
+    escribirArchivoM4("figuras_m6.lat",
+        "exportar interfaz Dibujable\n"
+        "  funcion area(): numero\n"
+        "fin\n"
+        "exportar clase Figura\n"
+        "  funcion area()\n"
+        "    retornar 0\n"
+        "  fin\n"
+        "fin\n");
+
+    std::string rutaEntrada = escribirArchivoM4("main_herencia_m6.lat",
+        "importar { Figura, Dibujable } desde \"figuras_m6.lat\"\n"
+        "exportar clase Circulo extiende Figura implementa Dibujable\n"
+        "  publico plantilla: Figura\n"
+        "  funcion obtener(): Figura\n"
+        "    retornar este.plantilla\n"
+        "  fin\n"
+        "fin\n");
+
+    auto entrada = parsear(
+        "importar { Figura, Dibujable } desde \"figuras_m6.lat\"\n"
+        "exportar clase Circulo extiende Figura implementa Dibujable\n"
+        "  publico plantilla: Figura\n"
+        "  funcion obtener(): Figura\n"
+        "    retornar este.plantilla\n"
+        "  fin\n"
+        "fin\n");
+    auto resultado = ResolutorModulos::resolverProyecto(std::move(entrada), rutaEntrada);
+    CHECK(resultado != nullptr,
+          "clase que extiende/implementa/tipa un campo y un retorno con nombres importados resuelve sin error");
+    if (!resultado) return;
+
+    std::string t = volcar(*resultado);
+    CHECK(contiene(t, "extiende __mod_") && contiene(t, "figuras_m6_lat__Figura"),
+          "'extiende Figura' reescrito al nombre interno del modulo importado");
+    CHECK(contiene(t, "implementa __mod_") && contiene(t, "figuras_m6_lat__Dibujable"),
+          "'implementa Dibujable' reescrito al nombre interno del modulo importado");
+    CHECK(contiene(t, "Campo 'plantilla' [publico]: __mod_") && contiene(t, "figuras_m6_lat__Figura"),
+          "tipo de campo importado reescrito al nombre interno");
+    CHECK(contiene(t, "-> __mod_") && contiene(t, "figuras_m6_lat__Figura"),
+          "tipo de retorno importado reescrito al nombre interno");
+}
+
+static void prueba_import_namespace_nuevo_y_es_con_clase_calificada() {
+    escribirArchivoM4("figuras_ns_m6.lat",
+        "exportar clase Figura\n"
+        "  funcion area()\n"
+        "    retornar 0\n"
+        "  fin\n"
+        "fin\n"
+        "exportar clase Circulo extiende Figura\n"
+        "  publico r: numero\n"
+        "  funcion Circulo(r: numero)\n"
+        "    este.r = r\n"
+        "  fin\n"
+        "fin\n");
+
+    std::string rutaEntrada = escribirArchivoM4("main_ns_nuevo_m6.lat",
+        "importar * como geo desde \"figuras_ns_m6.lat\"\n"
+        "funcion crear(r)\n"
+        "  c = nuevo geo.Circulo(r)\n"
+        "  si c es geo.Figura\n"
+        "    retornar c\n"
+        "  fin\n"
+        "  retornar nulo\n"
+        "fin\n");
+
+    auto entrada = parsear(
+        "importar * como geo desde \"figuras_ns_m6.lat\"\n"
+        "funcion crear(r)\n"
+        "  c = nuevo geo.Circulo(r)\n"
+        "  si c es geo.Figura\n"
+        "    retornar c\n"
+        "  fin\n"
+        "  retornar nulo\n"
+        "fin\n");
+    auto resultado = ResolutorModulos::resolverProyecto(std::move(entrada), rutaEntrada);
+    CHECK(resultado != nullptr, "'nuevo ns.Clase(...)' y 'expr es ns.Clase' resuelven sin error");
+    if (!resultado) return;
+
+    std::string t = volcar(*resultado);
+    CHECK(contiene(t, "Nuevo '__mod_") && contiene(t, "figuras_ns_m6_lat__Circulo'"),
+          "'nuevo geo.Circulo' reescrito al nombre interno de Circulo");
+    CHECK(contiene(t, "Es '__mod_") && contiene(t, "figuras_ns_m6_lat__Figura'"),
+          "'es geo.Figura' reescrito al nombre interno de Figura");
+    CHECK(!contiene(t, "geo.Circulo") && !contiene(t, "geo.Figura"),
+          "no debe quedar ningun 'geo.X' sin resolver en el arbol final");
+}
+
+static void prueba_import_namespace_extiende_con_clase_calificada() {
+    escribirArchivoM4("base_ns_m6.lat",
+        "exportar clase Figura\n"
+        "  funcion area()\n"
+        "    retornar 0\n"
+        "  fin\n"
+        "fin\n");
+
+    std::string rutaEntrada = escribirArchivoM4("main_ns_extiende_m6.lat",
+        "importar * como geo desde \"base_ns_m6.lat\"\n"
+        "exportar clase Circulo extiende geo.Figura\n"
+        "  funcion area()\n"
+        "    retornar 1\n"
+        "  fin\n"
+        "fin\n");
+
+    auto entrada = parsear(
+        "importar * como geo desde \"base_ns_m6.lat\"\n"
+        "exportar clase Circulo extiende geo.Figura\n"
+        "  funcion area()\n"
+        "    retornar 1\n"
+        "  fin\n"
+        "fin\n");
+    auto resultado = ResolutorModulos::resolverProyecto(std::move(entrada), rutaEntrada);
+    CHECK(resultado != nullptr, "'extiende ns.Clase' resuelve sin error");
+    if (!resultado) return;
+
+    std::string t = volcar(*resultado);
+    CHECK(contiene(t, "extiende __mod_") && contiene(t, "base_ns_m6_lat__Figura"),
+          "'extiende geo.Figura' reescrito al nombre interno de Figura");
+}
+
+static void prueba_import_namespace_tipo_calificado_miembro_no_exportado() {
+    escribirArchivoM4("priv_ns_m6.lat",
+        "exportar clase Figura\n"
+        "  funcion area()\n"
+        "    retornar 0\n"
+        "  fin\n"
+        "fin\n"
+        "clase Interna\n"
+        "  funcion area()\n"
+        "    retornar 0\n"
+        "  fin\n"
+        "fin\n");
+
+    std::string rutaEntrada = escribirArchivoM4("main_ns_priv_tipo_m6.lat",
+        "importar * como geo desde \"priv_ns_m6.lat\"\n"
+        "funcion crear()\n"
+        "  retornar nuevo geo.Interna()\n"
+        "fin\n");
+
+    auto entrada = parsear(
+        "importar * como geo desde \"priv_ns_m6.lat\"\n"
+        "funcion crear()\n"
+        "  retornar nuevo geo.Interna()\n"
+        "fin\n");
+
+    std::ostringstream cap;
+    std::streambuf* viejo = std::cerr.rdbuf(cap.rdbuf());
+    auto resultado = ResolutorModulos::resolverProyecto(std::move(entrada), rutaEntrada);
+    std::cerr.rdbuf(viejo);
+
+    CHECK(resultado == nullptr, "'nuevo geo.Interna(...)' con una clase no exportada falla");
+    CHECK(contiene(cap.str(), "geo.Interna") && contiene(cap.str(), "no esta exportado"),
+          "el mensaje identifica el tipo calificado no exportado");
+}
+
+static void prueba_tipo_calificado_con_alias_que_no_es_namespace() {
+    // "ajeno.Clase" como nombre de tipo, sin ningun "importar * como ajeno"
+    // -- mismo tratamiento que "ajeno.X" como valor: error, no un tipo
+    // desconocido silencioso.
+    std::string rutaEntrada = escribirArchivoM4("main_tipo_no_ns_m6.lat",
+        "funcion crear()\n"
+        "  retornar nuevo ajeno.Clase()\n"
+        "fin\n"
+        "exportar const X = 1\n");
+
+    auto entrada = parsear(
+        "funcion crear()\n"
+        "  retornar nuevo ajeno.Clase()\n"
+        "fin\n"
+        "exportar const X = 1\n");
+
+    std::ostringstream cap;
+    std::streambuf* viejo = std::cerr.rdbuf(cap.rdbuf());
+    auto resultado = ResolutorModulos::resolverProyecto(std::move(entrada), rutaEntrada);
+    std::cerr.rdbuf(viejo);
+
+    CHECK(resultado != nullptr,
+          "sin 'importar', resolverProyecto delega en resolverModuloUnico (no valida namespaces)");
+    CHECK(contiene(cap.str(), "'ajeno' no es un import de espacio de nombres"),
+          "renombrarTipo reporta el mismo error que un uso indebido de namespace como valor, "
+          "aunque resolverModuloUnico no aborte por el (limitacion preexistente, ver M3)");
+}
+
 int main() {
     prueba_slug_desde_ruta();
     prueba_participa_de_modulos();
@@ -586,6 +780,12 @@ int main() {
     prueba_import_espacio_de_nombres_uso_sin_calificar();
     prueba_import_por_defecto();
     prueba_import_por_defecto_sin_export_default();
+
+    prueba_import_nombrado_extiende_implementa_y_tipo_en_campo();
+    prueba_import_namespace_nuevo_y_es_con_clase_calificada();
+    prueba_import_namespace_extiende_con_clase_calificada();
+    prueba_import_namespace_tipo_calificado_miembro_no_exportado();
+    prueba_tipo_calificado_con_alias_que_no_es_namespace();
 
     std::cout << "\nComprobaciones: " << g_checks
               << "   Fallos: " << g_fallos << std::endl;
