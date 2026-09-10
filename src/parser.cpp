@@ -40,6 +40,19 @@ TipoAnotado Parser::mapearNombreTipo(const std::string& s) {
     return TipoAnotado::Objeto;
 }
 
+std::string Parser::parseNombreTipoCalificado() {
+    std::string nombre = actual.lexeme;
+    avanzar();
+    while (esOperador(".")) {
+        avanzar();
+        if (actual.type != TokenType::Identificador)
+            error("se esperaba un nombre después de '.'");
+        nombre += "." + actual.lexeme;
+        avanzar();
+    }
+    return nombre;
+}
+
 bool Parser::esEOF() const {
     return actual.type == TokenType::FinDeArchivo;
 }
@@ -378,8 +391,9 @@ SentPtr Parser::parseFuncion() {
                 if (param.tipo == TipoAnotado::Ninguno)
                     error("tipo no reconocido '" + actual.lexeme + "'");
                 if (param.tipo == TipoAnotado::Objeto)
-                    param.tipoClase = actual.lexeme;
-                avanzar();
+                    param.tipoClase = parseNombreTipoCalificado();
+                else
+                    avanzar();
             }
             nodo->parametros.push_back(std::move(param));
             if (esDelimitador(",")) { avanzar(); continue; }
@@ -397,8 +411,9 @@ SentPtr Parser::parseFuncion() {
         if (nodo->tipoRetorno == TipoAnotado::Ninguno)
             error("tipo de retorno no reconocido '" + actual.lexeme + "'");
         if (nodo->tipoRetorno == TipoAnotado::Objeto)
-            nodo->tipoRetornoClase = actual.lexeme;
-        avanzar();
+            nodo->tipoRetornoClase = parseNombreTipoCalificado();
+        else
+            avanzar();
     }
 
     nodo->cuerpo = parseBloque({"fin"});
@@ -754,8 +769,7 @@ ExprPtr Parser::parseRelacional() {
         avanzar();
         if (actual.type != TokenType::Identificador)
             error("se esperaba un nombre de clase después de 'es'");
-        std::string clase = actual.lexeme;
-        avanzar();
+        std::string clase = parseNombreTipoCalificado();
         auto n = std::make_unique<EsExpr>();
         n->objeto = std::move(e);
         n->clase = clase;
@@ -1000,8 +1014,7 @@ ExprPtr Parser::parseNuevo() {
         error("se esperaba el nombre de la clase después de 'nuevo'");
     auto nodo = std::make_unique<NuevoExpr>();
     nodo->linea = l;
-    nodo->clase = actual.lexeme;
-    avanzar();
+    nodo->clase = parseNombreTipoCalificado();
     esperarDelimitador("(");
     saltarNuevasLineas();
     if (!esDelimitador(")")) {
@@ -1050,8 +1063,9 @@ CampoDef Parser::parseCampoDef() {
     std::string tipoLex = actual.lexeme;
     c.tipoAnotado = mapearNombreTipo(tipoLex);
     if (c.tipoAnotado == TipoAnotado::Objeto)
-        c.tipoClase = tipoLex;
-    avanzar();
+        c.tipoClase = parseNombreTipoCalificado();
+    else
+        avanzar();
     if (esOperador("=")) {
         avanzar();
         c.valorDefecto = parseExpresion();
@@ -1096,8 +1110,9 @@ MetodoDef Parser::parseMetodoDef(const std::string& nombreClase, bool fuerzaAbst
                 if (param.tipo == TipoAnotado::Ninguno)
                     error("tipo no reconocido '" + actual.lexeme + "'");
                 if (param.tipo == TipoAnotado::Objeto)
-                    param.tipoClase = actual.lexeme;
-                avanzar();
+                    param.tipoClase = parseNombreTipoCalificado();
+                else
+                    avanzar();
             }
             m.parametros.push_back(std::move(param));
             if (esDelimitador(",")) { avanzar(); continue; }
@@ -1113,8 +1128,9 @@ MetodoDef Parser::parseMetodoDef(const std::string& nombreClase, bool fuerzaAbst
             error("se esperaba un tipo de retorno válido");
         m.tipoRetorno = mapearNombreTipo(actual.lexeme);
         if (m.tipoRetorno == TipoAnotado::Objeto)
-            m.tipoRetornoClase = actual.lexeme;
-        avanzar();
+            m.tipoRetornoClase = parseNombreTipoCalificado();
+        else
+            avanzar();
     }
 
     // Marcador 'sobreescribir' opcional
@@ -1149,8 +1165,7 @@ SentPtr Parser::parseClase(bool esAbstracta) {
         avanzar();
         if (actual.type != TokenType::Identificador)
             error("se esperaba el nombre de la clase padre después de 'extiende'");
-        padre = actual.lexeme;
-        avanzar();
+        padre = parseNombreTipoCalificado();
     }
 
     if (esReservada("implementa")) {
@@ -1158,8 +1173,7 @@ SentPtr Parser::parseClase(bool esAbstracta) {
         for (;;) {
             if (actual.type != TokenType::Identificador)
                 error("se esperaba un nombre de interfaz después de 'implementa'");
-            interfaces.push_back(actual.lexeme);
-            avanzar();
+            interfaces.push_back(parseNombreTipoCalificado());
             if (esDelimitador(",")) { avanzar(); continue; }
             break;
         }

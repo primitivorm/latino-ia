@@ -272,8 +272,32 @@ private:
 
     // Nombres de tipo (clases/estructuras/interfaces): espacio de nombres
     // distinto al de variables, nunca sombreado por un parámetro/local.
+    //
+    // M6: puede venir calificado por namespace ("ns.Clase", ver "importar *
+    // como ns" y Parser::parseNombreTipoCalificado) -- a diferencia de "ns.X"
+    // como valor (visitarExpr), acá no hace falta reemplazar ningún nodo de
+    // expresión: el nombre ya es un std::string suelto en el AST, así que
+    // basta con reescribir el string completo al nombre interno resuelto.
     void renombrarTipo(std::string& nombre) const {
         if (nombre.empty()) return;
+        auto punto = nombre.find('.');
+        if (punto != std::string::npos) {
+            std::string ns = nombre.substr(0, punto);
+            std::string miembro = nombre.substr(punto + 1);
+            auto itNs = namespaces_.find(ns);
+            if (itNs == namespaces_.end()) {
+                reportarError("'" + ns + "' no es un import de espacio de nombres");
+                return;
+            }
+            auto itMiembro = itNs->second.tabla->find(miembro);
+            if (itMiembro == itNs->second.tabla->end()) {
+                reportarError("'" + nombre + "' no esta exportado por '" +
+                               itNs->second.rutaMostrada + "'");
+                return;
+            }
+            nombre = itMiembro->second;
+            return;
+        }
         auto it = renombres_.find(nombre);
         if (it != renombres_.end()) nombre = it->second;
     }
