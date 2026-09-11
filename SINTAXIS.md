@@ -383,19 +383,102 @@ actores["Chilindrina"] = "Maria Antonieta"
 escribir(actores["Chilindrina"])
 #salida: Maria Antonieta
 ```
+## X. Módulos: `exportar` / `importar`
+
+Cada archivo `.lat` puede comportarse como un módulo con ámbito propio, al
+estilo de ES Modules/TypeScript. Si un archivo no usa ni `exportar` ni
+`importar`, sigue siendo un script plano de siempre, compatible con
+`incluir "archivo.lat"` — ese mecanismo no cambia y sigue siendo el
+indicado para librerías estándar (`incluir "cadena"`, etc.) y para scripts
+que no necesitan aislamiento de nombres.
+
+### Exportar
+
+Anteponer `exportar` a una declaración de nivel superior (función, clase,
+estructura, interfaz, `var`/`const` o asignación simple) la hace parte de
+la API pública del archivo. Toda declaración de nivel superior que **no**
+lleve `exportar` es privada a ese módulo y no puede importarse desde otro
+archivo.
+
+```python
+exportar const PI = 3.14159
+
+exportar funcion area_circulo(r)
+    retornar PI * r * r
+fin
+
+funcion normalizar_radio(r)     # privada: no visible desde otro archivo
+    retornar r < 0 ? 0 : r
+fin
+```
+
+También existe `exportar por defecto`, del cual solo puede haber uno por
+archivo, y que puede envolver una expresión, una función o una clase:
+
+```python
+exportar por defecto funcion saludar(nombre)
+    retornar "Hola, " .. nombre
+fin
+```
+
+### Importar
+
+```python
+# Nombrado, con alias opcional
+importar { area_circulo, Circulo } desde "geometria.lat"
+importar { area_circulo como area } desde "geometria.lat"
+
+# Espacio de nombres completo
+importar * como geo desde "geometria.lat"
+
+# Por defecto
+importar Config desde "config.lat"
+
+escribir(area_circulo(2))
+escribir(geo.area_circulo(2))
+c = nuevo geo.Circulo(3)
+```
+
+Un nombre calificado por namespace (`geo.X`) también puede usarse como tipo:
+`nuevo geo.Circulo(...)`, `expr es geo.Circulo`, `extiende geo.Circulo`,
+`implementa geo.Figura`, o como anotación de tipo de un campo/parámetro.
+
+Importar de un archivo que no exportó ese nombre es un error de
+compilación (`el módulo 'X.lat' no exporta 'nombre'`); importar de un
+archivo que nunca usó `exportar` también lo es, y sugiere `incluir` en su
+lugar. Los imports circulares también son un error de compilación, con la
+cadena de archivos involucrados.
+
+`exportar { X } desde "otro.lat"` (re-export/"barril", para reexportar
+piezas de otro módulo sin darles un nombre local en el archivo actual) se
+acepta en el parser, pero su resolución todavía no está implementada.
+
+### Palabras reservadas nuevas
+
+| Palabra | Uso |
+|---|---|
+| `exportar` | marca una declaración como parte de la API pública del módulo |
+| `importar` | trae nombres exportados de otro módulo al ámbito actual |
+| `como` | alias en `importar`/`exportar` (`X como Y`, `importar * como ns`) |
+
+(`desde` y `defecto` ya eran palabras reservadas antes de este mecanismo.)
+
 <a name="plbrsRvds"></a>
-## X. Palabras reservadas hasta el momento
+## XI. Palabras reservadas hasta el momento
 ```
 caso
 cierto  | verdadero
+como
 defecto | otro
 desde
 elegir
+exportar
 falso
 fin
 funcion | fun
 global
 hasta
+importar
 mientras
 nulo
 para

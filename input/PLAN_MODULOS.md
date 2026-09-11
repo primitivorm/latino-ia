@@ -775,6 +775,19 @@ casos E2E nuevos vía `latino` real, backends `c` y `llvm`:
 y en `ResolutorModulos` (lo resuelve antes de que esas etapas vean el
 `Programa`).
 
-Siguiente paso: M7 (re-export/barril, opcional, puede diferirse) o M8
-(documentación y cierre: sección nueva en `SINTAXIS.md`, entrada de estado
-final en `CLAUDE.md`, pase completo de `ctest` en serie).
+M8 completa (documentación y cierre): sección nueva "X. Módulos: `exportar`
+/ `importar`" en [SINTAXIS.md](../SINTAXIS.md) (con la tabla de palabras
+reservadas renumerada a "XI." y `exportar`/`importar`/`como` agregadas a la
+lista), entrada de estado final "Módulos: `exportar` / `importar` (en
+desarrollo)" en [CLAUDE.md](../CLAUDE.md) (mismo estilo que la sección de
+`PLAN_LLVM.md`) más `test_modulos`/`test_modulos_e2e`/`test_modulos_multi`
+agregadas a la tabla de suites de `CLAUDE.md`, y pase completo de `ctest`
+en serie confirmando que M1-M6 siguen en verde. M7 (re-export/barril) queda
+diferida indefinidamente tal como preveía el plan (opcional, no bloquea el
+cierre) — documentada en `SINTAXIS.md` como sintaxis aceptada por el parser
+pero sin resolución implementada.
+
+Plan cerrado. Las decisiones de diseño 1-8 se cumplieron sin desviaciones;
+el único punto que quedó fuera de v1 y explícitamente fuera de alcance
+desde el inicio es el re-export (M7) y los imports circulares "vivos" (ver
+"Fuera de alcance").
