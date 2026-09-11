@@ -68,7 +68,10 @@ Suites de prueba disponibles:
 | `test_poo_e2e` | Programas POO completos (Fase 28) |
 | `test_e2e` | Programas completos en `ejemplos/` |
 | `test_funciones_base` | Funciones built-in (`tipo`, `acadena`, etc.) |
-| `test_incluir` | Sistema de módulos |
+| `test_incluir` | Sistema de inclusión textual (`incluir "archivo.lat"`) |
+| `test_modulos` | Resolución unitaria de `exportar`/`importar` (Fase 30) |
+| `test_modulos_e2e` | Programas completos de un solo módulo con `exportar` (Fase 30) |
+| `test_modulos_multi` | Programas multi-archivo con `importar` (Fase 30) |
 | `test_lib_cadena` | Librería `cadena` |
 | `test_lib_lista` | Librería `lista` |
 | `test_lib_dic` | Librería `dic` |
@@ -246,6 +249,52 @@ usando `c` en vez del nuevo default `llvm`, preservando el uso documentado en
 README/CLAUDE.md sin romper la simetría de errores cuando el usuario sí pide
 `--backend llvm --solo-c`. L13 (retiro futuro de `GeneradorC`) sigue fuera de
 alcance temporal, sin cambios.
+
+## Módulos: `exportar` / `importar` (en desarrollo)
+
+Plan completo en [input/PLAN_MODULOS.md](input/PLAN_MODULOS.md). Agrega un
+segundo mecanismo de organización de código, además de `incluir` (que no
+cambia y sigue siendo el indicado para librerías estándar y scripts sin
+necesidad de aislamiento): un archivo `.lat` que usa `exportar`/`importar`
+se comporta como un módulo con ámbito propio, al estilo ES Modules/
+TypeScript (ver sección X de [SINTAXIS.md](SINTAXIS.md)). La resolución
+ocurre en tiempo de compilación, antes del análisis semántico
+(`ResolutorModulos`, `include/resolutor_modulos.h` /
+`src/resolutor_modulos.cpp`): reescribe el AST a un único `Programa` plano
+con nombres de nivel superior manglados (`__mod_<slug>__<nombre>`), así que
+ni `AnalizadorSemantico` ni `GeneradorC` ni `GeneradorLLVM` necesitan saber
+que existieron módulos — la misma estrategia de "transformar el AST una
+sola vez antes de la bifurcación de backend" que ya usó `PLAN_LLVM.md`.
+
+**Estado (fases de `PLAN_MODULOS.md`):** M1-M6 completas. M1 (lexer/AST):
+tres palabras reservadas nuevas (`exportar`, `importar`, `como`); nodos
+`ImportarDecl`/`ExportarDesde` y campos `exportado`/`esDefecto`. M2
+(parser): las tres formas de `importar` (nombrado con alias, `* como ns`,
+por defecto) y `exportar` como prefijo de declaración o `exportar por
+defecto`. M3 (resolución de un solo módulo, sin `importar`): mangling de
+declaraciones de nivel superior y reescritura de referencias internas
+(llamadas, `nuevo`, `es`, `base`, tipos por nombre de clase) respetando
+sombreado de parámetros/locales. M4 (import nombrado + alias entre
+archivos): DFS con memoización por ruta canónica, tabla de exportación por
+módulo, detección de import circular. M5 (import de namespace y por
+defecto): `importar * como ns` reescribe cada `ns.X` a su nombre interno
+(o error si `X` no está exportado o `ns` no es un import de namespace);
+`importar Nombre desde "ruta"` resuelve contra la clave especial
+`"__defecto__"`. M6 (interacción con POO): herencia/interfaces/tipos
+anotados que referencian un nombre importado ya funcionaban desde M4 sin
+cambios; se agregó soporte para nombre de tipo calificado por namespace
+(`nuevo ns.Clase(...)`, `es ns.Clase`, `extiende ns.Clase`, `implementa
+ns.Iface`, tipo de campo/parámetro/retorno) vía
+`Parser::parseNombreTipoCalificado()`. `runtime/latino.c`,
+`runtime/libs/*`, `GeneradorC`, `GeneradorLLVM` y `AnalizadorSemantico` no
+cambiaron en ninguna fase — solo reciben un `Programa` ya con nombres
+únicos. M7 (re-export/barril, `exportar { X } desde "otro.lat"`) queda
+diferida indefinidamente: la sintaxis se parsea desde M2 pero su
+resolución no está implementada (sin efecto útil si se usa hoy más allá de
+lo que M4 ya reporta explícitamente). Suites de prueba:
+`tests/test_modulos.cpp` (unitarias sobre el AST resuelto),
+`tests/test_modulos_e2e.cpp` y `tests/test_modulos_multi.cpp` (E2E vía
+`latino` real, backends `c` y `llvm`).
 
 ## Ramas y PRs
 
