@@ -257,4 +257,5 @@ add_suite20(test_incluir)
 add_suite20(test_modulos_e2e)
 add_suite20(test_modulos_multi)
 add_suite20(test_poo_e2e)
+add_suite20(test_genericos_e2e)
 
