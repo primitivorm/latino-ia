@@ -70,15 +70,28 @@ El código C generado enlaza con `runtime/latino.c` y las librerías de
 
 Requisitos: CMake 3.12+ y Visual Studio 2022 (Windows) o GCC/Clang (Linux/macOS).
 
+En Windows, `compilar_latino.ps1` automatiza todo el proceso: pregunta si se
+quiere soporte para el backend LLVM y, si la respuesta es sí, instala LLVM
+con `install_llvm.ps1` (ver [Backend LLVM](#backend-llvm-en-desarrollo)) antes
+de configurar y compilar.
+
+```powershell
+.\compilar_latino.ps1
+# ¿Deseas soporte para el backend LLVM (--backend=llvm)? (s/N)
+#   N -> genera y compila en build/     (--backend=llvm no disponible)
+#   s -> instala LLVM si hace falta, genera y compila en build-llvm/
+```
+
+El ejecutable resultante (`latino.exe`) queda en `<directorio de
+build>\src\Release\`. También se puede configurar y compilar a mano:
+
 ```powershell
 # Genera la solución de Visual Studio 2022 en build/
-.\generar-salida.ps1
+cmake -B build -G "Visual Studio 17 2022" -A x64
 
 # Compila
 cmake --build build --config Release
 ```
-
-El ejecutable resultante se llama `latino`.
 
 ## Uso
 
@@ -260,7 +273,9 @@ variante Debug puede consumir más de 100 GB en `vcpkg/buildtrees` antes de
 fallar por falta de espacio. El comando de arriba (features acotadas +
 triplet `-release`) usó ~24 GB y tardó ~2.1 h en esta máquina.
 
-Para configurar el proyecto con esa instalación:
+En Windows, `.\compilar_latino.ps1` hace los tres pasos (instalar LLVM,
+configurar y compilar) en uno solo — ver [Construir](#construir). También se
+puede hacer a mano, tras instalar LLVM con `install_llvm.ps1`:
 ```powershell
 cmake -B build-llvm -DCMAKE_TOOLCHAIN_FILE=C:/vcpkg/scripts/buildsystems/vcpkg.cmake -DVCPKG_TARGET_TRIPLET=x64-windows-release
 cmake --build build-llvm --config Release

@@ -31,15 +31,30 @@ El código C generado enlaza con `runtime/latino.c` y las librerías de `runtime
 
 Requisitos: CMake 3.12+ y Visual Studio 2022 (Windows) o GCC/Clang (Linux/macOS).
 
+En Windows, `compilar_latino.ps1` automatiza todo el proceso: pregunta si se
+quiere soporte para el backend LLVM y, si la respuesta es sí, instala LLVM
+con `install_llvm.ps1` (ver sección "Backend LLVM") antes de configurar y
+compilar.
+
+```powershell
+.\compilar_latino.ps1
+# ¿Deseas soporte para el backend LLVM (--backend=llvm)? (s/N)
+#   N -> genera y compila en build/     (--backend=llvm no disponible)
+#   s -> instala LLVM si hace falta, genera y compila en build-llvm/
+```
+
+También se puede configurar y compilar a mano:
+
 ```powershell
 # Genera la solución de Visual Studio 2022
-.\generar-salida.ps1
+cmake -B build -G "Visual Studio 17 2022" -A x64
 
 # Compila en modo Release
 cmake --build build --config Release
 ```
 
-El ejecutable resultante se llama `latino`.
+El ejecutable resultante (`latino.exe`) queda en `<directorio de
+build>\src\Release\`.
 
 ## Cómo ejecutar pruebas
 
@@ -175,7 +190,7 @@ de C++ (API C++ nativa de LLVM, no la API-C):
 
 | Plataforma | Cómo obtener LLVM 18.x |
 |---|---|
-| Windows | `.\install_llvm.ps1` (ver aviso de espacio en disco en README.md) |
+| Windows | `.\compilar_latino.ps1` (pregunta e instala automáticamente) o `.\install_llvm.ps1` manualmente (ver aviso de espacio en disco en README.md) |
 | Linux | `apt install llvm-18-dev` (o el paquete equivalente de la distro) |
 | macOS | `brew install llvm@18` (apuntar `CMAKE_PREFIX_PATH`) |
 
