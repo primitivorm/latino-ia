@@ -78,6 +78,14 @@ bool AnalizadorSemantico::estaDeclarada(const std::string& nombre) const {
     return false;
 }
 
+TipoAnotado AnalizadorSemantico::tipoDeVariable(const std::string& nombre) const {
+    for (auto it = ambitos.rbegin(); it != ambitos.rend(); ++it) {
+        auto encontrado = it->find(nombre);
+        if (encontrado != it->end()) return encontrado->second;
+    }
+    return TipoAnotado::Ninguno;
+}
+
 namespace {
 static std::string nombreTipoAnotado(TipoAnotado t) {
     switch (t) {
@@ -102,7 +110,30 @@ static TipoAnotado tipoDelLiteral(Expresion* e) {
     if (dynamic_cast<DiccionarioLiteral*>(e)) return TipoAnotado::Dic;
     return TipoAnotado::Ninguno;
 }
+
+const std::unordered_set<std::string>& tiposPrimitivosGenericos() {
+    static const std::unordered_set<std::string> primitivos = {
+        "numero", "cadena", "logico", "lista", "dic", "nulo"
+    };
+    return primitivos;
+}
 }  // namespace (anon)
+
+// PLAN_GENERICOS.md: nombre de tipo concreto estático de una expresión, usado
+// para inferir parámetros genéricos en un sitio de llamada. Cadena vacía si
+// la expresión es dinámica (no se puede determinar en compilación) — misma
+// filosofía de degradación gradual que tipoDelLiteral (Fase 27).
+std::string AnalizadorSemantico::nombreConcretoDeExpr(Expresion* e) {
+    if (!e) return "";
+    if (dynamic_cast<LitNumero*>(e))          return "numero";
+    if (dynamic_cast<LitCadena*>(e))          return "cadena";
+    if (dynamic_cast<LitLogico*>(e))          return "logico";
+    if (dynamic_cast<LitNulo*>(e))            return "nulo";
+    if (dynamic_cast<ListaLiteral*>(e))       return "lista";
+    if (dynamic_cast<DiccionarioLiteral*>(e)) return "dic";
+    if (auto* nuevo = dynamic_cast<NuevoExpr*>(e)) return nuevo->clase;
+    return "";
+}
 
 void AnalizadorSemantico::usarIdentificador(const std::string& nombre, int linea) {
     if (estaDeclarada(nombre)) return;
@@ -134,8 +165,18 @@ void AnalizadorSemantico::recolectarFunciones(Programa& programa) {
                 agregarError(f->linea, "la función '" + f->nombre + "' ya está definida");
                 continue;
             }
-            funciones[f->nombre] =
-                InfoFuncion{f->parametros.size(), f->variadico, f->linea};
+            InfoFuncion info;
+            info.numParametros = f->parametros.size();
+            info.variadico = f->variadico;
+            info.linea = f->linea;
+            info.genericos = f->genericos;
+            info.tipoRetorno = f->tipoRetorno;
+            info.tipoRetornoClase = f->tipoRetornoClase;
+            for (const ParamFuncion& p : f->parametros) {
+                info.parametrosTipo.push_back(p.tipo);
+                info.parametrosClase.push_back(p.tipoClase);
+            }
+            funciones[f->nombre] = std::move(info);
         }
     }
 }
@@ -146,6 +187,8 @@ void AnalizadorSemantico::analizarBloque(ListaSent& cuerpo) {
 }
 
 void AnalizadorSemantico::analizarMetodo(MetodoDef& metodo) {
+    entrarGenericos(metodo.genericos);  // PLAN_GENERICOS.md: <T> propio del método, además del de la clase
+
     validarTipoObjeto(metodo.tipoRetorno, metodo.tipoRetornoClase, metodo.linea);
 
     entrarAmbito();
@@ -164,6 +207,7 @@ void AnalizadorSemantico::analizarMetodo(MetodoDef& metodo) {
     --profundidadFuncion;
 
     salirAmbito();
+    salirGenericos();
 }
 
 void AnalizadorSemantico::agregarError(int linea, const std::string& mensaje) {
@@ -183,8 +227,72 @@ const AnalizadorSemantico::InfoTipo* AnalizadorSemantico::obtenerTipo(
 void AnalizadorSemantico::validarTipoObjeto(TipoAnotado tipo,
                                             const std::string& clase,
                                             int linea) {
-    if (tipo == TipoAnotado::Objeto && !estaTipoDefinido(clase))
+    if (tipo != TipoAnotado::Objeto) return;
+    if (esGenericoActivo(clase)) return;  // PLAN_GENERICOS.md: "T" en su propio ámbito
+    if (!estaTipoDefinido(clase))
         agregarError(linea, "tipo de objeto desconocido '" + clase + "'");
+}
+
+// ---------------------------------------------------------------------------
+// Genéricos (PLAN_GENERICOS.md)
+// ---------------------------------------------------------------------------
+void AnalizadorSemantico::entrarGenericos(const std::vector<ParametroGenerico>& genericos) {
+    std::unordered_map<std::string, ParametroGenerico> mapa;
+    for (const ParametroGenerico& g : genericos) {
+        for (const std::string& b : g.bounds) {
+            if (!estaTipoDefinido(b))
+                agregarError(g.linea, "restricción genérica desconocida '" + b +
+                                          "' en el parámetro '" + g.nombre + "'");
+            else if (obtenerTipo(b)->tipo != TipoInfoKind::Interfaz)
+                agregarError(g.linea, "'" + b +
+                                          "' no es una interfaz; las restricciones genéricas solo pueden ser interfaces");
+        }
+        mapa[g.nombre] = g;
+    }
+    genericosActivos.push_back(std::move(mapa));
+}
+
+void AnalizadorSemantico::salirGenericos() {
+    if (!genericosActivos.empty())
+        genericosActivos.pop_back();
+}
+
+bool AnalizadorSemantico::esGenericoActivo(const std::string& nombre) const {
+    for (const auto& mapa : genericosActivos)
+        if (mapa.count(nombre))
+            return true;
+    return false;
+}
+
+bool AnalizadorSemantico::tipoImplementaInterfaz(const std::string& nombreTipo,
+                                                 const std::string& interfaz) const {
+    const InfoTipo* t = obtenerTipo(nombreTipo);
+    while (t) {
+        for (const std::string& i : t->interfaces)
+            if (i == interfaz) return true;
+        if (t->padre.empty()) break;
+        t = obtenerTipo(t->padre);
+    }
+    return false;
+}
+
+void AnalizadorSemantico::validarBoundConcreto(const std::string& concreto,
+                                               const ParametroGenerico& g, int linea) {
+    if (g.bounds.empty() || concreto.empty()) return;  // sin bound, o tipo dinámico: sin chequeo (gradual)
+    if (tiposPrimitivosGenericos().count(concreto)) {
+        std::string listaBounds;
+        for (const std::string& b : g.bounds)
+            listaBounds += (listaBounds.empty() ? "" : " + ") + b;
+        agregarError(linea, "los tipos primitivos no pueden satisfacer la restricción genérica '" +
+                                 listaBounds + "' (parámetro '" + g.nombre + "')");
+        return;
+    }
+    if (!estaTipoDefinido(concreto)) return;  // ya se reporta "tipo desconocido" en otro lado
+    for (const std::string& bound : g.bounds) {
+        if (!tipoImplementaInterfaz(concreto, bound))
+            agregarError(linea, "'" + concreto + "' no implementa '" + bound +
+                                     "', requerido por el parámetro genérico '" + g.nombre + "'");
+    }
 }
 
 void AnalizadorSemantico::recolectarTipos(Programa& programa) {
@@ -202,6 +310,7 @@ void AnalizadorSemantico::recolectarTipos(Programa& programa) {
             info.esAbstracta = c->esAbstracta;
             info.padre = c->padre;
             info.interfaces = c->interfaces;
+            info.genericos = c->genericos;
             info.linea = c->linea;
 
             std::unordered_set<std::string> nombresCampos;
@@ -255,6 +364,7 @@ void AnalizadorSemantico::recolectarTipos(Programa& programa) {
             InfoTipo info;
             info.tipo = TipoInfoKind::Estructura;
             info.esAbstracta = false;
+            info.genericos = e->genericos;
             info.linea = e->linea;
 
             std::unordered_set<std::string> nombresCampos;
@@ -308,6 +418,7 @@ void AnalizadorSemantico::recolectarTipos(Programa& programa) {
             InfoTipo info;
             info.tipo = TipoInfoKind::Interfaz;
             info.esAbstracta = true;
+            info.genericos = i->genericos;
             info.linea = i->linea;
 
             std::unordered_set<std::string> nombresMetodos;
@@ -395,17 +506,88 @@ void AnalizadorSemantico::visitar(Llamada& n) {
         if (it != funciones.end()) {
             const InfoFuncion& info = it->second;
             size_t nargs = n.argumentos.size();
+            bool aridadOk = true;
             if (info.variadico) {
-                if (nargs < info.numParametros)
+                if (nargs < info.numParametros) {
+                    aridadOk = false;
                     agregarError(id->linea,
                                  "la función '" + nombre + "' requiere al menos " +
                                      std::to_string(info.numParametros) +
                                      " argumento(s), se pasaron " + std::to_string(nargs));
+                }
             } else if (nargs != info.numParametros) {
+                aridadOk = false;
                 agregarError(id->linea,
                              "la función '" + nombre + "' espera " +
                                  std::to_string(info.numParametros) +
                                  " argumento(s), se pasaron " + std::to_string(nargs));
+            }
+
+            // PLAN_GENERICOS.md: inferencia + chequeo de bounds en el sitio de
+            // llamada de una función genérica ("identidad(5)" / turbofish
+            // "identidad::<numero>(5)"). No se intenta si la aridad ya falló.
+            if (aridadOk && !info.genericos.empty()) {
+                std::unordered_map<std::string, std::string> sustitucion;
+                auto esNombreGenerico = [&](const std::string& nombreTipo) {
+                    for (const ParametroGenerico& g : info.genericos)
+                        if (g.nombre == nombreTipo) return true;
+                    return false;
+                };
+
+                if (!n.tipoArgsExplicitos.empty()) {
+                    // Turbofish: sin inferencia, mapeo directo por posición.
+                    if (n.tipoArgsExplicitos.size() != info.genericos.size()) {
+                        agregarError(id->linea,
+                                     "'" + nombre + "' espera " + std::to_string(info.genericos.size()) +
+                                         " argumento(s) de tipo genérico, se dieron " +
+                                         std::to_string(n.tipoArgsExplicitos.size()));
+                    } else {
+                        for (size_t i = 0; i < info.genericos.size(); i++)
+                            sustitucion[info.genericos[i].nombre] = n.tipoArgsExplicitos[i];
+                    }
+                } else {
+                    for (size_t i = 0; i < info.parametrosTipo.size() && i < n.argumentos.size(); i++) {
+                        if (info.parametrosTipo[i] != TipoAnotado::Objeto) continue;
+                        const std::string& nombreParam = info.parametrosClase[i];
+                        if (!esNombreGenerico(nombreParam)) continue;
+                        std::string concreto = nombreConcretoDeExpr(n.argumentos[i].get());
+                        if (concreto.empty()) {
+                            // Argumento identificador ya anotado con un tipo primitivo
+                            // (p.ej. "x: numero = 5"): la anotación de la variable
+                            // también sirve para inferir. Los identificadores de tipo
+                            // Objeto no se pueden usar aquí porque Asignacion no
+                            // guarda el nombre de clase de una variable anotada como
+                            // tipo de objeto (limitación preexistente a este plan).
+                            if (auto* idArg = dynamic_cast<Identificador*>(n.argumentos[i].get())) {
+                                TipoAnotado t = tipoDeVariable(idArg->nombre);
+                                if (t != TipoAnotado::Ninguno && t != TipoAnotado::Objeto)
+                                    concreto = nombreTipoAnotado(t);
+                            }
+                        }
+                        if (concreto.empty()) continue;  // dinámico: no se puede inferir, se degrada (gradual)
+                        auto itSust = sustitucion.find(nombreParam);
+                        if (itSust == sustitucion.end())
+                            sustitucion[nombreParam] = concreto;
+                        else if (itSust->second != concreto)
+                            agregarError(id->linea,
+                                         "el tipo genérico '" + nombreParam + "' se infirió como '" +
+                                             itSust->second + "' pero este argumento es de tipo '" +
+                                             concreto + "'");
+                    }
+                    if (info.tipoRetorno == TipoAnotado::Objeto &&
+                        esNombreGenerico(info.tipoRetornoClase) &&
+                        !sustitucion.count(info.tipoRetornoClase)) {
+                        agregarError(id->linea,
+                                     "no se puede inferir el tipo genérico '" + info.tipoRetornoClase +
+                                         "' de '" + nombre + "'; usá '" + nombre + "::<Tipo>(...)'");
+                    }
+                }
+
+                for (const ParametroGenerico& g : info.genericos) {
+                    auto itSust = sustitucion.find(g.nombre);
+                    if (itSust != sustitucion.end())
+                        validarBoundConcreto(itSust->second, g, id->linea);
+                }
             }
         } else if (esIncorporada(nombre)) {
             // función incorporada: aridad variable, no se comprueba
@@ -435,6 +617,21 @@ void AnalizadorSemantico::visitar(NuevoExpr& n) {
     if (tipo->esAbstracta) {
         agregarError(n.linea, "no se puede instanciar la clase abstracta '" + n.clase + "'");
         return;
+    }
+
+    // PLAN_GENERICOS.md: "nuevo Pila<numero>()". Sin argumentos de tipo, se
+    // permite igual (filosofía gradual: sin especificar, no hay chequeo de
+    // bounds) siempre que la clase sea genérica.
+    if (!n.tipoArgs.empty()) {
+        if (n.tipoArgs.size() != tipo->genericos.size()) {
+            agregarError(n.linea, "'" + n.clase + "' espera " +
+                                       std::to_string(tipo->genericos.size()) +
+                                       " argumento(s) de tipo genérico (<...>), se dieron " +
+                                       std::to_string(n.tipoArgs.size()));
+        } else {
+            for (size_t i = 0; i < tipo->genericos.size(); i++)
+                validarBoundConcreto(n.tipoArgs[i], tipo->genericos[i], n.linea);
+        }
     }
 
     auto it = tipo->metodos.find(n.clase);
@@ -590,6 +787,8 @@ void AnalizadorSemantico::visitar(ClaseDef& n) {
         }
     }
 
+    entrarGenericos(n.genericos);  // PLAN_GENERICOS.md: <T> visible en campos y métodos
+
     for (const CampoDef& campo : n.campos) {
         validarTipoObjeto(campo.tipoAnotado, campo.tipoClase, campo.linea);
         if (campo.valorDefecto) campo.valorDefecto->aceptar(*this);
@@ -612,11 +811,15 @@ void AnalizadorSemantico::visitar(ClaseDef& n) {
     enMetodoInstancia = anteriorEnMetodoInstancia;
     enConstructor = anteriorEnConstructor;
     tipoActual = anteriorTipoActual;
+
+    salirGenericos();
 }
 
 void AnalizadorSemantico::visitar(EstructuraDef& n) {
     const InfoTipo* tipo = obtenerTipo(n.nombre);
     if (!tipo) return;
+
+    entrarGenericos(n.genericos);  // PLAN_GENERICOS.md: <T> visible en campos y métodos
 
     for (const CampoDef& campo : n.campos) {
         validarTipoObjeto(campo.tipoAnotado, campo.tipoClase, campo.linea);
@@ -646,9 +849,12 @@ void AnalizadorSemantico::visitar(EstructuraDef& n) {
     enMetodoInstancia = anteriorEnMetodoInstancia;
     enConstructor = anteriorEnConstructor;
     tipoActual = anteriorTipoActual;
+
+    salirGenericos();
 }
 
 void AnalizadorSemantico::visitar(InterfazDef& n) {
+    entrarGenericos(n.genericos);  // PLAN_GENERICOS.md: <T> visible en las firmas de métodos
     for (const MetodoDef& metodo : n.metodos) {
         if (!metodo.esAbstracto)
             agregarError(metodo.linea,
@@ -660,6 +866,7 @@ void AnalizadorSemantico::visitar(InterfazDef& n) {
         for (const ParamFuncion& parametro : metodo.parametros)
             validarTipoObjeto(parametro.tipo, parametro.tipoClase, metodo.linea);
     }
+    salirGenericos();
 }
 
 void AnalizadorSemantico::visitar(Programa& n) {
@@ -755,6 +962,7 @@ void AnalizadorSemantico::visitar(Romper& n) {
 }
 
 void AnalizadorSemantico::visitar(FuncionDef& n) {
+    entrarGenericos(n.genericos);  // PLAN_GENERICOS.md
     validarTipoObjeto(n.tipoRetorno, n.tipoRetornoClase, n.linea);
     entrarAmbito();
 
@@ -774,6 +982,7 @@ void AnalizadorSemantico::visitar(FuncionDef& n) {
     --profundidadFuncion;
 
     salirAmbito();
+    salirGenericos();
 }
 
 void AnalizadorSemantico::visitar(Retornar& n) {

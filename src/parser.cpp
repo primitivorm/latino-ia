@@ -53,6 +53,95 @@ std::string Parser::parseNombreTipoCalificado() {
     return nombre;
 }
 
+// --- Genéricos (PLAN_GENERICOS.md) ------------------------------------------
+
+void Parser::cerrarAngulo() {
+    if (esOperador(">")) { avanzar(); return; }
+    if (esOperador(">=")) {
+        // El lexer no distingue '>' de '>=' por contexto: separar el '=' y
+        // devolverlo al flujo (p.ej. "p: Pila<numero>=nuevo Pila<numero>()").
+        tieneTokenDevuelto_ = true;
+        tokenDevuelto_ = Token{TokenType::Operador, "=", actual.line};
+        avanzar();
+        return;
+    }
+    error("se esperaba '>' para cerrar la lista de tipos genéricos");
+}
+
+std::vector<std::string> Parser::parseArgsTipoGenericos() {
+    std::vector<std::string> args;
+    if (!esOperador("<")) return args;
+    avanzar();  // consume '<'
+    for (;;) {
+        if (actual.type != TokenType::Identificador)
+            error("se esperaba un nombre de tipo dentro de '<...>'");
+        args.push_back(parseNombreTipoCalificado());
+        if (esDelimitador(",")) { avanzar(); continue; }
+        break;
+    }
+    cerrarAngulo();
+    return args;
+}
+
+std::vector<ParametroGenerico> Parser::parseParametrosGenericos() {
+    std::vector<ParametroGenerico> genericos;
+    if (!esOperador("<")) return genericos;
+    avanzar();  // consume '<'
+    for (;;) {
+        if (actual.type != TokenType::Identificador)
+            error("se esperaba el nombre de un parámetro genérico");
+        ParametroGenerico pg;
+        pg.nombre = actual.lexeme;
+        pg.linea = actual.line;
+        avanzar();
+        if (esOperador(":")) {
+            avanzar();
+            for (;;) {
+                if (actual.type != TokenType::Identificador)
+                    error("se esperaba el nombre de una restricción genérica (interfaz)");
+                pg.bounds.push_back(actual.lexeme);
+                avanzar();
+                if (esOperador("+")) { avanzar(); continue; }
+                break;
+            }
+        }
+        genericos.push_back(std::move(pg));
+        if (esDelimitador(",")) { avanzar(); continue; }
+        break;
+    }
+    cerrarAngulo();
+    return genericos;
+}
+
+void Parser::parseClausulaDonde(std::vector<ParametroGenerico>& genericos) {
+    if (!esReservada("donde")) return;
+    avanzar();
+    for (;;) {
+        if (actual.type != TokenType::Identificador)
+            error("se esperaba un nombre de parámetro genérico después de 'donde'");
+        std::string nombre = actual.lexeme;
+        avanzar();
+        esperarOperador(":");
+        std::vector<std::string> bounds;
+        for (;;) {
+            if (actual.type != TokenType::Identificador)
+                error("se esperaba el nombre de una restricción genérica (interfaz)");
+            bounds.push_back(actual.lexeme);
+            avanzar();
+            if (esOperador("+")) { avanzar(); continue; }
+            break;
+        }
+        ParametroGenerico* pg = nullptr;
+        for (auto& g : genericos)
+            if (g.nombre == nombre) { pg = &g; break; }
+        if (!pg)
+            error("'" + nombre + "' no fue declarado como parámetro genérico en '<...>'");
+        for (auto& b : bounds) pg->bounds.push_back(b);
+        if (esDelimitador(",")) { avanzar(); continue; }
+        break;
+    }
+}
+
 bool Parser::esEOF() const {
     return actual.type == TokenType::FinDeArchivo;
 }
@@ -206,6 +295,14 @@ SentPtr Parser::parseAsignacionOExpr() {
                 tipo = mapearNombreTipo(actual.lexeme);
             if (tipo != TipoAnotado::Ninguno) {
                 avanzar();  // consume nombre del tipo
+                // PLAN_GENERICOS.md: "p: Pila<numero> = ..." / "lst: lista<numero> = ...".
+                // Nota: igual que ya ocurría con "p: Pila = ..." antes de este plan,
+                // Asignacion no guarda el nombre de clase de un destino Objeto, así
+                // que los argumentos de tipo se aceptan sintácticamente y se
+                // descartan (no hay verificación semántica de variables anotadas
+                // como tipo de objeto a nivel de sentencia; ver CampoDef/ParamFuncion
+                // para los casos que sí se verifican).
+                parseArgsTipoGenericos();
                 esperarOperador("=");
                 auto valores = parseListaExpresiones();
                 auto id = std::make_unique<Identificador>();
@@ -369,6 +466,7 @@ SentPtr Parser::parseFuncion() {
     nodo->linea = l;
     nodo->nombre = actual.lexeme;
     avanzar();
+    nodo->genericos = parseParametrosGenericos();
 
     esperarDelimitador("(");
     if (!esDelimitador(")")) {
@@ -394,6 +492,8 @@ SentPtr Parser::parseFuncion() {
                     param.tipoClase = parseNombreTipoCalificado();
                 else
                     avanzar();
+                // PLAN_GENERICOS.md: azúcar "lista<T>"/"dic<K, V>" además de "Clase<T>".
+                param.tipoArgs = parseArgsTipoGenericos();
             }
             nodo->parametros.push_back(std::move(param));
             if (esDelimitador(",")) { avanzar(); continue; }
@@ -414,7 +514,9 @@ SentPtr Parser::parseFuncion() {
             nodo->tipoRetornoClase = parseNombreTipoCalificado();
         else
             avanzar();
+        nodo->tipoRetornoArgs = parseArgsTipoGenericos();
     }
+    parseClausulaDonde(nodo->genericos);
 
     nodo->cuerpo = parseBloque({"fin"});
     esperarReservada("fin");
@@ -770,6 +872,7 @@ ExprPtr Parser::parseRelacional() {
         if (actual.type != TokenType::Identificador)
             error("se esperaba un nombre de clase después de 'es'");
         std::string clase = parseNombreTipoCalificado();
+        parseArgsTipoGenericos();  // PLAN_GENERICOS.md: "expr es Contenedor<T>" — se acepta y se descarta (ver extiende/implementa)
         auto n = std::make_unique<EsExpr>();
         n->objeto = std::move(e);
         n->clase = clase;
@@ -830,6 +933,25 @@ ExprPtr Parser::parsePostfijo() {
     for (;;) {
         if (esDelimitador("(")) {
             e = parseLlamada(std::move(e));
+        } else if (esOperador("::")) {
+            // Turbofish (PLAN_GENERICOS.md): "identidad::<numero>(5)". Es la
+            // única forma de dar argumentos de tipo explícitos en posición de
+            // expresión — "identidad<numero>(5)" sería ambiguo con una
+            // comparación encadenada, ver "Resolución de la ambigüedad '<'/'>'".
+            avanzar();  // consume '::'
+            esperarOperador("<");
+            std::vector<std::string> tipoArgs;
+            for (;;) {
+                if (actual.type != TokenType::Identificador)
+                    error("se esperaba un nombre de tipo dentro de '::<...>'");
+                tipoArgs.push_back(parseNombreTipoCalificado());
+                if (esDelimitador(",")) { avanzar(); continue; }
+                break;
+            }
+            cerrarAngulo();
+            if (!esDelimitador("("))
+                error("se esperaba '(' después de '::<...>' (turbofish)");
+            e = parseLlamada(std::move(e), std::move(tipoArgs));
         } else if (esDelimitador("[")) {
             avanzar();
             saltarNuevasLineas();
@@ -949,10 +1071,11 @@ ExprPtr Parser::parsePrimario() {
     error("se esperaba una expresión (se encontró '" + actual.lexeme + "')");
 }
 
-ExprPtr Parser::parseLlamada(ExprPtr destino) {
+ExprPtr Parser::parseLlamada(ExprPtr destino, std::vector<std::string> tipoArgsExplicitos) {
     avanzar();  // (
     auto c = std::make_unique<Llamada>();
     c->destino = std::move(destino);
+    c->tipoArgsExplicitos = std::move(tipoArgsExplicitos);
     saltarNuevasLineas();
     if (!esDelimitador(")")) {
         for (;;) {
@@ -1015,6 +1138,7 @@ ExprPtr Parser::parseNuevo() {
     auto nodo = std::make_unique<NuevoExpr>();
     nodo->linea = l;
     nodo->clase = parseNombreTipoCalificado();
+    nodo->tipoArgs = parseArgsTipoGenericos();
     esperarDelimitador("(");
     saltarNuevasLineas();
     if (!esDelimitador(")")) {
@@ -1066,6 +1190,8 @@ CampoDef Parser::parseCampoDef() {
         c.tipoClase = parseNombreTipoCalificado();
     else
         avanzar();
+    // PLAN_GENERICOS.md: azúcar "lista<T>"/"dic<K, V>" además de "Clase<T>".
+    c.tipoArgs = parseArgsTipoGenericos();
     if (esOperador("=")) {
         avanzar();
         c.valorDefecto = parseExpresion();
@@ -1088,6 +1214,7 @@ MetodoDef Parser::parseMetodoDef(const std::string& nombreClase, bool fuerzaAbst
     m.esConstructor = (m.nombre == nombreClase);
     m.esAbstracto = fuerzaAbstracto;
     avanzar();
+    m.genericos = parseParametrosGenericos();
 
     esperarDelimitador("(");
     if (!esDelimitador(")")) {
@@ -1113,6 +1240,8 @@ MetodoDef Parser::parseMetodoDef(const std::string& nombreClase, bool fuerzaAbst
                     param.tipoClase = parseNombreTipoCalificado();
                 else
                     avanzar();
+                // PLAN_GENERICOS.md: azúcar "lista<T>"/"dic<K, V>" además de "Clase<T>".
+                param.tipoArgs = parseArgsTipoGenericos();
             }
             m.parametros.push_back(std::move(param));
             if (esDelimitador(",")) { avanzar(); continue; }
@@ -1131,7 +1260,9 @@ MetodoDef Parser::parseMetodoDef(const std::string& nombreClase, bool fuerzaAbst
             m.tipoRetornoClase = parseNombreTipoCalificado();
         else
             avanzar();
+        m.tipoRetornoArgs = parseArgsTipoGenericos();
     }
+    parseClausulaDonde(m.genericos);
 
     // Marcador 'sobreescribir' opcional
     if (esReservada("sobreescribir")) {
@@ -1157,6 +1288,7 @@ SentPtr Parser::parseClase(bool esAbstracta) {
         error("se esperaba el nombre de la clase");
     std::string nombre = actual.lexeme;
     avanzar();
+    std::vector<ParametroGenerico> genericos = parseParametrosGenericos();
 
     std::string padre = "";
     std::vector<std::string> interfaces;
@@ -1166,6 +1298,10 @@ SentPtr Parser::parseClase(bool esAbstracta) {
         if (actual.type != TokenType::Identificador)
             error("se esperaba el nombre de la clase padre después de 'extiende'");
         padre = parseNombreTipoCalificado();
+        // PLAN_GENERICOS.md: "extiende Base<numero>" — se acepta la sintaxis;
+        // la sustitución de tipo en la clase base queda para una fase futura
+        // (v1 solo verifica bounds en sitios de uso directo, ver el plan).
+        parseArgsTipoGenericos();
     }
 
     if (esReservada("implementa")) {
@@ -1174,6 +1310,8 @@ SentPtr Parser::parseClase(bool esAbstracta) {
             if (actual.type != TokenType::Identificador)
                 error("se esperaba un nombre de interfaz después de 'implementa'");
             interfaces.push_back(parseNombreTipoCalificado());
+            // PLAN_GENERICOS.md: "implementa Contenedor<T>" — idem extiende.
+            parseArgsTipoGenericos();
             if (esDelimitador(",")) { avanzar(); continue; }
             break;
         }
@@ -1216,6 +1354,7 @@ SentPtr Parser::parseClase(bool esAbstracta) {
     auto nodo = std::make_unique<ClaseDef>();
     nodo->linea = l;
     nodo->nombre = nombre;
+    nodo->genericos = std::move(genericos);
     nodo->padre = padre;
     nodo->interfaces = interfaces;
     nodo->esAbstracta = esAbstracta;
@@ -1231,6 +1370,7 @@ SentPtr Parser::parseEstructura() {
         error("se esperaba el nombre de la estructura");
     std::string nombre = actual.lexeme;
     avanzar();
+    std::vector<ParametroGenerico> genericos = parseParametrosGenericos();
     saltarNuevasLineas();
     std::vector<CampoDef> campos;
     std::vector<MetodoDef> metodos;
@@ -1261,6 +1401,7 @@ SentPtr Parser::parseEstructura() {
     auto nodo = std::make_unique<EstructuraDef>();
     nodo->linea = l;
     nodo->nombre = nombre;
+    nodo->genericos = std::move(genericos);
     nodo->campos = std::move(campos);
     nodo->metodos = std::move(metodos);
     return nodo;
@@ -1273,6 +1414,7 @@ SentPtr Parser::parseInterfaz() {
         error("se esperaba el nombre de la interfaz");
     std::string nombre = actual.lexeme;
     avanzar();
+    std::vector<ParametroGenerico> genericos = parseParametrosGenericos();
     saltarNuevasLineas();
     std::vector<MetodoDef> metodos;
     while (!esReservada("fin")) {
@@ -1289,6 +1431,7 @@ SentPtr Parser::parseInterfaz() {
     auto nodo = std::make_unique<InterfazDef>();
     nodo->linea = l;
     nodo->nombre = nombre;
+    nodo->genericos = std::move(genericos);
     nodo->metodos = std::move(metodos);
     return nodo;
 }

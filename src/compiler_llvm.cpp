@@ -1085,9 +1085,15 @@ void GeneradorLLVM::genFuncion(FuncionDef& f, llvm::Module& modulo) {
     variables.insert(locales.begin(), locales.end());
 
     // Chequeos de tipo de parámetros anotados (tipado gradual, Fase 27) --
-    // paridad con GeneradorC::genFuncion.
+    // paridad con GeneradorC::genFuncion. PLAN_GENERICOS.md: un parámetro
+    // tipado con el nombre de un genérico de 'f' (erasure) nunca recibe
+    // chequeo, sea cual sea el bound declarado (los bounds son solo
+    // estáticos) -- ver el comentario equivalente en GeneradorC::genFuncion.
+    std::set<std::string> genericosFn;
+    for (const auto& g : f.genericos) genericosFn.insert(g.nombre);
     for (const auto& p : f.parametros) {
         if (p.tipo == TipoAnotado::Ninguno) continue;
+        if (p.tipo == TipoAnotado::Objeto && genericosFn.count(p.tipoClase)) continue;
         llvm::Function* fnVerificar = abi_->declarar(modulo, "lat_verificar_tipo");
         llvm::Value* celdaParam = variables[p.nombre];
         llvm::Value* nombreC = builder.CreateGlobalStringPtr(p.nombre, "nombre_param", 0, &modulo);
@@ -1211,9 +1217,17 @@ void GeneradorLLVM::genMetodo(const std::string& claseNombre, MetodoDef& metodo,
     variables.insert(locales.begin(), locales.end());
 
     // Chequeos de tipo de parámetros anotados -- paridad con
-    // GeneradorC::genMetodo/genFuncion.
+    // GeneradorC::genMetodo/genFuncion. PLAN_GENERICOS.md: erasure -- ver
+    // comentario equivalente en GeneradorLLVM::genFuncion.
+    std::set<std::string> genericosMetodo;
+    for (const auto& g : metodo.genericos) genericosMetodo.insert(g.nombre);
+    if (auto itClase = clases_.find(claseNombre); itClase != clases_.end())
+        for (const auto& g : itClase->second->genericos) genericosMetodo.insert(g.nombre);
+    if (auto itEstructura = estructuras_.find(claseNombre); itEstructura != estructuras_.end())
+        for (const auto& g : itEstructura->second->genericos) genericosMetodo.insert(g.nombre);
     for (const auto& p : metodo.parametros) {
         if (p.tipo == TipoAnotado::Ninguno) continue;
+        if (p.tipo == TipoAnotado::Objeto && genericosMetodo.count(p.tipoClase)) continue;
         llvm::Function* fnVerificar = abi_->declarar(modulo, "lat_verificar_tipo");
         llvm::Value* celdaParam = variables[p.nombre];
         llvm::Value* nombreC = builder.CreateGlobalStringPtr(p.nombre, "nombre_param", 0, &modulo);

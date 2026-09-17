@@ -77,6 +77,12 @@ private:
         size_t numParametros;
         bool variadico;
         int linea;
+        // PLAN_GENERICOS.md: vacío si la función no es genérica.
+        std::vector<ParametroGenerico> genericos;
+        std::vector<TipoAnotado> parametrosTipo;
+        std::vector<std::string> parametrosClase;  // tipoClase si Objeto (puede ser un nombre genérico)
+        TipoAnotado tipoRetorno = TipoAnotado::Ninguno;
+        std::string tipoRetornoClase;
     };
     struct ErrorSemantico {
         int linea;
@@ -111,6 +117,7 @@ private:
         std::vector<std::string> interfaces;
         std::unordered_set<std::string> campos;
         std::unordered_map<std::string, InfoMetodo> metodos;
+        std::vector<ParametroGenerico> genericos;  // PLAN_GENERICOS.md: <T, U: Bound> de la propia clase/estructura/interfaz
         int linea = 0;
     };
 
@@ -119,6 +126,12 @@ private:
     bool enClase = false;
     bool enMetodoInstancia = false;
     bool enConstructor = false;
+
+    // PLAN_GENERICOS.md: pila de parámetros genéricos activos (nombre -> info),
+    // uno por ámbito de declaración genérica anidado (clase genérica + su
+    // propio método genérico, por ejemplo). Un nombre es válido como tipo si
+    // aparece en CUALQUIER nivel de la pila, no solo en el tope.
+    std::vector<std::unordered_map<std::string, ParametroGenerico>> genericosActivos;
 
     int profundidadBucle;
     int profundidadFuncion;
@@ -139,6 +152,33 @@ private:
     bool estaTipoDefinido(const std::string& nombre) const;
     const InfoTipo* obtenerTipo(const std::string& nombre) const;
     void agregarError(int linea, const std::string& mensaje);
+
+    // --- Genéricos (PLAN_GENERICOS.md) -------------------------------------
+    // Empuja un nuevo ámbito de parámetros genéricos activos (declaración de
+    // clase/estructura/interfaz/función/método genérica), validando que cada
+    // bound nombre una interfaz ya definida. Debe emparejarse con salirGenericos().
+    void entrarGenericos(const std::vector<ParametroGenerico>& genericos);
+    void salirGenericos();
+    bool esGenericoActivo(const std::string& nombre) const;
+
+    // Verifica que el tipo concreto `concreto` (nombre de tipo primitivo o de
+    // clase/estructura) satisfaga los bounds de `g`. No hace nada si `g` no
+    // tiene bounds. Sin efecto (degradación gradual) si `concreto` está vacío.
+    void validarBoundConcreto(const std::string& concreto, const ParametroGenerico& g, int linea);
+    bool tipoImplementaInterfaz(const std::string& nombreTipo, const std::string& interfaz) const;
+
+    // Nombre de tipo concreto estático de una expresión, usado para inferir
+    // parámetros genéricos en un sitio de llamada: nombre de tipo primitivo
+    // para literales ("numero", "cadena", ...) o nombre de clase para
+    // "nuevo Clase(...)". Cadena vacía si la expresión es dinámica (no se
+    // puede determinar en compilación) — igual filosofía que Fase 27.
+    static std::string nombreConcretoDeExpr(Expresion* e);
+
+    // Tipo anotado de una variable ya declarada (TipoAnotado::Ninguno si no
+    // está declarada o no tiene anotación). Usado para inferir un parámetro
+    // genérico a partir de un argumento identificador ya anotado
+    // (p.ej. "x: numero = 5" seguido de "identidad(x)").
+    TipoAnotado tipoDeVariable(const std::string& nombre) const;
 };
 
 #endif  // ANALIZADOR_SEMANTICO_H

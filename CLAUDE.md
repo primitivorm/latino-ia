@@ -66,6 +66,7 @@ Suites de prueba disponibles:
 | `test_tipado` | Tipado gradual opcional (Fase 27) |
 | `test_poo` | Parser/semántico/codegen de POO: clases, herencia, interfaces (Fase 28) |
 | `test_poo_e2e` | Programas POO completos (Fase 28) |
+| `test_genericos` | Parser/semántico/codegen de genéricos: `<T>`, bounds, `donde`, turbofish (Fase 31) |
 | `test_e2e` | Programas completos en `ejemplos/` |
 | `test_funciones_base` | Funciones built-in (`tipo`, `acadena`, etc.) |
 | `test_incluir` | Sistema de inclusión textual (`incluir "archivo.lat"`) |
@@ -295,6 +296,72 @@ lo que M4 ya reporta explícitamente). Suites de prueba:
 `tests/test_modulos.cpp` (unitarias sobre el AST resuelto),
 `tests/test_modulos_e2e.cpp` y `tests/test_modulos_multi.cpp` (E2E vía
 `latino` real, backends `c` y `llvm`).
+
+## Genéricos al estilo de Rust (en desarrollo)
+
+Plan completo en [input/PLAN_GENERICOS.md](input/PLAN_GENERICOS.md). Agrega
+parámetros de tipo entre `<>` a `funcion`/`clase`/`estructura`/`interfaz`
+(`clase Pila<T>`, `funcion identidad<T>(x: T): T`), restricciones ("bounds")
+de interfaz con `:`/`+` y cláusula `donde`, y el operador turbofish
+`::<...>` para instanciación explícita en posición de expresión (ver
+sección XI de [SINTAXIS.md](SINTAXIS.md)). A diferencia de Rust, no hay
+monomorphización: como `LatValor` ya es una unión tagueada dinámica, un
+parámetro `T` se compila exactamente igual que uno sin anotar (erasure) —
+`GeneradorC`/`GeneradorLLVM` no tienen ningún concepto nuevo de "tipo
+genérico", solo evitan emitir el chequeo de runtime (`lat_verificar_tipo`)
+para un parámetro cuyo nombre de tipo coincide con un `<T>` del
+`FuncionDef`/`MetodoDef` (o de la `ClaseDef`/`EstructuraDef` envolvente,
+para un método). Los bounds son estáticos únicamente: se verifican en el
+analizador semántico contra el registro de tipos de POO (`implementa`)
+solo cuando el tipo concreto se conoce en compilación (literal,
+`nuevo Clase(...)`, variable anotada, o turbofish); no existe ni se agregó
+un verificador de "implementa interfaz X" en runtime.
+
+**Estado:** fases G1-G7 completas (sin PR/merge todavía). G1 (lexer):
+palabra reservada `donde`, operador `::`. G2 (AST): `ParametroGenerico`
+(`nombre` + `bounds`); campo `genericos` en `ClaseDef`/`EstructuraDef`/
+`InterfazDef`/`FuncionDef`/`MetodoDef`; campo `tipoArgs` junto a cada
+`tipoClase` existente; `tipoArgs` en `NuevoExpr`; `tipoArgsExplicitos`
+(turbofish) en `Llamada`. G3/G4 (parser): `<...>` solo se intenta leer
+como lista de tipos en cinco posiciones gramaticales fijas (nunca en
+posición de expresión) — tras el nombre en declaraciones, en posición de
+anotación de tipo, tras `nuevo Clase`, y tras `::` en una llamada — por lo
+que no hay ambigüedad con el operador de comparación `<`/`>` sin
+backtracking; `cerrarAngulo()` además separa `>=` en `>` + `=` cuando el
+lexer los junta sin espacio (`Pila<numero>=...`). `extiende`/`implementa`/
+`es` aceptan y descartan `<...>` tras el nombre (sustitución de tipo en la
+base/interfaz queda para una fase futura). G5 (semántico): pila
+`genericosActivos` (nombre → `ParametroGenerico`) empujada al entrar a una
+declaración genérica, consultada por `validarTipoObjeto` antes que el
+registro real de tipos; inferencia de parámetros genéricos en un sitio de
+llamada por unificación simple contra el tipo del literal del argumento o
+la anotación de una variable ya declarada (sin leer el AST más allá de
+eso — no hay flow analysis); turbofish cuando la inferencia no alcanza
+(p.ej. `T` solo aparece en el retorno); chequeo de bounds vía
+`tipoImplementaInterfaz` (recorre la cadena `padre`). G6 (codegen):
+hallazgo real de esta fase — la erasure NO era automática como asumía el
+plan original: `GeneradorC`/`GeneradorLLVM` emitían igual
+`lat_verificar_tipo(..., LAT_OBJETO, ...)` para cualquier parámetro
+`TipoAnotado::Objeto`, generic o no, rompiendo en runtime cualquier
+función genérica (`identidad(5)` fallaba el chequeo de tipo porque `5` no
+es `LAT_OBJETO`); se corrigió construyendo, en `genFuncion`/`genMetodo` de
+ambos backends, el conjunto de nombres genéricos activos (propios más los
+de la clase/estructura envolvente) y saltando la emisión del chequeo para
+esos nombres. G7 (módulos): verificado empíricamente sin cambios en
+`resolutor_modulos.cpp` — `exportar clase Pila<T>` + `importar { Pila }
+desde "..."` + `nuevo Pila<numero>()` compila y ejecuta correctamente.
+Verificado solo con el backend `c` en esta máquina de desarrollo (LLVM
+18.1 no está instalado aquí — `LATINO_LLVM_BACKEND` cae a `OFF` en
+configuración pese al valor cacheado; el fix de G6 en
+`compiler_llvm.cpp` replica el mismo patrón ya probado en `compiler.cpp`
+pero queda pendiente de verificación con LLVM real). Suite de pruebas:
+`tests/test_genericos.cpp` (parser + semántico + codegen, 59
+comprobaciones) y `ejemplos/genericos.lat` (E2E vía `test_e2e`, backend
+`c`). G8 pendiente: no hay `test_genericos_e2e.cpp` dedicado (el E2E de
+`ejemplos/genericos.lat` cubre ese rol para el caso `c`); `nuevo
+Pila<Pila<numero>>()` (anidado) y `implementa Contenedor<T>` con
+sustitución de tipo real quedan fuera de alcance de v1 (ver "Fuera de
+alcance" del plan).
 
 ## Ramas y PRs
 

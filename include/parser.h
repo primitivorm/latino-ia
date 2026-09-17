@@ -64,6 +64,32 @@ private:
     // CampoDef::tipoClase, tipoRetornoClase, ParamFuncion::tipoClase.
     std::string parseNombreTipoCalificado();
 
+    // --- Genéricos (PLAN_GENERICOS.md) -------------------------------------
+    // Cierra una lista de tipos entre '<' '>'. El lexer no distingue '>' de
+    // '>=' por contexto (ver PLAN_GENERICOS.md, "Resolución de la ambigüedad
+    // '<'/'>'"), así que si el token actual es ">=" (p.ej. "Pila<numero>=x"
+    // sin espacio) se separa en '>' + '=' devolviendo el '=' al flujo.
+    void cerrarAngulo();
+
+    // Lista de argumentos de tipo en posición de USO: "<numero>",
+    // "<cadena, numero>". Solo se llama cuando el token actual es '<' (si no
+    // lo es, devuelve una lista vacía sin consumir nada). v1 no admite
+    // argumentos anidados (ver "Fuera de alcance" del plan): cada argumento
+    // es un solo parseNombreTipoCalificado().
+    std::vector<std::string> parseArgsTipoGenericos();
+
+    // Lista de parámetros de tipo en posición de DECLARACIÓN:
+    // "<T>", "<T: Comparable>", "<T: Comparable + Imprimible, U>". Solo se
+    // llama cuando el token actual es '<' (si no lo es, devuelve una lista
+    // vacía sin consumir nada).
+    std::vector<ParametroGenerico> parseParametrosGenericos();
+
+    // Cláusula "donde T: Bound, U: Bound" tras la firma de una función/método
+    // genérico. Fusiona los bounds encontrados dentro de `genericos` (deben
+    // haber sido declarados en el "<...>" de la firma); no hace nada si el
+    // token actual no es 'donde'.
+    void parseClausulaDonde(std::vector<ParametroGenerico>& genericos);
+
     // --- Sentencias ---
     std::unique_ptr<Programa> parsePrograma();
     SentPtr parseSentencia();
@@ -114,7 +140,7 @@ private:
     ExprPtr parsePrimario();
     ExprPtr parseNuevo();
 
-    ExprPtr parseLlamada(ExprPtr destino);
+    ExprPtr parseLlamada(ExprPtr destino, std::vector<std::string> tipoArgsExplicitos = {});
     ExprPtr parseLista();
     ExprPtr parseDiccionario();
 };

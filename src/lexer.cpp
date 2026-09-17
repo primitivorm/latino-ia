@@ -198,6 +198,7 @@ Token Lexer::getNextToken() {
         case '?':
             return Token{TokenType::Operador, "?", startLine};
         case ':':
+            if (peekChar() == ':') { getNextChar(); return Token{TokenType::Operador, "::", startLine}; }
             return Token{TokenType::Operador, ":", startLine};
     }
 
@@ -224,7 +225,9 @@ bool Lexer::esPalabraReservada(const std::string& palabra) const {
         "abstracto", "estatico", "sobreescribir",
         "es",
         // Nuevas palabras reservadas para módulos (PLAN_MODULOS.md)
-        "exportar", "importar", "como"
+        "exportar", "importar", "como",
+        // Nueva palabra reservada para genéricos (PLAN_GENERICOS.md)
+        "donde"
     };
 
     return palabrasReservadas.count(palabra) > 0;
