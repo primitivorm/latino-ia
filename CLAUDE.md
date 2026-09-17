@@ -67,6 +67,7 @@ Suites de prueba disponibles:
 | `test_poo` | Parser/semántico/codegen de POO: clases, herencia, interfaces (Fase 28) |
 | `test_poo_e2e` | Programas POO completos (Fase 28) |
 | `test_genericos` | Parser/semántico/codegen de genéricos: `<T>`, bounds, `donde`, turbofish (Fase 31) |
+| `test_genericos_e2e` | Programas completos con genéricos, incluida interacción con módulos (Fase 31) |
 | `test_e2e` | Programas completos en `ejemplos/` |
 | `test_funciones_base` | Funciones built-in (`tipo`, `acadena`, etc.) |
 | `test_incluir` | Sistema de inclusión textual (`incluir "archivo.lat"`) |
@@ -354,14 +355,18 @@ Verificado solo con el backend `c` en esta máquina de desarrollo (LLVM
 18.1 no está instalado aquí — `LATINO_LLVM_BACKEND` cae a `OFF` en
 configuración pese al valor cacheado; el fix de G6 en
 `compiler_llvm.cpp` replica el mismo patrón ya probado en `compiler.cpp`
-pero queda pendiente de verificación con LLVM real). Suite de pruebas:
-`tests/test_genericos.cpp` (parser + semántico + codegen, 59
-comprobaciones) y `ejemplos/genericos.lat` (E2E vía `test_e2e`, backend
-`c`). G8 pendiente: no hay `test_genericos_e2e.cpp` dedicado (el E2E de
-`ejemplos/genericos.lat` cubre ese rol para el caso `c`); `nuevo
-Pila<Pila<numero>>()` (anidado) y `implementa Contenedor<T>` con
-sustitución de tipo real quedan fuera de alcance de v1 (ver "Fuera de
-alcance" del plan).
+pero queda pendiente de verificación con LLVM real). G8 completa: suite de
+pruebas `tests/test_genericos.cpp` (parser + semántico + codegen, 59
+comprobaciones), `tests/test_genericos_e2e.cpp` (6 `CasoTest` de un solo
+archivo — inferencia, turbofish, bounds satisfechos, cláusula `donde`,
+`Pila<T>`, `Par<A, B>` — más 1 `CasoTestMulti` que confirma
+`exportar clase Pila<T>` + `importar { Pila } desde "..."` de punta a
+punta vía el binario `latino` real, mismo patrón de
+`test_modulos_multi.cpp`) y `ejemplos/genericos.lat` (E2E vía `test_e2e`).
+Todo verificado solo con backend `c` (ver nota de LLVM arriba). Con esto
+el plan v1 (fases G1-G8) queda completo; `nuevo Pila<Pila<numero>>()`
+(anidado) e `implementa Contenedor<T>` con sustitución de tipo real siguen
+fuera de alcance de v1 (ver "Fuera de alcance" del plan).
 
 ## Ramas y PRs
 

@@ -578,7 +578,10 @@ genérica (7).
 
 ## Estado
 
-No iniciado. Fases propuestas, en orden de dependencia:
+Fases G1-G8 completas (v1). Ver la sección "Genéricos al estilo de Rust"
+en [CLAUDE.md](../CLAUDE.md) para el detalle de cada fase, hallazgos reales
+(en particular el bug de erasure de G6) y qué quedó fuera de alcance.
+Fases propuestas originalmente, en orden de dependencia:
 
 ### Fase G1 — Lexer
 
