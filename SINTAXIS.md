@@ -463,14 +463,104 @@ acepta en el parser, pero su resolución todavía no está implementada.
 
 (`desde` y `defecto` ya eran palabras reservadas antes de este mecanismo.)
 
+## XI. Genéricos
+
+Funciones, clases, estructuras e interfaces pueden declarar parámetros de
+tipo entre `<>`, al estilo de Rust. Un parámetro genérico se comporta como
+"cualquier tipo, pero siempre el mismo dentro de ese uso" — a diferencia de
+Rust, el runtime de Latino ya es dinámicamente tipado (`LatValor`), así que
+no hay especialización de código por tipo concreto: `identidad(5)` e
+`identidad("hola")` comparten exactamente el mismo código compilado.
+
+```latino
+funcion identidad<T>(x: T): T
+    retornar x
+fin
+
+escribir(identidad(5))                # 5 — T inferido de "5"
+escribir(identidad::<cadena>("hola"))  # hola — turbofish explícito
+```
+
+### Restricciones ("bounds")
+
+Un bound exige que el tipo concreto implemente una interfaz. Se combinan
+con `+`, y también pueden escribirse en una cláusula `donde` al final de
+la firma:
+
+```latino
+interfaz Comparable
+    funcion compararCon(otroValor: Comparable): numero
+fin
+
+funcion maximo<T: Comparable>(a: T, b: T): T
+    retornar a.compararCon(b) >= 0 ? a : b
+fin
+
+# Equivalente con "donde":
+funcion maximo2<T>(a: T, b: T): T donde T: Comparable
+    retornar a.compararCon(b) >= 0 ? a : b
+fin
+```
+
+### Clases y estructuras genéricas
+
+```latino
+clase Pila<T>
+    privado items: lista
+
+    funcion Pila()
+        este.items = []
+    fin
+
+    publico funcion apilar(valor: T)
+        lista.agregar(este.items, valor)
+    fin
+
+    publico funcion cima(): T
+        retornar lista.ultimo(este.items)
+    fin
+fin
+
+p: Pila<numero> = nuevo Pila<numero>()
+p.apilar(1)
+p.apilar(2)
+escribir(p.cima())   # 2
+```
+
+`lista`/`dic` aceptan la misma sintaxis como azúcar documental/estática:
+`nums: lista<numero> = [1, 2, 3]`.
+
+### Turbofish (`::<...>`)
+
+`<...>` solo es válido en posición de tipo (declaración, anotación,
+`nuevo Clase<...>()`) — nunca en posición de expresión, porque
+`identidad<numero>(5)` sería ambiguo con una comparación encadenada. Para
+dar un argumento de tipo explícito en una llamada se usa `::<...>`, igual
+que en Rust:
+
+```latino
+funcion vacio<T>(): T
+    retornar nulo
+fin
+
+x = vacio::<numero>()   # T solo aparece en el retorno: turbofish obligatorio
+```
+
+Los bounds se verifican en tiempo de compilación cuando el tipo concreto
+se conoce (literal, `nuevo Clase(...)`, variable anotada, o turbofish); si
+el valor es dinámico, se degrada igual que el resto del tipado gradual
+(sin chequeo). Plan completo, decisiones de diseño y alcance en
+[input/PLAN_GENERICOS.md](input/PLAN_GENERICOS.md).
+
 <a name="plbrsRvds"></a>
-## XI. Palabras reservadas hasta el momento
+## XII. Palabras reservadas hasta el momento
 ```
 caso
 cierto  | verdadero
 como
 defecto | otro
 desde
+donde
 elegir
 exportar
 falso

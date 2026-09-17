@@ -35,6 +35,19 @@ struct ParamFuncion {
     std::string nombre;
     TipoAnotado tipo = TipoAnotado::Ninguno;
     std::string tipoClase;        // nombre de clase si tipo == Objeto
+    std::vector<std::string> tipoArgs;  // PLAN_GENERICOS.md: argumentos entre <> de tipoClase (p.ej. "Pila<numero>")
+};
+
+// --- Genéricos (PLAN_GENERICOS.md: clase/estructura/interfaz/funcion<T>) ---
+// Un parámetro de tipo declarado entre <> (p.ej. el "T" de "clase Pila<T>"),
+// con sus restricciones ("bounds") opcionales: nombres de interfaces que el
+// tipo concreto sustituido debe implementar. Puede llenarse tanto desde la
+// sintaxis inline (T: Comparable + Imprimible) como desde una cláusula
+// "donde" al final de la firma.
+struct ParametroGenerico {
+    std::string nombre;
+    std::vector<std::string> bounds;
+    int linea = 0;
 };
 
 // --- Módulos (PLAN_MODULOS.md: exportar / importar) ------------------------
@@ -171,6 +184,7 @@ struct CampoDef {
     std::string nombre;
     TipoAnotado tipoAnotado = TipoAnotado::Ninguno;
     std::string tipoClase;        // nombre de clase si tipoAnotado == Objeto
+    std::vector<std::string> tipoArgs;  // PLAN_GENERICOS.md: argumentos entre <> de tipoClase
     ModificadorAcceso acceso = ModificadorAcceso::Publico;
     bool esEstatico = false;
     ExprPtr valorDefecto;         // valor por defecto (opcional)
@@ -183,6 +197,8 @@ struct MetodoDef {
     std::vector<ParamFuncion> parametros;
     TipoAnotado tipoRetorno = TipoAnotado::Ninguno;
     std::string tipoRetornoClase;  // nombre de clase como tipo retorno
+    std::vector<std::string> tipoRetornoArgs;  // PLAN_GENERICOS.md: argumentos entre <> de tipoRetornoClase
+    std::vector<ParametroGenerico> genericos;  // PLAN_GENERICOS.md: <T, U: Bound> propio del método
     ModificadorAcceso acceso = ModificadorAcceso::Publico;
     bool esEstatico = false;
     bool esAbstracto = false;
@@ -275,6 +291,7 @@ struct AccesoMiembro : Expresion {
 struct Llamada : Expresion {
     ExprPtr destino;
     std::vector<ExprPtr> argumentos;
+    std::vector<std::string> tipoArgsExplicitos;  // PLAN_GENERICOS.md: turbofish destino::<T, U>(...)
     LATINO_ACEPTAR
 };
 
@@ -424,9 +441,11 @@ struct Romper : Sentencia {
 //   funcion suma(a: numero, b: numero): numero
 struct FuncionDef : Sentencia {
     std::string nombre;
+    std::vector<ParametroGenerico> genericos;  // PLAN_GENERICOS.md: <T, U: Bound>
     std::vector<ParamFuncion> parametros;
     TipoAnotado tipoRetorno = TipoAnotado::Ninguno;
     std::string tipoRetornoClase;  // nombre de clase si tipoRetorno == Objeto
+    std::vector<std::string> tipoRetornoArgs;  // PLAN_GENERICOS.md: argumentos entre <> de tipoRetornoClase
     bool variadico = false;  // true si el último parámetro es "..."
     ListaSent cuerpo;
     bool exportado = false;  // PLAN_MODULOS.md: prefijo "exportar"
@@ -448,6 +467,7 @@ struct Retornar : Sentencia {
 // fin
 struct ClaseDef : Sentencia {
     std::string nombre;
+    std::vector<ParametroGenerico> genericos;    // PLAN_GENERICOS.md: <T, U: Bound>
     std::string padre;                           // "" si no hereda
     std::vector<std::string> interfaces;         // interfaces implementadas
     bool esAbstracta = false;
@@ -464,6 +484,7 @@ struct ClaseDef : Sentencia {
 // fin
 struct EstructuraDef : Sentencia {
     std::string nombre;
+    std::vector<ParametroGenerico> genericos;  // PLAN_GENERICOS.md: <T, U: Bound>
     std::vector<CampoDef> campos;
     std::vector<MetodoDef> metodos;
     bool exportado = false;  // PLAN_MODULOS.md: prefijo "exportar"
@@ -476,6 +497,7 @@ struct EstructuraDef : Sentencia {
 // fin
 struct InterfazDef : Sentencia {
     std::string nombre;
+    std::vector<ParametroGenerico> genericos;  // PLAN_GENERICOS.md: <T, U: Bound>
     std::vector<MetodoDef> metodos;  // todos sin cuerpo
     bool exportado = false;  // PLAN_MODULOS.md: prefijo "exportar"
     bool esDefecto = false;
@@ -483,8 +505,10 @@ struct InterfazDef : Sentencia {
 };
 
 // nuevo NombreClase(arg1, arg2, ...)
+// nuevo NombreClase<TipoArg, ...>(arg1, arg2, ...)  (PLAN_GENERICOS.md)
 struct NuevoExpr : Expresion {
     std::string clase;
+    std::vector<std::string> tipoArgs;  // PLAN_GENERICOS.md: argumentos entre <> tras el nombre de clase
     std::vector<ExprPtr> argumentos;
     LATINO_ACEPTAR
 };

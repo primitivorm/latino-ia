@@ -1,0 +1,55 @@
+# Genéricos al estilo de Rust (PLAN_GENERICOS.md): funciones/clases con <T>,
+# restricciones ("bounds") de interfaz, cláusula "donde" y turbofish "::<...>".
+
+funcion identidad<T>(x: T): T
+    retornar x
+fin
+
+escribir(identidad(5))              #salida: 5
+escribir(identidad("hola"))         #salida: hola
+escribir(identidad::<cadena>("chau"))   #salida: chau
+
+interfaz Comparable
+    funcion compararCon(otroValor: Comparable): numero
+fin
+
+clase Entero implementa Comparable
+    publico valor: numero
+
+    funcion Entero(valor: numero)
+        este.valor = valor
+    fin
+
+    publico funcion compararCon(otroValor: Comparable): numero
+        retornar este.valor - otroValor.valor
+    fin
+fin
+
+funcion maximo<T: Comparable>(a: T, b: T): T donde T: Comparable
+    retornar a.compararCon(b) >= 0 ? a : b
+fin
+
+x = nuevo Entero(3)
+y = nuevo Entero(7)
+escribir(maximo::<Entero>(x, y).valor)   #salida: 7
+
+clase Pila<T>
+    privado items: lista
+
+    funcion Pila()
+        este.items = []
+    fin
+
+    publico funcion apilar(valor: T)
+        lista.agregar(este.items, valor)
+    fin
+
+    publico funcion cima(): T
+        retornar lista.ultimo(este.items)
+    fin
+fin
+
+p: Pila<numero> = nuevo Pila<numero>()
+p.apilar(1)
+p.apilar(2)
+escribir(p.cima())   #salida: 2

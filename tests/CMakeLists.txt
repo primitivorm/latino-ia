@@ -93,6 +93,22 @@ target_include_directories(test_poo PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
 add_test(NAME test_poo COMMAND test_poo)
 
+# Pruebas de genéricos al estilo de Rust (PLAN_GENERICOS.md).
+add_executable(test_genericos
+  test_genericos.cpp
+  ${CMAKE_SOURCE_DIR}/src/lexer.cpp
+  ${CMAKE_SOURCE_DIR}/src/parser.cpp
+  ${CMAKE_SOURCE_DIR}/src/ast.cpp
+  ${CMAKE_SOURCE_DIR}/src/ast_impresor.cpp
+  ${CMAKE_SOURCE_DIR}/src/analizador_semantico.cpp
+  ${CMAKE_SOURCE_DIR}/src/compiler.cpp
+  ${CMAKE_SOURCE_DIR}/src/fn_binaria.cpp
+  ${CMAKE_SOURCE_DIR}/src/recolector_variables.cpp
+)
+target_include_directories(test_genericos PRIVATE ${CMAKE_SOURCE_DIR}/include)
+
+add_test(NAME test_genericos COMMAND test_genericos)
+
 # Pruebas de resolución de módulos exportar/importar (PLAN_MODULOS.md, M3).
 add_executable(test_modulos
   test_modulos.cpp

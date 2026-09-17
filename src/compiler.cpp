@@ -575,8 +575,16 @@ void GeneradorC::genFuncion(FuncionDef* f) {
     for (const std::string& v : vars)
         emitir("LatValor " + varC(v) + " = lat_nulo();");
 
+    // PLAN_GENERICOS.md: un parámetro de tipo "T" se compila exactamente
+    // como si no tuviera anotación (erasure) — nunca se emite un chequeo de
+    // runtime para él, sea cual sea el bound declarado (los bounds son
+    // solo estáticos, ver el plan).
+    std::set<std::string> genericosFn;
+    for (const auto& g : f->genericos) genericosFn.insert(g.nombre);
+
     // Chequeos de tipo de parámetros anotados.
     for (const auto& p : f->parametros) {
+        if (p.tipo == TipoAnotado::Objeto && genericosFn.count(p.tipoClase)) continue;
         if (p.tipo != TipoAnotado::Ninguno) {
             const char* ct = tipoALatTipo(p.tipo);
             emitir("lat_verificar_tipo(" + varC(p.nombre) + ", " + ct +
@@ -621,7 +629,18 @@ void GeneradorC::genMetodo(const std::string& claseNombre, MetodoDef* metodo,
     for (const std::string& v : vars)
         emitir("LatValor " + varC(v) + " = lat_nulo();");
 
+    // PLAN_GENERICOS.md: erasure — ver comentario equivalente en genFuncion().
+    // Un parámetro tipado con el nombre de un genérico del método o de la
+    // clase/estructura envolvente nunca recibe un chequeo de runtime.
+    std::set<std::string> genericosMetodo;
+    for (const auto& g : metodo->genericos) genericosMetodo.insert(g.nombre);
+    if (auto itClase = clases.find(claseNombre); itClase != clases.end())
+        for (const auto& g : itClase->second->genericos) genericosMetodo.insert(g.nombre);
+    if (auto itEstructura = estructuras.find(claseNombre); itEstructura != estructuras.end())
+        for (const auto& g : itEstructura->second->genericos) genericosMetodo.insert(g.nombre);
+
     for (const auto& p : metodo->parametros) {
+        if (p.tipo == TipoAnotado::Objeto && genericosMetodo.count(p.tipoClase)) continue;
         if (p.tipo != TipoAnotado::Ninguno) {
             const char* ct = tipoALatTipo(p.tipo);
             emitir("lat_verificar_tipo(" + varC(p.nombre) + ", " + ct +
