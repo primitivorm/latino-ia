@@ -227,7 +227,9 @@ bool Lexer::esPalabraReservada(const std::string& palabra) const {
         // Nuevas palabras reservadas para módulos (PLAN_MODULOS.md)
         "exportar", "importar", "como",
         // Nueva palabra reservada para genéricos (PLAN_GENERICOS.md)
-        "donde"
+        "donde",
+        // Nuevas palabras reservadas para FFI con C (PLAN_FFI.md)
+        "externo", "enlazar", "inseguro"
     };
 
     return palabrasReservadas.count(palabra) > 0;

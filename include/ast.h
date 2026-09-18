@@ -38,6 +38,45 @@ struct ParamFuncion {
     std::vector<std::string> tipoArgs;  // PLAN_GENERICOS.md: argumentos entre <> de tipoClase (p.ej. "Pila<numero>")
 };
 
+// --- FFI con C al estilo de Rust (PLAN_FFI.md) -----------------------------
+// Vocabulario de tipos de una firma "externo", distinto de TipoAnotado: los
+// tipos de TipoAnotado describen un LatValor dinámico verificado en runtime;
+// los de TipoFFI describen el tipo C real de un parámetro/retorno nativo.
+// Numero/Logico/Cadena/Nulo se reutilizan (mapeo exacto y sin pérdida contra
+// double/int/const char*/void); Entero*/Natural*/Puntero son exclusivos de
+// FFI (ver tabla de tipos en PLAN_FFI.md).
+enum class TipoFFI {
+    Numero,     // double            (== LAT_NUMERO)
+    Logico,     // int (0/1)         (== LAT_LOGICO)
+    Cadena,     // const char*       (== LAT_CADENA, terminada en nulo)
+    Nulo,       // void, solo como tipo de retorno
+    Entero8,
+    Entero16,
+    Entero32,
+    Entero64,
+    Natural8,
+    Natural16,
+    Natural32,
+    Natural64,
+    Puntero     // void* opaco       (nuevo LAT_PUNTERO en runtime)
+};
+
+// Parámetro de una firma "externo": nombre + tipo FFI (sin valor por defecto).
+struct ParamFFI {
+    std::string nombre;
+    TipoFFI tipo = TipoFFI::Numero;
+    int linea = 0;
+};
+
+// Una firma de función dentro de un bloque "externo" (sin cuerpo):
+//   funcion nombre(param0: TipoFFI, ...): TipoFFI
+struct FuncionExterna {
+    std::string nombre;
+    std::vector<ParamFFI> parametros;
+    TipoFFI tipoRetorno = TipoFFI::Nulo;
+    int linea = 0;
+};
+
 // --- Genéricos (PLAN_GENERICOS.md: clase/estructura/interfaz/funcion<T>) ---
 // Un parámetro de tipo declarado entre <> (p.ej. el "T" de "clase Pila<T>"),
 // con sus restricciones ("bounds") opcionales: nombres de interfaces que el
@@ -109,6 +148,10 @@ struct EstructuraDef;
 struct InterfazDef;
 struct LlamadaBase;
 
+// Declaraciones adelantadas para FFI (PLAN_FFI.md)
+struct ExternoBloque;
+struct InseguroBloque;
+
 // --- Interfaz del Visitante -----------------------------------------------
 struct Visitante {
     virtual ~Visitante() = default;
@@ -146,6 +189,11 @@ struct Visitante {
     // antes de AnalizadorSemantico/GeneradorC/GeneradorLLVM (PLAN_MODULOS.md)
     virtual void visitar(ImportarDecl&) {}
     virtual void visitar(ExportarDesde&) {}
+    // Visitantes por defecto para FFI (PLAN_FFI.md): no-op aquí, igual que
+    // ClaseDef/EstructuraDef/InterfazDef, para no romper visitantes existentes
+    // hasta que el análisis semántico/codegen los implementen (F4/F5/F6).
+    virtual void visitar(ExternoBloque&) {}
+    virtual void visitar(InseguroBloque&) {}
     virtual void visitar(Asignacion&) = 0;
     virtual void visitar(ExprSentencia&) = 0;
     virtual void visitar(Si&) = 0;
@@ -450,6 +498,7 @@ struct FuncionDef : Sentencia {
     ListaSent cuerpo;
     bool exportado = false;  // PLAN_MODULOS.md: prefijo "exportar"
     bool esDefecto = false;  // "exportar por defecto funcion ..."
+    bool inseguro = false;   // PLAN_FFI.md: "funcion inseguro nombre(...)"
     LATINO_ACEPTAR
 };
 
@@ -528,6 +577,29 @@ struct AccesoEste : Expresion {
 // base(args...)  (llamada al constructor padre)
 struct LlamadaBase : Sentencia {
     std::vector<ExprPtr> argumentos;
+    LATINO_ACEPTAR
+};
+
+// --- Nodos añadidos para FFI (PLAN_FFI.md) ---------------------------------
+
+// externo [enlazar "biblioteca"]
+//     funcion nombre(param0: TipoFFI, ...): TipoFFI
+//     ...
+// fin
+// Sin "enlazar" (enlazar == ""), se asume que el símbolo ya es resoluble
+// contra el runtime C que todo ejecutable Latino enlaza siempre.
+struct ExternoBloque : Sentencia {
+    std::string enlazar;  // "" si no se especificó "enlazar \"...\""
+    std::vector<FuncionExterna> funciones;
+    LATINO_ACEPTAR
+};
+
+// inseguro ... fin
+// Marca un bloque de sentencias habilitado para llamar funciones "externo"
+// (chequeo puramente estático, análogo a "unsafe" en Rust — ver Decisión de
+// diseño 5 de PLAN_FFI.md).
+struct InseguroBloque : Sentencia {
+    ListaSent cuerpo;
     LATINO_ACEPTAR
 };
 

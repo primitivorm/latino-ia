@@ -417,6 +417,109 @@ static void prueba_importar_exportar() {
     }
 }
 
+// PLAN_FFI.md: externo / enlazar / inseguro.
+static void prueba_ffi() {
+    // externo
+    //     funcion abs(n: entero32): entero32
+    //     funcion strlen(s: cadena): entero64
+    // fin
+    {
+        ExternoBloque ext;
+        CHECK(ext.enlazar.empty(), "externo sin enlazar: campo enlazar vacio");
+
+        FuncionExterna abs_;
+        abs_.nombre = "abs";
+        abs_.parametros.push_back({"n", TipoFFI::Entero32, 0});
+        abs_.tipoRetorno = TipoFFI::Entero32;
+        ext.funciones.push_back(abs_);
+
+        FuncionExterna strlen_;
+        strlen_.nombre = "strlen";
+        strlen_.parametros.push_back({"s", TipoFFI::Cadena, 0});
+        strlen_.tipoRetorno = TipoFFI::Entero64;
+        ext.funciones.push_back(strlen_);
+
+        CHECK(ext.funciones.size() == 2, "externo: cantidad de firmas");
+        CHECK(ext.funciones[0].nombre == "abs", "externo: nombre de la primera firma");
+        CHECK(ext.funciones[0].parametros.size() == 1 &&
+                  ext.funciones[0].parametros[0].tipo == TipoFFI::Entero32,
+              "externo: tipo del parametro de 'abs'");
+        CHECK(ext.funciones[0].tipoRetorno == TipoFFI::Entero32,
+              "externo: tipo de retorno de 'abs'");
+        CHECK(ext.funciones[1].parametros[0].tipo == TipoFFI::Cadena,
+              "externo: tipo del parametro de 'strlen' reutiliza TipoFFI::Cadena");
+    }
+
+    // externo enlazar "user32"
+    //     funcion MessageBoxA(hwnd: puntero, texto: cadena, titulo: cadena, tipo: entero32): entero32
+    // fin
+    {
+        ExternoBloque ext;
+        ext.enlazar = "user32";
+
+        FuncionExterna msgbox;
+        msgbox.nombre = "MessageBoxA";
+        msgbox.parametros.push_back({"hwnd", TipoFFI::Puntero, 0});
+        msgbox.parametros.push_back({"texto", TipoFFI::Cadena, 0});
+        msgbox.parametros.push_back({"titulo", TipoFFI::Cadena, 0});
+        msgbox.parametros.push_back({"tipo", TipoFFI::Entero32, 0});
+        msgbox.tipoRetorno = TipoFFI::Entero32;
+        ext.funciones.push_back(msgbox);
+
+        CHECK(ext.enlazar == "user32", "externo enlazar: nombre de biblioteca");
+        CHECK(ext.funciones[0].parametros[0].tipo == TipoFFI::Puntero,
+              "externo enlazar: primer parametro es puntero opaco");
+    }
+
+    // funcion malloc(tam: entero64): puntero  (retorno sin cuerpo, solo firma)
+    {
+        FuncionExterna malloc_;
+        malloc_.nombre = "malloc";
+        malloc_.parametros.push_back({"tam", TipoFFI::Natural64, 0});
+        malloc_.tipoRetorno = TipoFFI::Puntero;
+        CHECK(malloc_.tipoRetorno == TipoFFI::Puntero, "externo: retorno TipoFFI::Puntero");
+
+        // funcion free(p: puntero)  -- sin tipo de retorno explicito -> Nulo
+        FuncionExterna free_;
+        free_.nombre = "free";
+        free_.parametros.push_back({"p", TipoFFI::Puntero, 0});
+        CHECK(free_.tipoRetorno == TipoFFI::Nulo,
+              "externo: sin ':' de retorno -> TipoFFI::Nulo por defecto");
+    }
+
+    // inseguro
+    //     r = abs(-5)
+    // fin
+    {
+        InseguroBloque bloque;
+        auto asig = std::make_unique<Asignacion>();
+        asig->destinos.push_back(id("r"));
+        auto llamada = std::make_unique<Llamada>();
+        llamada->destino = id("abs");
+        llamada->argumentos.push_back(num(-5));
+        asig->valores.push_back(std::move(llamada));
+        bloque.cuerpo.push_back(std::move(asig));
+
+        CHECK(bloque.cuerpo.size() == 1, "inseguro: cantidad de sentencias del cuerpo");
+
+        // El Visitante no tiene todavia logica real para ExternoBloque/
+        // InseguroBloque (F1: solo AST, sin analisis semantico/codegen) --
+        // aceptar() no debe romper el visitante por defecto (no-op).
+        std::ostringstream os;
+        ImpresorAST imp(os);
+        imp.imprimir(bloque);
+    }
+
+    // funcion inseguro saludar_nativo() ... fin
+    {
+        FuncionDef f;
+        f.nombre = "saludar_nativo";
+        CHECK(!f.inseguro, "funcion: inseguro por defecto en falso");
+        f.inseguro = true;
+        CHECK(f.inseguro, "funcion: modificador 'inseguro'");
+    }
+}
+
 int main() {
     prueba_asignacion_y_llamada();
     prueba_si_sino();
@@ -424,6 +527,7 @@ int main() {
     prueba_funcion_variadica();
     prueba_todos_los_nodos();
     prueba_importar_exportar();
+    prueba_ffi();
 
     std::cout << "\nComprobaciones: " << g_checks
               << "   Fallos: " << g_fallos << std::endl;

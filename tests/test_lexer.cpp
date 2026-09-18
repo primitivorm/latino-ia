@@ -262,6 +262,16 @@ static void prueba_palabras_reservadas_modulos() {
     });
 }
 
+static void prueba_palabras_reservadas_ffi() {
+    // PLAN_FFI.md: externo / enlazar / inseguro.
+    auto t = lex("externo enlazar inseguro");
+    esperarSecuencia("palabras_reservadas_ffi", t, {
+        {TokenType::PalabraReservada, "externo"},
+        {TokenType::PalabraReservada, "enlazar"},
+        {TokenType::PalabraReservada, "inseguro"},
+    });
+}
+
 static void prueba_archivo_vacio() {
     auto t = lex("");
     CHECK(t.size() == 1 && t[0].type == TokenType::FinDeArchivo,
@@ -282,6 +292,7 @@ int main() {
     prueba_regresion_caracter_perdido();
     prueba_concatenacion_vs_punto();
     prueba_palabras_reservadas_modulos();
+    prueba_palabras_reservadas_ffi();
     prueba_archivo_vacio();
 
     std::cout << "\nComprobaciones: " << g_checks
