@@ -40,6 +40,27 @@ TipoAnotado Parser::mapearNombreTipo(const std::string& s) {
     return TipoAnotado::Objeto;
 }
 
+// PLAN_FFI.md: vocabulario de tipos de una firma "externo". Reutiliza los
+// lexemas de mapearNombreTipo cuando el mapeo a C es exacto (numero/cadena/
+// logico/nulo) y agrega los que solo tienen sentido en un borde FFI (anchos
+// enteros fijos y el puntero opaco) — ver tabla de tipos en PLAN_FFI.md.
+bool Parser::mapearNombreTipoFFI(const std::string& s, TipoFFI& out) {
+    if (s == "numero")     { out = TipoFFI::Numero;    return true; }
+    if (s == "cadena")     { out = TipoFFI::Cadena;    return true; }
+    if (s == "logico")     { out = TipoFFI::Logico;    return true; }
+    if (s == "nulo")       { out = TipoFFI::Nulo;      return true; }
+    if (s == "entero8")    { out = TipoFFI::Entero8;   return true; }
+    if (s == "entero16")   { out = TipoFFI::Entero16;  return true; }
+    if (s == "entero32")   { out = TipoFFI::Entero32;  return true; }
+    if (s == "entero64")   { out = TipoFFI::Entero64;  return true; }
+    if (s == "natural8")   { out = TipoFFI::Natural8;  return true; }
+    if (s == "natural16")  { out = TipoFFI::Natural16; return true; }
+    if (s == "natural32")  { out = TipoFFI::Natural32; return true; }
+    if (s == "natural64")  { out = TipoFFI::Natural64; return true; }
+    if (s == "puntero")    { out = TipoFFI::Puntero;   return true; }
+    return false;
+}
+
 std::string Parser::parseNombreTipoCalificado() {
     std::string nombre = actual.lexeme;
     avanzar();
@@ -248,6 +269,8 @@ SentPtr Parser::parseSentencia() {
         if (p == "const")   return parseConst();
         if (p == "exportar") return parseExportar();
         if (p == "importar") return parseImportar();
+        if (p == "externo")  return parseExterno();
+        if (p == "inseguro") return parseInseguro();
         if (p == "romper") {
             int l = actual.line;
             avanzar();
@@ -460,10 +483,19 @@ SentPtr Parser::parseRepetir() {
 SentPtr Parser::parseFuncion() {
     int l = actual.line;
     avanzar();  // funcion / fun
+    // PLAN_FFI.md: "funcion inseguro nombre(...)" habilita, dentro del
+    // cuerpo, llamar funciones "externo" sin necesidad de envolverlas en un
+    // bloque "inseguro" aparte (análogo a "unsafe fn" en Rust).
+    bool esInsegura = false;
+    if (esReservada("inseguro")) {
+        esInsegura = true;
+        avanzar();
+    }
     if (actual.type != TokenType::Identificador)
         error("se esperaba el nombre de la función");
     auto nodo = std::make_unique<FuncionDef>();
     nodo->linea = l;
+    nodo->inseguro = esInsegura;
     nodo->nombre = actual.lexeme;
     avanzar();
     nodo->genericos = parseParametrosGenericos();
@@ -792,6 +824,98 @@ SentPtr Parser::parseExportar() {
               "interfaz, var, const o asignación) después de 'exportar'");
     a->exportado = true;
     return s;
+}
+
+// externo [enlazar "biblioteca"]
+//     funcion nombre(param0: TipoFFI, ...): TipoFFI
+//     ...
+// fin
+// Ver PLAN_FFI.md, "Sintaxis propuesta". Solo declara firmas (sin cuerpo);
+// el análisis semántico/codegen de las llamadas llega en F4/F5/F6.
+SentPtr Parser::parseExterno() {
+    int l = actual.line;
+    avanzar();  // consume "externo"
+
+    auto nodo = std::make_unique<ExternoBloque>();
+    nodo->linea = l;
+
+    if (esReservada("enlazar")) {
+        avanzar();
+        if (actual.type != TokenType::Cadena)
+            error("se esperaba el nombre de la biblioteca entre comillas después de 'enlazar'");
+        nodo->enlazar = actual.lexeme;
+        avanzar();
+    }
+    consumirFinDeSentencia();
+
+    saltarNuevasLineas();
+    while (!esEOF() && !esReservada("fin")) {
+        nodo->funciones.push_back(parseFuncionExterna());
+        saltarNuevasLineas();
+    }
+    esperarReservada("fin");
+    return nodo;
+}
+
+// Una firma dentro de un bloque "externo": funcion nombre(a: TipoFFI, ...): TipoFFI
+FuncionExterna Parser::parseFuncionExterna() {
+    if (!esReservada("funcion") && !esReservada("fun"))
+        error("se esperaba 'funcion' dentro de un bloque 'externo'");
+    int l = actual.line;
+    avanzar();  // funcion / fun
+
+    if (actual.type != TokenType::Identificador)
+        error("se esperaba el nombre de la función externa");
+    FuncionExterna f;
+    f.linea = l;
+    f.nombre = actual.lexeme;
+    avanzar();
+
+    esperarDelimitador("(");
+    if (!esDelimitador(")")) {
+        for (;;) {
+            if (actual.type != TokenType::Identificador)
+                error("se esperaba el nombre de un parámetro");
+            ParamFFI p;
+            p.linea = actual.line;
+            p.nombre = actual.lexeme;
+            avanzar();
+            esperarOperador(":");  // el tipo FFI de un parámetro no es opcional
+            if (actual.type != TokenType::Identificador)
+                error("se esperaba un tipo FFI después de ':'");
+            if (!mapearNombreTipoFFI(actual.lexeme, p.tipo))
+                error("tipo FFI desconocido: '" + actual.lexeme + "'");
+            avanzar();
+            f.parametros.push_back(std::move(p));
+            if (esDelimitador(",")) { avanzar(); continue; }
+            break;
+        }
+    }
+    esperarDelimitador(")");
+
+    // Tipo de retorno opcional: ": TipoFFI"; sin él, TipoFFI::Nulo (void).
+    if (esOperador(":")) {
+        avanzar();
+        if (actual.type != TokenType::Identificador)
+            error("se esperaba un tipo de retorno FFI válido");
+        if (!mapearNombreTipoFFI(actual.lexeme, f.tipoRetorno))
+            error("tipo FFI desconocido: '" + actual.lexeme + "'");
+        avanzar();
+    }
+    consumirFinDeSentencia();
+    return f;
+}
+
+// inseguro ... fin
+// Ver PLAN_FFI.md, Decisión de diseño 5 (análogo a "unsafe { }" en Rust).
+SentPtr Parser::parseInseguro() {
+    int l = actual.line;
+    avanzar();  // consume "inseguro"
+    auto nodo = std::make_unique<InseguroBloque>();
+    nodo->linea = l;
+    nodo->cuerpo = parseBloque({"fin"});
+    esperarReservada("fin");
+    return nodo;
 }
 
 std::vector<ExprPtr> Parser::parseListaExpresiones() {

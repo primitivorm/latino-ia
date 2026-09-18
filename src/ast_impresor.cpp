@@ -266,6 +266,27 @@ static std::string nombreTipoAst(TipoAnotado t) {
     }
 }
 
+// PLAN_FFI.md: nombre de lexema de un TipoFFI (para --ast, no usado por el
+// parser -- el parser va de lexema a enum, no al revés).
+static std::string nombreTipoFFI(TipoFFI t) {
+    switch (t) {
+        case TipoFFI::Numero:    return "numero";
+        case TipoFFI::Logico:    return "logico";
+        case TipoFFI::Cadena:    return "cadena";
+        case TipoFFI::Nulo:      return "nulo";
+        case TipoFFI::Entero8:   return "entero8";
+        case TipoFFI::Entero16:  return "entero16";
+        case TipoFFI::Entero32:  return "entero32";
+        case TipoFFI::Entero64:  return "entero64";
+        case TipoFFI::Natural8:  return "natural8";
+        case TipoFFI::Natural16: return "natural16";
+        case TipoFFI::Natural32: return "natural32";
+        case TipoFFI::Natural64: return "natural64";
+        case TipoFFI::Puntero:   return "puntero";
+    }
+    return "";
+}
+
 void ImpresorAST::visitar(FuncionDef& n) {
     std::string firma = "Funcion '" + n.nombre + "' (";
     for (size_t i = 0; i < n.parametros.size(); ++i) {
@@ -280,6 +301,7 @@ void ImpresorAST::visitar(FuncionDef& n) {
     if (n.tipoRetorno != TipoAnotado::Ninguno)
         firma += " -> " + nombreTipoAst(n.tipoRetorno);
     if (n.exportado) firma += n.esDefecto ? " [exportado por defecto]" : " [exportado]";
+    if (n.inseguro) firma += " [inseguro]";  // PLAN_FFI.md
     linea(firma);
     linea("cuerpo:");
     hijos(n.cuerpo);
@@ -396,4 +418,29 @@ void ImpresorAST::visitar(LlamadaBase& n) {
     linea("LlamadaBase (" + std::to_string(n.argumentos.size()) + " args)");
     for (auto& a : n.argumentos)
         if (a) hijo(*a);
+}
+
+// --- FFI con C (PLAN_FFI.md) --------------------------------------------
+
+void ImpresorAST::visitar(ExternoBloque& n) {
+    std::string firma = "Externo";
+    if (!n.enlazar.empty()) firma += " enlazar \"" + n.enlazar + "\"";
+    linea(firma);
+    ++nivel;
+    for (const FuncionExterna& f : n.funciones) {
+        std::string firmaFn = "Funcion '" + f.nombre + "' (";
+        for (size_t i = 0; i < f.parametros.size(); ++i) {
+            if (i) firmaFn += ", ";
+            firmaFn += f.parametros[i].nombre + ":" + nombreTipoFFI(f.parametros[i].tipo);
+        }
+        firmaFn += ") -> " + nombreTipoFFI(f.tipoRetorno);
+        linea(firmaFn);
+    }
+    --nivel;
+}
+
+void ImpresorAST::visitar(InseguroBloque& n) {
+    linea("Inseguro");
+    linea("cuerpo:");
+    hijos(n.cuerpo);
 }
