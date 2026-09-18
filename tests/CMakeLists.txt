@@ -123,6 +123,28 @@ target_include_directories(test_modulos PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
 add_test(NAME test_modulos COMMAND test_modulos)
 
+# Pruebas del runtime de FFI con C (PLAN_FFI.md, F3): LAT_PUNTERO y
+# lat_ffi_verificar_tipo. A diferencia de los tests anteriores (que
+# compilan el compilador de Latino), este compila directamente contra el
+# runtime en C -- todavía no hay integración con el compilador (llega en
+# F4/F5/F6), así que no hay nada de Latino que parsear. No se usa el target
+# "latino_runtime" (solo compila runtime/latino.c para verificar que sigue
+# siendo válido -- ver su comentario en el CMakeLists.txt raíz): la propia
+# runtime/latino.c ya requiere lat_paquete_llamar_args de
+# runtime/libs/paquete.c (lat_obj_llamar_metodo, despacho dinámico), así que
+# hace falta compilar ambos .c, igual que un programa Latino real enlaza el
+# runtime completo.
+add_executable(test_runtime_ffi
+  test_runtime_ffi.cpp
+  ${CMAKE_SOURCE_DIR}/runtime/latino.c
+  ${CMAKE_SOURCE_DIR}/runtime/libs/paquete.c
+)
+target_include_directories(test_runtime_ffi PRIVATE
+  ${CMAKE_SOURCE_DIR}/runtime
+  ${CMAKE_SOURCE_DIR}/runtime/libs)
+
+add_test(NAME test_runtime_ffi COMMAND test_runtime_ffi)
+
 # Pruebas del mecanismo de ABI del backend LLVM (Fase L2 de
 # input/PLAN_LLVM.md). Solo se registran si el build tiene LLVM habilitado;
 # las máquinas sin LLVM instalado siguen corriendo el resto de la suite sin

@@ -23,7 +23,8 @@ typedef enum {
     LAT_DICCIONARIO,
     LAT_OBJETO,
     LAT_FUNCION,
-    LAT_MODULO
+    LAT_MODULO,
+    LAT_PUNTERO  /* PLAN_FFI.md (F3): puntero nativo opaco (void*) */
 } LatTipo;
 
 typedef struct LatValor LatValor;
@@ -45,6 +46,7 @@ struct LatValor {
         LatObjeto* objeto;
         LatFnModulo funcion;
         LatModulo* modulo;
+        void* puntero;  /* PLAN_FFI.md (F3): opaco, sin ref-conteo */
     } como;
 };
 
@@ -78,6 +80,14 @@ LatValor lat_numero(double n);
 LatValor lat_cadena(const char* s);
 LatValor lat_lista_de(size_t n, ...);            /* n elementos LatValor */
 LatValor lat_dic_de(size_t n, ...);              /* n pares: clave, valor (ambos LatValor) */
+
+/* PLAN_FFI.md (F3): puntero nativo opaco devuelto/recibido por una función
+ * "externo" (p.ej. malloc, un handle de Win32). No es indexable ni legible
+ * desde Latino; solo se puede pasar de una llamada FFI a otra o compararse
+ * contra "nulo" (== / != -- ver son_iguales en latino.c). Sin ref-conteo:
+ * el ciclo de vida de la memoria que apunta es responsabilidad del
+ * programador, igual que en un "unsafe" de Rust. */
+LatValor lat_puntero(void* p);
 
 /* --- Objetos (POO) --- */
 /* Nota: API mínima para soporte POO en el runtime. El compilador usará estas
@@ -157,6 +167,20 @@ void lat_set_args(int argc, char **argv);
  */
 LatValor lat_verificar_tipo(LatValor v, int tipo_esperado,
                              const char *nombre_var, int linea);
+
+/* --- FFI con C (PLAN_FFI.md): verificación dinámica de marshalling ---
+ * Usada por el código generado para una llamada a una función "externo"
+ * cuando el compilador no pudo verificar en compilación el tipo de un
+ * argumento (ver AnalizadorSemantico, F4). tipo_esperado es el LatTipo que
+ * le corresponde al TipoFFI declarado en la firma (LAT_NUMERO para
+ * numero/entero-N/natural-N -- el ancho exacto se aplica al convertir a C,
+ * no aquí -- LAT_LOGICO, LAT_CADENA o LAT_PUNTERO). Si no coincide, imprime
+ * un mensaje de error a stderr y termina con exit(1); si coincide, devuelve
+ * v sin modificar. nombre_fn e indice_arg (basado en 1) son solo para el
+ * mensaje de error.
+ */
+LatValor lat_ffi_verificar_tipo(LatValor v, int tipo_esperado,
+                                 const char *nombre_fn, int indice_arg);
 
 /* --- Backend LLVM: verificación de ABI (Fase L2 de input/PLAN_LLVM.md) ---
  * GeneradorLLVM deriva el tamaño, la alineación y el offset del campo
