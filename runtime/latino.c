@@ -207,6 +207,14 @@ LatValor lat_cadena(const char* s) {
     return v;
 }
 
+/* PLAN_FFI.md (F3): ver comentario de lat_puntero en latino.h. */
+LatValor lat_puntero(void* p) {
+    LatValor v;
+    v.tipo = LAT_PUNTERO;
+    v.como.puntero = p;
+    return v;
+}
+
 static LatLista* lista_nueva(size_t capacidad) {
     LatLista* l = (LatLista*)malloc(sizeof(LatLista));
     l->refs = 1;
@@ -510,8 +518,15 @@ static int comparar(LatValor a, LatValor b) {
 }
 
 static int son_iguales(LatValor a, LatValor b) {
-    if (a.tipo == LAT_NULO || b.tipo == LAT_NULO)
+    if (a.tipo == LAT_NULO || b.tipo == LAT_NULO) {
+        /* PLAN_FFI.md (F3): un LAT_PUNTERO con valor NULL se compara como
+         * equivalente a "nulo" (p == nulo debe dar cierto cuando el puntero
+         * nativo es NULL, igual que en C) -- no se usa el operador "es"
+         * para esto, ver "Sintaxis propuesta" del plan. */
+        if (a.tipo == LAT_PUNTERO) return a.como.puntero == NULL;
+        if (b.tipo == LAT_PUNTERO) return b.como.puntero == NULL;
         return a.tipo == b.tipo;
+    }
     if (a.tipo == LAT_CADENA && b.tipo == LAT_CADENA)
         return strcmp(a.como.cadena, b.como.cadena) == 0;
     if ((a.tipo == LAT_NUMERO || a.tipo == LAT_LOGICO) &&
@@ -519,6 +534,8 @@ static int son_iguales(LatValor a, LatValor b) {
         return num(a) == num(b);
     if (a.tipo == LAT_OBJETO && b.tipo == LAT_OBJETO)
         return a.como.objeto == b.como.objeto; /* igualdad por identidad */
+    if (a.tipo == LAT_PUNTERO && b.tipo == LAT_PUNTERO)
+        return a.como.puntero == b.como.puntero; /* igualdad por identidad */
     return 0;
 }
 
@@ -539,6 +556,7 @@ int lat_es_verdadero(LatValor v) {
         case LAT_DICCIONARIO: return v.como.dic->longitud > 0;
         case LAT_OBJETO:      return v.como.objeto != NULL; /* objetos son truthy */
         case LAT_MODULO:      return v.como.modulo != NULL;
+        case LAT_PUNTERO:     return v.como.puntero != NULL;
     }
     return 0;
 }
@@ -694,6 +712,8 @@ char* lat_a_cadena(LatValor v) {
             return dup_cadena("<funcion>");
         case LAT_MODULO:
             return dup_cadena("<modulo>");
+        case LAT_PUNTERO:
+            return dup_cadena("<puntero>");
     }
     return dup_cadena("");
 }
@@ -776,6 +796,7 @@ LatValor lat_tipo(LatValor v) {
         case LAT_OBJETO:      return lat_cadena(v.como.objeto && v.como.objeto->clase ? v.como.objeto->clase : "objeto");
         case LAT_FUNCION:     return lat_cadena("funcion");
         case LAT_MODULO:      return lat_cadena("modulo");
+        case LAT_PUNTERO:     return lat_cadena("puntero");
     }
     return lat_cadena("desconocido");
 }
@@ -979,6 +1000,7 @@ static const char *_nombre_latipo(LatTipo t) {
         case LAT_DICCIONARIO: return "dic";
         case LAT_OBJETO:      return "objeto";
         case LAT_MODULO:      return "modulo";
+        case LAT_PUNTERO:     return "puntero";
         default:              return "desconocido";
     }
 }
@@ -991,6 +1013,20 @@ LatValor lat_verificar_tipo(LatValor v, int tipo_esperado,
                 "pero recibió un valor de tipo '%s'\n",
                 linea, nombre_var,
                 _nombre_latipo((LatTipo)tipo_esperado),
+                _nombre_latipo(v.tipo));
+        exit(1);
+    }
+    return v;
+}
+
+/* --- FFI con C (PLAN_FFI.md): verificación dinámica de marshalling --- */
+LatValor lat_ffi_verificar_tipo(LatValor v, int tipo_esperado,
+                                 const char *nombre_fn, int indice_arg) {
+    if (v.tipo != (LatTipo)tipo_esperado) {
+        fprintf(stderr,
+                "ffi: se esperaba '%s' para el argumento %d de '%s', se "
+                "recibió '%s'\n",
+                _nombre_latipo((LatTipo)tipo_esperado), indice_arg, nombre_fn,
                 _nombre_latipo(v.tipo));
         exit(1);
     }

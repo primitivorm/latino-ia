@@ -193,12 +193,18 @@ fin
 
 inseguro
     p = malloc(16)
-    si p es nulo
+    si p == nulo
         escribir("sin memoria")
     fin
     free(p)
 fin
 ```
+
+(`p == nulo` usa el operador de igualdad normal, no `es`: `es` en Latino
+solo acepta un nombre de clase a la derecha —`Parser::parseNombreTipoCalificado()`
+exige un `TokenType::Identificador`, y `nulo` es palabra reservada, no
+identificador— así que `p es nulo` sería un error de sintaxis. Ver Decisión
+de diseño 4 y F3 en "Fases de implementación".)
 
 ### Tabla de tipos FFI
 
@@ -297,13 +303,22 @@ ya existente.
 - `LAT_PUNTERO` nuevo en `LatTipo`; campo `void* puntero;` nuevo en la
   unión de `LatValor`.
 - `LatValor lat_puntero(void* p);` — constructor.
-- `int lat_puntero_es_nulo(LatValor v);` — o reutilizar el `es nulo` ya
-  existente si `LAT_PUNTERO` con `puntero == NULL` se decide tratar como
-  equivalente a `LAT_NULO` en el operador `es` (definir en F3, ver Fases).
-- `LatValor lat_ffi_verificar_tipo(LatValor v, /* enum TipoFFI en runtime */ int esperado, const char* nombreFn, int indiceArg);`
+- `son_iguales` (usada por `lat_igual`/`lat_distinto`, es decir por `==`/
+  `!=`) trata un `LAT_PUNTERO` con `puntero == NULL` como equivalente a
+  `LAT_NULO`: `p == nulo` da `cierto` cuando el puntero nativo es `NULL`,
+  en cualquier orden de los operandos. **No** se usa el operador `es` para
+  esto — `es` en Latino solo acepta un nombre de clase a su derecha
+  (`Parser::parseNombreTipoCalificado()` exige un `Identificador`, y
+  `nulo` es palabra reservada, no identificador), así que `p es nulo`
+  sería un error de sintaxis (decidido en F3, ver "Fases de
+  implementación").
+- `LatValor lat_ffi_verificar_tipo(LatValor v, int tipo_esperado, const char* nombre_fn, int indice_arg);`
   — chequeo dinámico usado cuando el compilador no pudo verificar el tipo
-  del argumento en compilación; aborta con mensaje claro si no coincide
-  (mismo espíritu que `lat_verificar_tipo`, reutilizado por POO/genéricos).
+  del argumento en compilación; `tipo_esperado` es un `LatTipo` (no un
+  `TipoFFI`: los distintos anchos de entero/natural de una firma FFI
+  comparten el mismo `LAT_NUMERO` en runtime, el ancho exacto se aplica al
+  convertir a C, no aquí); aborta con mensaje claro si no coincide (mismo
+  espíritu que `lat_verificar_tipo`, reutilizado por POO/genéricos).
 
 ## Mensajes de error
 
@@ -505,3 +520,64 @@ normal no declarada, y fallaría más adelante en el análisis semántico con
 un mensaje genérico ("función no declarada"), no con los mensajes
 específicos de FFI de la sección "Mensajes de error" — comportamiento
 esperado en esta fase, no un bug.
+
+F3 completa (runtime: puntero opaco): `LAT_PUNTERO` nuevo al final de
+`LatTipo` y campo `void* puntero;` nuevo en la unión de `LatValor`
+(`runtime/latino.h`) — no cambia `sizeof(LatValor)` ni su alineación en
+x64 (un `void*` mide lo mismo que los demás punteros/el `double` ya
+presentes en la unión), así que la verificación de ABI de `lat_abi_verificar`
+(Fase L2 de `PLAN_LLVM.md`) no se ve afectada y `generated/runtime_abi.ll`
+no necesita regenerarse. `lat_puntero(void* p)` nuevo (`runtime/latino.c`).
+Hallazgo real de esta fase, no previsto en el diseño original: el operador
+`es` (`n es NombreClase`) **no** sirve para comprobar nulidad de un
+puntero — `Parser` exige un `Identificador` después de `es`, y `nulo` es
+palabra reservada, no identificador, así que `p es nulo` es un error de
+sintaxis. Se corrigió el ejemplo de "Sintaxis propuesta" (usaba `si p es
+nulo`) a `si p == nulo`, y se implementó la comparación real en
+`son_iguales` (`runtime/latino.c`): un `LAT_PUNTERO` con `puntero == NULL`
+se trata como equivalente a `LAT_NULO` en cualquier orden de los
+operandos (`p == nulo`, `nulo == p`); dos `LAT_PUNTERO` no nulos se
+comparan por identidad del puntero nativo, igual que ya hacía `LAT_OBJETO`.
+Se agregó también el caso `LAT_PUNTERO` a los demás `switch (v.tipo)`
+exhaustivos de `runtime/latino.c` que ya enumeraban todos los `LatTipo`
+existentes (`lat_es_verdadero` → un puntero no-NULL es verdadero;
+`lat_a_cadena` → `"<puntero>"`; `lat_tipo` → `"puntero"`; `_nombre_latipo`
+→ `"puntero"`, usado por los mensajes de error de `lat_verificar_tipo` y
+del nuevo `lat_ffi_verificar_tipo`) — `lat_valor_retener`/
+`lat_valor_liberar` no necesitaron cambios porque ya tienen `default:
+break;` y un puntero FFI nunca participa del conteo de referencias
+(Decisión de diseño 4: el ciclo de vida es responsabilidad del
+programador, igual que `unsafe` en Rust).
+
+`lat_ffi_verificar_tipo(LatValor v, int tipo_esperado, const char*
+nombre_fn, int indice_arg)` nuevo, mismo patrón que `lat_verificar_tipo`
+(imprime a `stderr` y termina con `exit(1)` si `v.tipo` no coincide con el
+`LatTipo` esperado, devuelve `v` sin modificar si coincide) pero con el
+mensaje de error de "Mensajes de error" del plan (`ffi: se esperaba 'X'
+para el argumento N de 'fn', se recibió 'Y'`) en vez del de tipado
+gradual. Recibe un `LatTipo`, no un `TipoFFI` del AST — los distintos
+anchos de entero/natural de una firma FFI comparten el mismo `LAT_NUMERO`
+en runtime; F5/F6 son quienes truncan/convierten al ancho C real después
+de esta verificación, no esta función.
+
+Sin integración con el compilador todavía (F4/F5/F6 la agregan). Pruebas:
+`tests/test_runtime_ffi.cpp`, suite nueva registrada directamente en
+`tests/CMakeLists.txt` (no vía `add_suite20`, reservado a E2E que invocan
+el binario `latino`) — compila `runtime/latino.c` +
+`runtime/libs/paquete.c` (el segundo hace falta porque
+`lat_obj_llamar_metodo`, despacho dinámico de POO, ya requería
+`lat_paquete_llamar_args` antes de este plan) y enlaza contra ellos
+directamente, sin pasar por el target `latino_runtime` del CMakeLists.txt
+raíz (ese target solo compila `runtime/latino.c` "para verificar que
+sigue siendo válido", según su propio comentario, y no incluye
+`runtime/libs/*` — enlazarlo solo habría producido un símbolo sin
+resolver). 19 comprobaciones: construcción de `lat_puntero` (con puntero
+real y con `NULL`), igualdad `puntero == nulo`/`!= nulo` en ambos
+órdenes, igualdad por identidad entre dos `LAT_PUNTERO`, `lat_es_verdadero`,
+`lat_tipo`/`lat_a_cadena` de un puntero, y la ruta exitosa de
+`lat_ffi_verificar_tipo` (la ruta de error termina el proceso con
+`exit(1)`, igual que `lat_verificar_tipo`/`lat_dividir`, y ningún test del
+proyecto ejercita esas rutas en el mismo proceso — se deja para
+verificación E2E vía subproceso en F7, cuando ya haya código Latino real
+que la dispare). Suite completa de CTest verificada en verde tras el
+cambio.
