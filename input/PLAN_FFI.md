@@ -451,4 +451,57 @@ Runtime (vía `lat_ffi_verificar_tipo`):
 
 ## Estado
 
-Sin empezar — plan pendiente de revisión antes de iniciar F1.
+F1 completa (lexer y AST): tres palabras reservadas nuevas (`externo`,
+`enlazar`, `inseguro`) en `src/lexer.cpp`; `enum class TipoFFI` y
+`struct ParamFFI`/`FuncionExterna` en `include/ast.h` (vocabulario de tipos
+FFI de la tabla de "Sintaxis propuesta"); nodos `ExternoBloque`/
+`InseguroBloque` con `visitar()` no-op por defecto en `Visitante` (mismo
+patrón que `ClaseDef`/`EstructuraDef`/`InterfazDef` en su fase inicial —
+ningún visitante existente se rompe hasta que F4/F5/F6 les den lógica real);
+campo `bool inseguro = false;` en `FuncionDef`. Sin lógica de parser ni de
+resolución todavía. Pruebas: `test_lexer` (tokeniza las 3 palabras nuevas),
+`test_ast` (construcción directa de `ExternoBloque` con/sin `enlazar`,
+`FuncionExterna`/`ParamFFI` con los distintos `TipoFFI`, `InseguroBloque`, y
+el modificador `FuncionDef::inseguro`).
+
+F2 completa (parser): `Parser::parseExterno()`/`parseFuncionExterna()`/
+`parseInseguro()` en `src/parser.cpp`, con despacho desde `parseSentencia()`
+para las palabras reservadas `externo`/`inseguro`. `externo [enlazar
+"lib"]` seguido de N firmas `funcion nombre(param: TipoFFI, ...): TipoFFI`
+sin cuerpo, terminado en `fin`; el tipo de retorno es opcional y por
+defecto es `TipoFFI::Nulo` (equivalente a omitir `: void` en C), pero el
+tipo de cada parámetro es obligatorio (`esperarOperador(":")`, a diferencia
+de los parámetros sin anotar de una función Latino normal) — no tiene
+sentido un parámetro FFI sin tipo C explícito. `Parser::mapearNombreTipoFFI`
+(nuevo, junto a `mapearNombreTipo`) traduce el lexema al enum `TipoFFI` y
+devuelve `false` si no lo reconoce (a diferencia de `mapearNombreTipo`, que
+nunca falla porque cualquier lexema no reconocido se interpreta como nombre
+de clase de usuario — en FFI no existe ese fallback, así que un tipo
+desconocido es directamente `tipo FFI desconocido: 'Y'`, error de
+compilación). El modificador `inseguro` de `funcion inseguro nombre(...)`
+se parsea dentro de `parseFuncion()`, entre `funcion`/`fun` y el nombre —
+sin ambigüedad con el `inseguro` que abre un bloque, porque son posiciones
+gramaticales distintas (`parseSentencia()` solo llega a la segunda forma
+cuando `inseguro` es la primera palabra de la sentencia). `ImpresorAST`
+gana `visitar(ExternoBloque&)`/`visitar(InseguroBloque&)` (volcado de una
+línea por firma / del cuerpo del bloque, respectivamente, ya no no-op) y
+marca `[inseguro]` en la firma de una `FuncionDef` que lleva el modificador
+— mismo criterio que M2 de `PLAN_MODULOS.md` (el impresor gana soporte real
+recién cuando el parser puede producir el nodo).
+
+Pruebas: `tests/test_parser.cpp` (bloque `externo` con y sin `enlazar`,
+tipo de retorno por defecto `nulo` cuando se omite `:`, bloque `inseguro`,
+`funcion inseguro nombre(...)`, y dos casos negativos que confirman que el
+parser devuelve `nullptr` en un tipo FFI desconocido y en un parámetro
+`externo` sin `:` de tipo). Suite completa de CTest verificada en verde
+tras el cambio (ver nota de `ctest -j` en `CLAUDE.md`).
+
+Alcance de F1/F2, tal como lo define este plan: solo sintaxis y estructura
+del AST. Una llamada a una función `externo` fuera de un bloque `inseguro`
+**no** se rechaza todavía (llega en F4); una llamada a una función
+`externo` dentro de `inseguro` tampoco genera código real todavía (F5/F6)
+— hoy el compilador la trataría como una llamada a una función Latino
+normal no declarada, y fallaría más adelante en el análisis semántico con
+un mensaje genérico ("función no declarada"), no con los mensajes
+específicos de FFI de la sección "Mensajes de error" — comportamiento
+esperado en esta fase, no un bug.

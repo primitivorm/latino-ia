@@ -58,6 +58,10 @@ public:
     void visitar(AccesoEste&) override;
     void visitar(LlamadaBase&) override;
 
+    // FFI con C (PLAN_FFI.md)
+    void visitar(ExternoBloque&) override;
+    void visitar(InseguroBloque&) override;
+
 private:
     std::ostream& salida;
     int nivel;

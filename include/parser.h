@@ -121,6 +121,16 @@ private:
     MetodoDef parseMetodoDef(const std::string& nombreClase, bool fuerzaAbstracto = false);
     CampoDef parseCampoDef();
 
+    // FFI con C (PLAN_FFI.md): externo / enlazar / inseguro
+    SentPtr parseExterno();
+    SentPtr parseInseguro();
+    FuncionExterna parseFuncionExterna();
+    // Convierte un nombre de tipo FFI ("numero", "entero32", "puntero", ...)
+    // al enum TipoFFI. Devuelve false (sin tocar `out`) si no es un tipo FFI
+    // reconocido -- a diferencia de mapearNombreTipo, aquí no hay un valor
+    // "es una clase de usuario" al que caer por defecto.
+    static bool mapearNombreTipoFFI(const std::string& nombre, TipoFFI& out);
+
     ListaSent parseBloque(std::initializer_list<const char*> terminadores);
     std::vector<ExprPtr> parseListaExpresiones();
 

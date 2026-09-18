@@ -288,6 +288,73 @@ static void prueba_exportar_reexport() {
           "reexport (barril)");
 }
 
+// PLAN_FFI.md: externo / enlazar / inseguro.
+
+static void prueba_ffi_externo_sin_enlazar() {
+    std::string t = volcar(
+        "externo\n"
+        "    funcion abs(n: entero32): entero32\n"
+        "    funcion strlen(s: cadena): entero64\n"
+        "fin\n");
+    CHECK(contiene(t, "Externo"), "bloque externo");
+    CHECK(!contiene(t, "enlazar"), "sin 'enlazar' no debe aparecer en el volcado");
+    CHECK(contiene(t, "Funcion 'abs' (n:entero32) -> entero32"), "firma de abs");
+    CHECK(contiene(t, "Funcion 'strlen' (s:cadena) -> entero64"), "firma de strlen");
+}
+
+static void prueba_ffi_externo_con_enlazar() {
+    std::string t = volcar(
+        "externo enlazar \"user32\"\n"
+        "    funcion MessageBoxA(hwnd: puntero, texto: cadena, titulo: cadena, tipo: entero32): entero32\n"
+        "fin\n");
+    CHECK(contiene(t, "Externo enlazar \"user32\""), "externo con enlazar");
+    CHECK(contiene(t, "Funcion 'MessageBoxA' (hwnd:puntero, texto:cadena, titulo:cadena, tipo:entero32) -> entero32"),
+          "firma de MessageBoxA");
+}
+
+static void prueba_ffi_externo_sin_retorno_es_nulo() {
+    std::string t = volcar(
+        "externo\n"
+        "    funcion free(p: puntero)\n"
+        "fin\n");
+    CHECK(contiene(t, "Funcion 'free' (p:puntero) -> nulo"),
+          "sin ':' de retorno -> TipoFFI::Nulo por defecto");
+}
+
+static void prueba_ffi_inseguro_bloque() {
+    std::string t = volcar(
+        "inseguro\n"
+        "    r = abs(-5)\n"
+        "fin\n");
+    CHECK(contiene(t, "Inseguro"), "bloque inseguro");
+    CHECK(enOrden(t, "Inseguro", "Asignacion"), "cuerpo dentro del bloque inseguro");
+}
+
+static void prueba_ffi_funcion_inseguro() {
+    std::string t = volcar(
+        "funcion inseguro saludar_nativo()\n"
+        "    MessageBoxA(nulo, \"Hola\", \"FFI\", 0)\n"
+        "fin\n");
+    CHECK(contiene(t, "Funcion 'saludar_nativo' () [inseguro]"),
+          "modificador 'inseguro' en la firma de la funcion");
+}
+
+static void prueba_ffi_tipo_desconocido_falla() {
+    auto prog = parsear(
+        "externo\n"
+        "    funcion f(n: tipoinventado): numero\n"
+        "fin\n");
+    CHECK(prog == nullptr, "tipo FFI desconocido debe fallar el parseo");
+}
+
+static void prueba_ffi_parametro_sin_tipo_falla() {
+    auto prog = parsear(
+        "externo\n"
+        "    funcion f(n): numero\n"
+        "fin\n");
+    CHECK(prog == nullptr, "parametro externo sin ':' tipo debe fallar el parseo");
+}
+
 int main() {
     prueba_precedencia_aritmetica();
     prueba_precedencia_concatenacion();
@@ -309,6 +376,13 @@ int main() {
     prueba_importar_espacio();
     prueba_importar_por_defecto();
     prueba_exportar_reexport();
+    prueba_ffi_externo_sin_enlazar();
+    prueba_ffi_externo_con_enlazar();
+    prueba_ffi_externo_sin_retorno_es_nulo();
+    prueba_ffi_inseguro_bloque();
+    prueba_ffi_funcion_inseguro();
+    prueba_ffi_tipo_desconocido_falla();
+    prueba_ffi_parametro_sin_tipo_falla();
 
     std::cout << "\nComprobaciones: " << g_checks
               << "   Fallos: " << g_fallos << std::endl;
