@@ -22,15 +22,17 @@ bool esMayusculas(const std::string& nombre) {
 }  // namespace
 
 AnalizadorSemantico::AnalizadorSemantico()
-    : profundidadBucle(0), profundidadFuncion(0), profundidadVariadica(0) {}
+    : profundidadBucle(0), profundidadFuncion(0), profundidadVariadica(0),
+      profundidadInseguro(0) {}
 
 bool AnalizadorSemantico::analizar(Programa& programa) {
     ambitos.clear();
     funciones.clear();
+    funcionesExternas.clear();
     tipos.clear();
     constantes.clear();
     errores.clear();
-    profundidadBucle = profundidadFuncion = profundidadVariadica = 0;
+    profundidadBucle = profundidadFuncion = profundidadVariadica = profundidadInseguro = 0;
 
     programa.aceptar(*this);
 
@@ -111,6 +113,46 @@ static TipoAnotado tipoDelLiteral(Expresion* e) {
     return TipoAnotado::Ninguno;
 }
 
+// PLAN_FFI.md (F4): nombre de lexema de un TipoFFI, para mensajes de error
+// (misma duplicación deliberada que nombreTipoAst en ast_impresor.cpp -- cada
+// capa tiene su propia función de una sola dirección, enum -> string).
+static std::string nombreTipoFFI(TipoFFI t) {
+    switch (t) {
+        case TipoFFI::Numero:    return "numero";
+        case TipoFFI::Logico:    return "logico";
+        case TipoFFI::Cadena:    return "cadena";
+        case TipoFFI::Nulo:      return "nulo";
+        case TipoFFI::Entero8:   return "entero8";
+        case TipoFFI::Entero16:  return "entero16";
+        case TipoFFI::Entero32:  return "entero32";
+        case TipoFFI::Entero64:  return "entero64";
+        case TipoFFI::Natural8:  return "natural8";
+        case TipoFFI::Natural16: return "natural16";
+        case TipoFFI::Natural32: return "natural32";
+        case TipoFFI::Natural64: return "natural64";
+        case TipoFFI::Puntero:   return "puntero";
+    }
+    return "";
+}
+
+// PLAN_FFI.md (F4): categoría amplia de un TipoFFI para el chequeo estático
+// de un argumento en un sitio de llamada. Los distintos anchos de
+// entero/natural son intercambiables entre sí y con "numero" para este
+// chequeo -- el ancho/truncado real al tipo C exacto se aplica en el
+// marshalling de F5/F6, no aquí (mismo motivo que lat_ffi_verificar_tipo,
+// en runtime/latino.c, recibe un LatTipo y no un TipoFFI).
+enum class CategoriaFFI { Numero, Logico, Cadena, Puntero, Nulo };
+
+static CategoriaFFI categoriaDeTipoFFI(TipoFFI t) {
+    switch (t) {
+        case TipoFFI::Logico:  return CategoriaFFI::Logico;
+        case TipoFFI::Cadena:  return CategoriaFFI::Cadena;
+        case TipoFFI::Puntero: return CategoriaFFI::Puntero;
+        case TipoFFI::Nulo:    return CategoriaFFI::Nulo;
+        default:               return CategoriaFFI::Numero;  // numero + entero*/natural*
+    }
+}
+
 const std::unordered_set<std::string>& tiposPrimitivosGenericos() {
     static const std::unordered_set<std::string> primitivos = {
         "numero", "cadena", "logico", "lista", "dic", "nulo"
@@ -161,6 +203,14 @@ bool AnalizadorSemantico::esLibreria(const std::string& nombre) const {
 void AnalizadorSemantico::recolectarFunciones(Programa& programa) {
     for (auto& s : programa.sentencias) {
         if (auto* f = dynamic_cast<FuncionDef*>(s.get())) {
+            // PLAN_FFI.md (F4): colisión con un nombre ya declarado en un
+            // bloque "externo" -- se detecta acá para cubrir el caso en que
+            // el "externo" aparece antes en el archivo; el caso inverso
+            // (FuncionDef antes que externo) lo detecta el bucle de abajo.
+            if (funcionesExternas.count(f->nombre)) {
+                agregarError(f->linea, "'" + f->nombre + "' ya está declarada como función externa");
+                continue;
+            }
             if (funciones.count(f->nombre)) {
                 agregarError(f->linea, "la función '" + f->nombre + "' ya está definida");
                 continue;
@@ -177,6 +227,25 @@ void AnalizadorSemantico::recolectarFunciones(Programa& programa) {
                 info.parametrosClase.push_back(p.tipoClase);
             }
             funciones[f->nombre] = std::move(info);
+        } else if (auto* ext = dynamic_cast<ExternoBloque*>(s.get())) {
+            // PLAN_FFI.md (F4): registra cada firma "funcion nombre(...): tipo"
+            // del bloque "externo" en su propia tabla, separada de `funciones`.
+            for (const FuncionExterna& fe : ext->funciones) {
+                if (funciones.count(fe.nombre)) {
+                    agregarError(fe.linea, "'" + fe.nombre + "' ya está declarada como función Latino");
+                    continue;
+                }
+                if (funcionesExternas.count(fe.nombre)) {
+                    agregarError(fe.linea, "'" + fe.nombre + "' ya está declarada como función externa");
+                    continue;
+                }
+                InfoFuncionExterna info;
+                info.tipoRetorno = fe.tipoRetorno;
+                info.linea = fe.linea;
+                for (const ParamFFI& p : fe.parametros)
+                    info.parametrosTipo.push_back(p.tipo);
+                funcionesExternas[fe.nombre] = std::move(info);
+            }
         }
     }
 }
@@ -589,6 +658,53 @@ void AnalizadorSemantico::visitar(Llamada& n) {
                         validarBoundConcreto(itSust->second, g, id->linea);
                 }
             }
+        } else if (auto itExt = funcionesExternas.find(nombre); itExt != funcionesExternas.end()) {
+            // PLAN_FFI.md (F4): llamada a una función "externo".
+            const InfoFuncionExterna& info = itExt->second;
+
+            if (profundidadInseguro == 0)
+                agregarError(id->linea,
+                             "llamada a función externa '" + nombre + "' fuera de un bloque 'inseguro'");
+
+            size_t nargs = n.argumentos.size();
+            if (nargs != info.parametrosTipo.size()) {
+                agregarError(id->linea,
+                             "número de argumentos incorrecto para la función externa '" + nombre +
+                                 "': se esperaban " + std::to_string(info.parametrosTipo.size()) +
+                                 ", se recibieron " + std::to_string(nargs));
+            } else {
+                for (size_t i = 0; i < nargs; i++) {
+                    CategoriaFFI catEsperada = categoriaDeTipoFFI(info.parametrosTipo[i]);
+
+                    TipoAnotado real = tipoDelLiteral(n.argumentos[i].get());
+                    if (real == TipoAnotado::Ninguno) {
+                        if (auto* idArg = dynamic_cast<Identificador*>(n.argumentos[i].get()))
+                            real = tipoDeVariable(idArg->nombre);
+                    }
+                    if (real == TipoAnotado::Ninguno)
+                        continue;  // dinámico: no se puede verificar en compilación (se difiere a runtime)
+
+                    // "nulo" literal es un puntero nulo válido para un parámetro
+                    // 'puntero' (ver ejemplo "MessageBoxA(nulo, ...)" de
+                    // "Sintaxis propuesta" y hallazgo de F4 en PLAN_FFI.md).
+                    if (real == TipoAnotado::Nulo && catEsperada == CategoriaFFI::Puntero)
+                        continue;
+
+                    bool compatible =
+                        (catEsperada == CategoriaFFI::Numero && real == TipoAnotado::Numero) ||
+                        (catEsperada == CategoriaFFI::Logico && real == TipoAnotado::Logico) ||
+                        (catEsperada == CategoriaFFI::Cadena && real == TipoAnotado::Cadena) ||
+                        (catEsperada == CategoriaFFI::Nulo && real == TipoAnotado::Nulo);
+                    if (!compatible) {
+                        agregarError(id->linea,
+                                     "tipo incompatible: el argumento " + std::to_string(i + 1) +
+                                         " de la función externa '" + nombre + "' espera '" +
+                                         nombreTipoFFI(info.parametrosTipo[i]) +
+                                         "' pero se pasó un valor de tipo '" +
+                                         nombreTipoAnotado(real) + "'");
+                    }
+                }
+            }
         } else if (esIncorporada(nombre)) {
             // función incorporada: aridad variable, no se comprueba
         } else if (estaDeclarada(nombre)) {
@@ -977,12 +1093,24 @@ void AnalizadorSemantico::visitar(FuncionDef& n) {
 
     ++profundidadFuncion;
     if (n.variadico) ++profundidadVariadica;
+    if (n.inseguro) ++profundidadInseguro;  // PLAN_FFI.md (F4): "funcion inseguro nombre(...)"
     analizarBloque(n.cuerpo);
+    if (n.inseguro) --profundidadInseguro;
     if (n.variadico) --profundidadVariadica;
     --profundidadFuncion;
 
     salirAmbito();
     salirGenericos();
+}
+
+// PLAN_FFI.md (F4): "inseguro ... fin" -- análogo a "unsafe { }" en Rust,
+// habilita llamar funciones "externo" dentro de su cuerpo (y de cualquier
+// bloque normal anidado adentro, igual que profundidadFuncion/
+// profundidadVariadica).
+void AnalizadorSemantico::visitar(InseguroBloque& n) {
+    ++profundidadInseguro;
+    analizarBloque(n.cuerpo);
+    --profundidadInseguro;
 }
 
 void AnalizadorSemantico::visitar(Retornar& n) {

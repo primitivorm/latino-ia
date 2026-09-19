@@ -242,6 +242,117 @@ static void prueba_poo_nuevo_clase_abstracta_error() {
                "no se puede instanciar la clase abstracta 'Figura'");
 }
 
+// PLAN_FFI.md (F4): tabla funcionesExternas, chequeo de "inseguro", aridad,
+// tipo estático y colisión de nombres.
+
+static void prueba_ffi_llamada_fuera_de_inseguro() {
+  esperarError("ffi_fuera_de_inseguro",
+               "externo\n"
+               "    funcion abs(n: entero32): entero32\n"
+               "fin\n"
+               "r = abs(5)\n",
+               "llamada a función externa 'abs' fuera de un bloque 'inseguro'");
+}
+
+static void prueba_ffi_llamada_en_bloque_inseguro_ok() {
+  esperarOK("ffi_bloque_inseguro_ok",
+            "externo\n"
+            "    funcion abs(n: entero32): entero32\n"
+            "fin\n"
+            "inseguro\n"
+            "    r = abs(5)\n"
+            "    escribir(r)\n"
+            "fin\n");
+}
+
+static void prueba_ffi_funcion_inseguro_ok() {
+  esperarOK("ffi_funcion_inseguro_ok",
+            "externo\n"
+            "    funcion abs(n: entero32): entero32\n"
+            "fin\n"
+            "funcion inseguro usar_abs()\n"
+            "    retornar abs(5)\n"
+            "fin\n"
+            "escribir(usar_abs())\n");
+}
+
+static void prueba_ffi_aridad_incorrecta() {
+  esperarError("ffi_aridad",
+               "externo\n"
+               "    funcion abs(n: entero32): entero32\n"
+               "fin\n"
+               "inseguro\n"
+               "    abs(1, 2)\n"
+               "fin\n",
+               "número de argumentos incorrecto para la función externa 'abs': se esperaban 1, se recibieron 2");
+}
+
+static void prueba_ffi_tipo_incompatible() {
+  esperarError("ffi_tipo_incompatible",
+               "externo\n"
+               "    funcion abs(n: entero32): entero32\n"
+               "fin\n"
+               "inseguro\n"
+               "    abs(\"cinco\")\n"
+               "fin\n",
+               "tipo incompatible: el argumento 1 de la función externa 'abs' espera 'entero32' pero se pasó un valor de tipo 'cadena'");
+}
+
+static void prueba_ffi_nulo_para_puntero_ok() {
+  // "nulo" literal es un puntero nulo válido para un parámetro 'puntero'.
+  esperarOK("ffi_nulo_para_puntero_ok",
+            "externo\n"
+            "    funcion free(p: puntero)\n"
+            "fin\n"
+            "inseguro\n"
+            "    free(nulo)\n"
+            "fin\n");
+}
+
+static void prueba_ffi_numero_para_puntero_error() {
+  esperarError("ffi_numero_para_puntero",
+               "externo\n"
+               "    funcion free(p: puntero)\n"
+               "fin\n"
+               "inseguro\n"
+               "    free(5)\n"
+               "fin\n",
+               "tipo incompatible: el argumento 1 de la función externa 'free' espera 'puntero' pero se pasó un valor de tipo 'numero'");
+}
+
+static void prueba_ffi_colision_funcion_luego_externo() {
+  esperarError("ffi_colision_funcion_luego_externo",
+               "funcion abs(n)\n"
+               "    retornar n\n"
+               "fin\n"
+               "externo\n"
+               "    funcion abs(n: entero32): entero32\n"
+               "fin\n",
+               "'abs' ya está declarada como función Latino");
+}
+
+static void prueba_ffi_colision_externo_luego_funcion() {
+  esperarError("ffi_colision_externo_luego_funcion",
+               "externo\n"
+               "    funcion abs(n: entero32): entero32\n"
+               "fin\n"
+               "funcion abs(n)\n"
+               "    retornar n\n"
+               "fin\n",
+               "'abs' ya está declarada como función externa");
+}
+
+static void prueba_ffi_colision_entre_externas() {
+  esperarError("ffi_colision_entre_externas",
+               "externo\n"
+               "    funcion abs(n: entero32): entero32\n"
+               "fin\n"
+               "externo\n"
+               "    funcion abs(n: entero64): entero64\n"
+               "fin\n",
+               "'abs' ya está declarada como función externa");
+}
+
 int main() {
   prueba_programa_valido();
   prueba_variable_no_declarada();
@@ -265,6 +376,16 @@ int main() {
   prueba_poo_nuevo_interfaz_error();
   prueba_poo_base_fuera_constructor();
   prueba_poo_nuevo_clase_abstracta_error();
+  prueba_ffi_llamada_fuera_de_inseguro();
+  prueba_ffi_llamada_en_bloque_inseguro_ok();
+  prueba_ffi_funcion_inseguro_ok();
+  prueba_ffi_aridad_incorrecta();
+  prueba_ffi_tipo_incompatible();
+  prueba_ffi_nulo_para_puntero_ok();
+  prueba_ffi_numero_para_puntero_error();
+  prueba_ffi_colision_funcion_luego_externo();
+  prueba_ffi_colision_externo_luego_funcion();
+  prueba_ffi_colision_entre_externas();
 
   std::cout << "\nComprobaciones: " << g_checks << "   Fallos: " << g_fallos
             << std::endl;

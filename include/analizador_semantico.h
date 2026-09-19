@@ -71,6 +71,7 @@ public:
     void visitar(EstructuraDef&) override;
     void visitar(InterfazDef&) override;
     void visitar(Retornar&) override;
+    void visitar(InseguroBloque&) override;  // PLAN_FFI.md (F4)
 
 private:
     struct InfoFuncion {
@@ -89,9 +90,22 @@ private:
         std::string mensaje;
     };
 
+    // PLAN_FFI.md (F4): firma de una función declarada dentro de un bloque
+    // "externo" (nombre -> clave del mapa funcionesExternas).
+    struct InfoFuncionExterna {
+        std::vector<TipoFFI> parametrosTipo;
+        TipoFFI tipoRetorno = TipoFFI::Nulo;
+        int linea = 0;
+    };
+
     // Cada ámbito mapea nombre de variable → tipo anotado (Ninguno si sin anotación).
     std::vector<std::unordered_map<std::string, TipoAnotado>> ambitos;
     std::unordered_map<std::string, InfoFuncion> funciones;
+    // PLAN_FFI.md (F4): tabla separada de funciones "externo" -- un nombre no
+    // puede estar a la vez en `funciones` y en `funcionesExternas` (ver
+    // recolectarFunciones, que detecta la colisión en cualquier orden de
+    // declaración dentro del mismo Programa).
+    std::unordered_map<std::string, InfoFuncionExterna> funcionesExternas;
     std::unordered_set<std::string> constantes;
     std::vector<ErrorSemantico> errores;
 
@@ -136,6 +150,12 @@ private:
     int profundidadBucle;
     int profundidadFuncion;
     int profundidadVariadica;
+    // PLAN_FFI.md (F4): > 0 dentro de un bloque "inseguro" o de una función
+    // marcada "inseguro" (incluye bloques normales anidados adentro, igual
+    // que profundidadFuncion/profundidadVariadica -- no se resetea al entrar
+    // a un "si"/"mientras" normal). Toda Llamada resuelta contra
+    // funcionesExternas se valida contra este contador.
+    int profundidadInseguro;
 
     void entrarAmbito();
     void salirAmbito();
