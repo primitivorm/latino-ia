@@ -581,3 +581,89 @@ proyecto ejercita esas rutas en el mismo proceso — se deja para
 verificación E2E vía subproceso en F7, cuando ya haya código Latino real
 que la dispare). Suite completa de CTest verificada en verde tras el
 cambio.
+
+F4 completa (análisis semántico): tabla nueva `funcionesExternas`
+(`nombre -> InfoFuncionExterna`: `parametrosTipo` como `TipoFFI`,
+`tipoRetorno`, `linea`), separada de `funciones`, poblada en
+`recolectarFunciones` (`src/analizador_semantico.cpp`) — se extendió el
+mismo bucle existente sobre `programa.sentencias` (en vez de agregar un
+método nuevo) para poder detectar colisión de nombres entre `FuncionDef` y
+`ExternoBloque` **en cualquier orden de declaración** dentro del archivo:
+si el `FuncionDef` aparece primero, `ExternoBloque` lo detecta consultando
+`funciones` (ya poblada en esa misma pasada); si `ExternoBloque` aparece
+primero, el `FuncionDef` posterior lo detecta consultando
+`funcionesExternas` (ya poblada en la misma pasada, porque ambos casos se
+resuelven en un único recorrido lineal de las sentencias de nivel
+superior, sin dos pasadas separadas). Contador `profundidadInseguro`
+(mismo patrón que `profundidadBucle`/`profundidadFuncion`/
+`profundidadVariadica`, no la pila de mapas de `genericosActivos` que
+sugería el borrador original de este plan — un simple contador anidado
+alcanza porque solo hace falta un booleano, no datos por nivel),
+incrementado en `visitar(InseguroBloque&)` (nuevo) y en `visitar(FuncionDef&)`
+cuando `n.inseguro` es cierto. `visitar(Llamada&)` gana una rama nueva
+(antes de `esIncorporada`/`estaDeclarada`) para un nombre resuelto contra
+`funcionesExternas`: error si `profundidadInseguro == 0`, chequeo de
+aridad exacta (sin variádicas), y chequeo estático de tipo por argumento
+cuando es un literal o una variable ya anotada (reusa `tipoDelLiteral`/
+`tipoDeVariable`, misma infraestructura de tipado gradual que
+`PLAN_TIPADO.md`) — degradado a runtime (`lat_ffi_verificar_tipo`, sin
+error de compilación) cuando el argumento es dinámico, igual filosofía que
+el resto del tipado gradual y de la inferencia genérica de
+`PLAN_GENERICOS.md`.
+
+Para el chequeo estático de tipo, cada `TipoFFI` se reduce a una
+`CategoriaFFI` amplia (`Numero` agrupa `numero` + los ocho anchos de
+entero/natural, más `Logico`/`Cadena`/`Puntero`/`Nulo`) porque un literal
+como `5` es válido para cualquier ancho de entero/natural — el ancho
+exacto solo importa al convertir al tipo C real en el marshalling de
+F5/F6, no en este chequeo (mismo motivo por el que `lat_ffi_verificar_tipo`,
+F3, recibe un `LatTipo` y no un `TipoFFI`).
+
+Hallazgo real de esta fase, que obligó a corregir el propio ejemplo de
+"Sintaxis propuesta" (`MessageBoxA(nulo, "Hola desde Latino", "FFI", 0)`,
+ahí desde F1): sin una regla especial, pasar el literal `nulo`
+(`TipoAnotado::Nulo`) a un parámetro `puntero` habría sido rechazado por
+el chequeo estático (`Nulo` no es la categoría `Puntero`) — pero
+`nulo` **debe** poder representar un puntero nulo (el `NULL`/`nullptr` de
+C), que es exactamente el caso de uso de `hwnd: puntero` en ese ejemplo.
+Se agregó una excepción explícita: un argumento literal `nulo` es
+compatible con cualquier parámetro `puntero`, sin error estático. Queda
+pendiente para F5/F6 la otra mitad de este hallazgo (documentada, no
+resuelta en F4 porque es codegen): un `LatValor` con `tipo == LAT_NULO`
+literal no satisface hoy `lat_ffi_verificar_tipo(v, LAT_PUNTERO, ...)` en
+runtime (`LAT_NULO != LAT_PUNTERO`), así que el marshalling de un
+argumento `nulo` hacia un parámetro `puntero` deberá generar un `NULL`
+nativo directamente (o extender el chequeo dinámico para aceptar
+`LAT_NULO` como equivalente a un puntero nulo), nunca despachar por
+`lat_ffi_verificar_tipo` sin más para ese caso puntual.
+
+Mensaje de error nuevo, no listado originalmente en "Mensajes de error"
+(se agrega ahí en esta misma revisión): `tipo incompatible: el argumento N
+de la función externa 'X' espera 'TIPO_ESPERADO' pero se pasó un valor de
+tipo 'TIPO_REAL'` — mismo estilo que el ya existente para `Asignacion`
+(`tipo incompatible: se declaró '...' pero el valor es '...'`).
+
+Pruebas: `tests/test_semantico.cpp`, 11 casos nuevos (58 comprobaciones en
+total en la suite) — llamada fuera de `inseguro` (error) y dentro de un
+bloque `inseguro`/una `funcion inseguro` (ambos OK), aridad incorrecta,
+tipo estático incompatible (`cadena` para `entero32`, `numero` para
+`puntero`), `nulo` para `puntero` (OK, el caso del hallazgo de arriba), y
+las tres variantes de colisión de nombres (función-luego-externo,
+externo-luego-función, externo-luego-externo). Suite completa de CTest en
+serie verificada en verde tras el cambio.
+
+Sin cambios en `GeneradorC`/`GeneradorLLVM`/`runtime` en esta fase — F4 es
+puramente análisis estático; una llamada a una función `externo` que pasa
+F4 sin errores todavía no genera código FFI real (llega en F5/F6).
+Verificado que **no** produce un error de compilación de C/LLVM como
+suponía una revisión anterior de este párrafo: `GeneradorC::genLlamada`
+(`src/compiler.cpp`) no conoce `funcionesExternas`, así que una llamada a
+un nombre externo cae en su rama final genérica (ni builtin ni en
+`funciones`) y emite literalmente `lat_nulo() /* llamada no soportada:
+NOMBRE */` — C válido que compila sin error y devuelve `nulo` en
+silencio, sin invocar el símbolo nativo. Es decir: hoy, pasar F4 sin
+errores no implica que el programa haga lo correcto en ejecución, solo
+que la sintaxis/aridad/tipos estáticos de la llamada son válidos —
+comportamiento esperado en esta fase (el codegen real es responsabilidad
+de F5/F6), pero vale la pena tenerlo presente para no confundir "compila"
+con "ya funciona" al probar manualmente antes de F5.
