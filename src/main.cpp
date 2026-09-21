@@ -303,6 +303,8 @@ int main(int argc, char** argv) {
 
         OpcionesLLVM opcLlvm;
         opcLlvm.runtimeDir = runtimeDir;
+        opcLlvm.bibliotecasEnlazar.assign(generadorLlvm.bibliotecasEnlazadas().begin(),
+                                          generadorLlvm.bibliotecasEnlazadas().end());
         int codigo = compilarLLVMAEjecutable(*modulo, salidaAbs, opcLlvm);
         if (codigo != 0)
             return 1;

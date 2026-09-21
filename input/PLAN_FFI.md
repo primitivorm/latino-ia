@@ -764,3 +764,128 @@ tras el cambio (1226 s reales).
 
 Sin cambios en `GeneradorLLVM`/`runtime` en esta fase. F6 (backend LLVM)
 sigue pendiente.
+
+F6 completa (codegen backend LLVM): `GeneradorLLVM` (`include/compiler_llvm.h`/
+`src/compiler_llvm.cpp`) gana la misma pareja tabla+set que F5 agregó a
+`GeneradorC` -- `funcionesExternas_` (nombre → `InfoFuncionExterna`: tipos de
+parámetros + retorno, poblada por `recolectarExterno()`, llamada junto a
+`recolectarTipos()` al principio de `generar()`) y `bibliotecasEnlazar_`
+(nombres de cada `externo enlazar "lib"`), expuesto este último vía el
+getter público `bibliotecasEnlazadas()` -- y una función libre nueva,
+`tipoLLVMdeFFI(TipoFFI, LLVMContext&)`, que mapea cada `TipoFFI` a su
+`llvm::Type*` primitivo real (`i8`/`i16`/`i32`/`i64`/`double`/`ptr`/`void`) --
+equivalente a `tipoFFIaC` de F5, pero devolviendo un tipo LLVM en vez de un
+nombre C. `declararExterno()` declara (o recupera) el símbolo nativo en el
+módulo destino con esa firma primitiva real vía
+`llvm::Function::Create(..., ExternalLinkage, ...)` -- nunca la firma
+empaquetada `(sret, ptr...)` de una función de usuario/runtime (Fase L6/L2):
+a diferencia de toda otra llamada de este generador, una llamada FFI no pasa
+por `RuntimeAbiLLVM`, porque el símbolo no es parte del runtime de Latino.
+
+`genExpr(Llamada)` gana la misma tercera rama que F5 agregó a
+`GeneradorC::genLlamada`: si el nombre no resuelve contra ningún builtin ni
+`funciones_` (usuario), se prueba contra `funcionesExternas_` y, si
+coincide, despacha a `genLlamadaExterna()`. Marshalling de cada argumento vía
+`genArgumentoFFI()`: a diferencia del backend C (que necesita un temporal
+`_t<N>` explícito para no evaluar dos veces una expresión con efectos de
+lado, ver F5), acá `genExpr()` del argumento se llama una única vez y su
+resultado (`celdaArg`, un puntero a la celda `%LatValor` ya evaluada) se
+reutiliza en todas las bifurcaciones subsiguientes -- no hace falta ningún
+temporal adicional. Con `celdaArg` en mano: `lat_ffi_verificar_tipo` se
+invoca siempre (defensa en profundidad, igual que F5), y el valor primitivo
+se extrae con `CreateStructGEP(tipoLatValor, verificado, 1)` + `CreateLoad`
+sobre el campo `como` (el índice 0 es `tipo`, confirmado por el propio
+`generar()` preexistente, que ya usa `layout->getElementOffset(0)` para
+`lat_abi_verificar`) -- la traducción literal de "extractvalue/GEP + load"
+que anticipaba la sección "Codegen" del plan, en vez del `.como.X` que emite
+C. Con punteros opaco (LLVM 18), ese GEP no necesita ningún `bitcast`
+posterior: el resultado ya es un `ptr` sin tipo apuntado fijo, así que
+"reinterpretar" el campo como `double`/`i32`/`ptr` es simplemente elegir el
+tipo del `CreateLoad`. Los ocho anchos de entero/natural se leen primero
+como `double` (mismo storage que `numero`) y se convierten al ancho C real
+con `CreateFPToSI`/`CreateFPToUI` según signo -- equivalente al cast C
+`(int32_t)v.como.numero` de F5.
+
+Mismo hallazgo de F5 sobre el puntero nulo, resuelto con una técnica
+distinta por ser LLVM IR real: el literal `nulo` hacia un parámetro
+`puntero` no puede pasar por `lat_ffi_verificar_tipo` sin más (`LAT_NULO !=
+LAT_PUNTERO` aborta el proceso), pero acá no hay una expresión-ternaria de C
+que compile a un `select` -- hace falta una bifurcación real (dos
+`BasicBlock` + `PHINode`), porque el lado "verificar" NO debe ejecutarse
+cuando el valor ya es `LAT_NULO` (un `select`/`CreateSelect` evaluaría
+ambos lados incondicionalmente, y el lado "verificar" terminaría el proceso
+para ese caso legítimo). `genArgumentoFFI` lee el campo `tipo` (índice 0) de
+la celda ya evaluada, compara contra `LAT_NULO`, y arma
+`ffi_ptr_nulo`/`ffi_ptr_verificar`/`ffi_ptr_fin` con un `PHINode` de tipo
+`ptr` que fusiona `ConstantPointerNull` (rama nula) con el puntero
+verificado (rama no nula) -- ningún temporal extra hace falta porque
+`celdaArg` ya es, por construcción de este generador (a diferencia de C), el
+único punto de evaluación de la expresión del argumento.
+
+Empaquetado del resultado (`genLlamadaExterna`): la llamada nativa real
+(`CreateCall` sobre el `llvm::Function*` de `declararExterno`) se envuelve
+con el constructor del runtime correspondiente al `TipoFFI` de retorno
+(`lat_logico`/`lat_cadena`/`lat_puntero`/`lat_nulo`, vía `RuntimeAbiLLVM` --
+estos sí son funciones del runtime, a diferencia del propio símbolo FFI) o,
+para `numero`+entero/natural, `lat_numero` tras una conversión
+`CreateSIToFP`/`CreateUIToFP` si el ancho real no era ya `double` --
+paridad con el `switch` de `GeneradorC::genLlamadaExterna`. Un retorno
+`nulo` (función C `void`) no produce ningún valor de la llamada nativa que
+envolver; simplemente se llama y se empaqueta un `lat_nulo()` en la celda de
+retorno, igual que la coma en el C generado por F5.
+
+Hallazgo real de esta fase, no anticipado en el diseño original: F3 dejó
+`lat_puntero`/`lat_ffi_verificar_tipo` fuera de `tools/abi_probe.c`
+(`lat_abi_referenciar_todo`), porque en F3 "sin integración con el
+compilador todavía" era literal -- pero `RuntimeAbiLLVM::declarar` sólo
+puede resolver un nombre si Clang emitió su `declare` en
+`generated/runtime_abi.ll`, y eso solo ocurre para símbolos referenciados
+dentro de `abi_probe.c`. Sin este cambio, `abi_->declarar(modulo,
+"lat_ffi_verificar_tipo")`/`"lat_puntero"` habrían devuelto `nullptr` en
+cualquier programa que use `externo`, rompiendo con una violación de acceso
+en vez de un error claro. Se agregaron ambos a la lista alfabética de
+referencias en `abi_probe.c`; `generated/runtime_abi.ll` se regenera solo
+(la regla de CMake ya declara `tools/abi_probe.c` como `DEPENDS`), sin
+cambios adicionales de build.
+
+Segundo hallazgo, en el paso de enlace AOT: a diferencia del backend C
+(cuyo `.c` generado embebe `#ifdef _MSC_VER` / `#pragma comment(lib,
+"<lib>.lib")` -- ver F5 --, mecanismo puramente textual de código C), un
+objeto `.obj` emitido por el backend LLVM no tiene ninguna forma equivalente
+de "pedirle" a `cl.exe`/`link.exe` que enlace una biblioteca adicional. Se
+extendió `OpcionesLLVM` (`include/invocador_llvm.h`) con
+`bibliotecasEnlazar` (llenado en `main.cpp` desde
+`generadorLlvm.bibliotecasEnlazadas()`, análogo a como ya se llena
+`OpcionesC::bibliotecasEnlazar` para el backend C), reenviado por
+`compilarLLVMAEjecutable` (`src/invocador_llvm.cpp`) a
+`OpcionesC::bibliotecasEnlazar` -- el mismo campo que el paso de enlace ya
+comparte con el backend C, porque `compilarAEjecutable` no distingue de
+dónde vino el `.c`/`.obj` que recibe. `ejecutarGnu` (`src/invocador_c.cpp`)
+ya soportaba esto sin cambios (agrega `-l<lib>` sin importar si el archivo
+de entrada es `.c` o `.obj`); `ejecutarMsvc` SÍ necesitó un parámetro nuevo
+(`bibliotecasEnlazar`) para agregar `<lib>.lib` explícitamente a la línea de
+`cl.exe` -- necesario siempre para el backend LLVM (única vía de enlazar en
+MSVC) e inofensivo para el backend C (enlazar la misma import lib que el
+`#pragma comment` ya embebe no produce error ni advertencia).
+
+Verificado en esta máquina de desarrollo (MSVC/Visual Studio 17 2022, sin
+LLVM 18.1 instalado -- mismo entorno que F1-F5, y el mismo motivo por el que
+G7/L11 quedaron sin verificación con LLVM real en `CLAUDE.md`): el build del
+backend C (`cmake --build build --config Release --target latino`) compila
+sin errores tras los cambios de `invocador_c.cpp`/`invocador_llvm.h`/
+`main.cpp` (código compartido entre ambos backends), y el caso de F5 sin
+`enlazar` (`abs`/`strlen` dentro de `inseguro`) sigue compilando y
+ejecutando correctamente con `--backend c` (imprime `5`/`4`), confirmando
+que el nuevo parámetro de `ejecutarMsvc` no rompe la ruta del backend C. La
+suite completa de CTest (50 pruebas, backend LLVM no registrado en este
+build por la misma razón de siempre) se verificó en verde en serie tras el
+cambio. El código nuevo de `compiler_llvm.h`/`compiler_llvm.cpp`
+(`recolectarExterno`, `declararExterno`, `genArgumentoFFI`,
+`genLlamadaExterna`, la rama nueva de `genExpr(Llamada)`, y el caso
+`InseguroBloque` de `genSentencia`, que -- mismo hallazgo que F5 encontró en
+`GeneradorC`/`recolectarVariables` -- tampoco existía todavía en
+`GeneradorLLVM::genSentencia`) no se compiló ni se ejecutó con LLVM real en
+esta máquina; queda pendiente de esa verificación (paridad de salida con el
+backend C sobre los mismos casos de F5, criterio de L12) para cuando F7
+agregue `test_codegen_llvm`/`test_ffi_e2e` con el backend LLVM habilitado, o
+en cualquier máquina con LLVM 18.1.x instalado.
