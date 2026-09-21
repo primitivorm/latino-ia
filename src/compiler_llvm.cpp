@@ -48,6 +48,53 @@ int tipoAnotadoALatTipo(TipoAnotado t) {
     }
 }
 
+// PLAN_FFI.md (F6): tipo LLVM real de un TipoFFI, para la firma nativa que
+// declararExterno registra en el módulo destino y para el load/convert de
+// cada argumento/retorno -- equivalente a compiler.cpp::tipoFFIaC, pero
+// devolviendo un llvm::Type* en vez de un nombre C. Con punteros opacos
+// (LLVM 18), tanto "cadena" como "puntero" son el mismo PointerType::get,
+// sin distinción de tipo apuntado.
+llvm::Type* tipoLLVMdeFFI(TipoFFI t, llvm::LLVMContext& ctx) {
+    switch (t) {
+        case TipoFFI::Numero:    return llvm::Type::getDoubleTy(ctx);
+        case TipoFFI::Logico:    return llvm::Type::getInt32Ty(ctx);
+        case TipoFFI::Cadena:    return llvm::PointerType::get(ctx, 0);
+        case TipoFFI::Nulo:      return llvm::Type::getVoidTy(ctx);
+        case TipoFFI::Entero8:   return llvm::Type::getInt8Ty(ctx);
+        case TipoFFI::Entero16:  return llvm::Type::getInt16Ty(ctx);
+        case TipoFFI::Entero32:  return llvm::Type::getInt32Ty(ctx);
+        case TipoFFI::Entero64:  return llvm::Type::getInt64Ty(ctx);
+        case TipoFFI::Natural8:  return llvm::Type::getInt8Ty(ctx);
+        case TipoFFI::Natural16: return llvm::Type::getInt16Ty(ctx);
+        case TipoFFI::Natural32: return llvm::Type::getInt32Ty(ctx);
+        case TipoFFI::Natural64: return llvm::Type::getInt64Ty(ctx);
+        case TipoFFI::Puntero:   return llvm::PointerType::get(ctx, 0);
+    }
+    return llvm::Type::getVoidTy(ctx);
+}
+
+// PLAN_FFI.md (F6): LatTipo que le corresponde a un TipoFFI para
+// lat_ffi_verificar_tipo -- equivalente a compiler.cpp::tipoFFIaLatTipo (los
+// ocho anchos de entero/natural comparten LAT_NUMERO; el ancho exacto se
+// aplica al convertir el double crudo, no en esta verificación).
+int tipoFFIaLatTipo(TipoFFI t) {
+    switch (t) {
+        case TipoFFI::Logico:  return LAT_LOGICO;
+        case TipoFFI::Cadena:  return LAT_CADENA;
+        case TipoFFI::Puntero: return LAT_PUNTERO;
+        case TipoFFI::Nulo:    return LAT_NULO;
+        default:               return LAT_NUMERO;  // numero + entero*/natural*
+    }
+}
+
+// PLAN_FFI.md (F6): true para los cuatro anchos "natural" (sin signo) --
+// distingue fptoui/uitofp de fptosi/sitofp al convertir contra el storage
+// double de LAT_NUMERO.
+bool esTipoFFINatural(TipoFFI t) {
+    return t == TipoFFI::Natural8 || t == TipoFFI::Natural16 || t == TipoFFI::Natural32 ||
+           t == TipoFFI::Natural64;
+}
+
 }  // namespace
 
 GeneradorLLVM::GeneradorLLVM()
@@ -275,7 +322,16 @@ llvm::Value* GeneradorLLVM::genExpr(Expresion& expr, llvm::IRBuilder<>& builder,
 
             // Función de usuario ya declarada (Fase L6).
             auto it = funciones_.find(nombre);
-            if (it == funciones_.end()) return nullptr;
+            if (it == funciones_.end()) {
+                // PLAN_FFI.md (F6): llamada a una función "externo". La
+                // aridad/tipo ya se validaron estáticamente cuando fue
+                // posible en el análisis semántico (F4); acá se genera el
+                // marshalling real -- paridad con GeneradorC::genLlamada.
+                auto itExt = funcionesExternas_.find(nombre);
+                if (itExt != funcionesExternas_.end())
+                    return genLlamadaExterna(nombre, itExt->second, *n, builder, modulo, variables);
+                return nullptr;
+            }
             const InfoFuncionUsuario& info = it->second;
 
             llvm::Value* celdaRet = builder.CreateAlloca(tipoLatValor, nullptr, "llamada_ret");
@@ -972,6 +1028,14 @@ void GeneradorLLVM::genSentencia(Sentencia& s, llvm::IRBuilder<>& builder, llvm:
         builder.CreateRetVoid();
         return;
     }
+    // PLAN_FFI.md (F6): "inseguro" es puramente un marcador estático (F4 ya
+    // verificó que las llamadas dentro son válidas) -- no genera código
+    // propio, solo traduce su cuerpo tal cual. Paridad con
+    // GeneradorC::genSentencia(InseguroBloque).
+    if (auto* ib = dynamic_cast<InseguroBloque*>(&s)) {
+        genBloque(ib->cuerpo, builder, modulo, variables);
+        return;
+    }
     if (auto* b = dynamic_cast<LlamadaBase*>(&s)) {
         // (Fase L8) base(args...) -- solo válida dentro de un constructor.
         // Empaqueta "este" + los argumentos evaluados en un array contiguo
@@ -1019,11 +1083,12 @@ void GeneradorLLVM::genSentencia(Sentencia& s, llvm::IRBuilder<>& builder, llvm:
         // caso).
         return;
     }
-    // Incluir/FuncionDef/ClaseDef/EstructuraDef/InterfazDef (declaraciones
-    // de nivel superior): no se traducen aquí -- FuncionDef/ClaseDef/
-    // EstructuraDef/InterfazDef las traducen genFuncion/genClase/
-    // genEstructura/genInterfaz, siempre desde fuera de un bloque, igual que
-    // GeneradorC::genSentencia.
+    // Incluir/FuncionDef/ClaseDef/EstructuraDef/InterfazDef/ExternoBloque
+    // (declaraciones de nivel superior): no se traducen aquí --
+    // FuncionDef/ClaseDef/EstructuraDef/InterfazDef las traducen
+    // genFuncion/genClase/genEstructura/genInterfaz, siempre desde fuera de
+    // un bloque, y ExternoBloque ya se recolectó en recolectarExterno/
+    // generar() (PLAN_FFI.md F6) -- igual que GeneradorC::genSentencia.
 }
 
 llvm::Function* GeneradorLLVM::declararFuncion(FuncionDef& f, llvm::Module& modulo) {
@@ -1129,6 +1194,186 @@ void GeneradorLLVM::recolectarTipos(Programa& programa) {
         else if (auto* i = dynamic_cast<InterfazDef*>(s.get()))
             interfaces_[i->nombre] = i;
     }
+}
+
+// PLAN_FFI.md (F6): registra cada firma de un bloque "externo" de nivel
+// superior (mismo alcance que recolectarTipos: no desciende dentro de
+// bloques anidados) y las bibliotecas nombradas por "enlazar" -- equivalente
+// a GeneradorC::recolectarExterno (compiler.cpp).
+void GeneradorLLVM::recolectarExterno(Programa& programa) {
+    funcionesExternas_.clear();
+    bibliotecasEnlazar_.clear();
+    for (auto& s : programa.sentencias) {
+        if (auto* ext = dynamic_cast<ExternoBloque*>(s.get())) {
+            if (!ext->enlazar.empty()) bibliotecasEnlazar_.insert(ext->enlazar);
+            for (const FuncionExterna& fe : ext->funciones) {
+                InfoFuncionExterna info;
+                info.tipoRetorno = fe.tipoRetorno;
+                for (const ParamFFI& p : fe.parametros) info.parametrosTipo.push_back(p.tipo);
+                funcionesExternas_[fe.nombre] = std::move(info);
+            }
+        }
+    }
+}
+
+// PLAN_FFI.md (F6): declara (o recupera) el símbolo nativo con su firma C
+// real -- nunca la firma empaquetada de una función de usuario/runtime.
+llvm::Function* GeneradorLLVM::declararExterno(const std::string& nombre, const InfoFuncionExterna& info,
+                                               llvm::Module& modulo) {
+    if (llvm::Function* existente = modulo.getFunction(nombre)) return existente;
+    llvm::Type* tipoRet = tipoLLVMdeFFI(info.tipoRetorno, *contexto_);
+    std::vector<llvm::Type*> tipos;
+    for (TipoFFI t : info.parametrosTipo) tipos.push_back(tipoLLVMdeFFI(t, *contexto_));
+    llvm::FunctionType* tipoFn = llvm::FunctionType::get(tipoRet, tipos, /*isVarArg=*/false);
+    return llvm::Function::Create(tipoFn, llvm::Function::ExternalLinkage, nombre, &modulo);
+}
+
+// PLAN_FFI.md (F6): extrae/convierte un argumento LatValor al valor C
+// primitivo esperado por la firma FFI. 'arg' ya se evaluó como máximo una
+// vez (genExpr se llama una sola vez acá) antes de cualquier bifurcación --
+// a diferencia del backend C, que necesita un temporal explícito para el
+// mismo propósito (ver GeneradorC::genArgumentoFFI), acá 'celdaArg' ya ES
+// ese único valor, así que ninguna rama vuelve a evaluar la expresión.
+llvm::Value* GeneradorLLVM::genArgumentoFFI(Expresion* arg, TipoFFI tipo, const std::string& nombreFn,
+                                            int indice, llvm::IRBuilder<>& builder, llvm::Module& modulo,
+                                            const std::unordered_map<std::string, llvm::Value*>& variables) {
+    if (!arg) return nullptr;
+    llvm::StructType* tipoLatValor = abi_->tipoLatValor();
+    llvm::PointerType* tipoPuntero = llvm::PointerType::get(*contexto_, 0);
+    llvm::Value* celdaArg = genExpr(*arg, builder, modulo, variables);
+    if (!celdaArg) return nullptr;
+
+    if (tipo == TipoFFI::Puntero) {
+        // Hallazgo de F4 (ver PLAN_FFI.md): el literal "nulo" es un puntero
+        // nulo válido, pero LAT_NULO != LAT_PUNTERO para
+        // lat_ffi_verificar_tipo -- hay que desviarlo a un puntero NULL real
+        // ANTES de la verificación dinámica (llamar a
+        // lat_ffi_verificar_tipo sobre un LAT_NULO real terminaría el
+        // proceso). Requiere una bifurcación real (basic blocks + PHI), no
+        // un simple Select: el lado "verificar" no debe ejecutarse cuando
+        // el valor es LAT_NULO.
+        llvm::Function* fnActual = builder.GetInsertBlock()->getParent();
+        llvm::Value* tipoCampoPtr = builder.CreateStructGEP(tipoLatValor, celdaArg, 0, "ffi_arg_tipo_ptr");
+        llvm::Value* tipoVal = builder.CreateLoad(builder.getInt32Ty(), tipoCampoPtr, "ffi_arg_tipo");
+        llvm::Value* esNulo = builder.CreateICmpEQ(tipoVal, builder.getInt32(LAT_NULO), "ffi_arg_es_nulo");
+
+        llvm::BasicBlock* bloqueNulo = llvm::BasicBlock::Create(*contexto_, "ffi_ptr_nulo", fnActual);
+        llvm::BasicBlock* bloqueVerificar =
+            llvm::BasicBlock::Create(*contexto_, "ffi_ptr_verificar", fnActual);
+        llvm::BasicBlock* bloqueFin = llvm::BasicBlock::Create(*contexto_, "ffi_ptr_fin", fnActual);
+        builder.CreateCondBr(esNulo, bloqueNulo, bloqueVerificar);
+
+        builder.SetInsertPoint(bloqueNulo);
+        llvm::Value* nuloPtr = llvm::ConstantPointerNull::get(tipoPuntero);
+        builder.CreateBr(bloqueFin);
+
+        builder.SetInsertPoint(bloqueVerificar);
+        llvm::Function* fnVerificar = abi_->declarar(modulo, "lat_ffi_verificar_tipo");
+        llvm::Value* nombreC = builder.CreateGlobalStringPtr(nombreFn, "ffi_fn_nombre", 0, &modulo);
+        llvm::Value* verificado = builder.CreateAlloca(tipoLatValor, nullptr, "ffi_arg_verificado");
+        builder.CreateCall(fnVerificar, {verificado, celdaArg, builder.getInt32(LAT_PUNTERO), nombreC,
+                                         builder.getInt32(indice)});
+        llvm::Value* comoPtr = builder.CreateStructGEP(tipoLatValor, verificado, 1, "ffi_arg_como");
+        llvm::Value* punteroVal = builder.CreateLoad(tipoPuntero, comoPtr, "ffi_arg_puntero");
+        builder.CreateBr(bloqueFin);
+
+        builder.SetInsertPoint(bloqueFin);
+        llvm::PHINode* resultado = builder.CreatePHI(tipoPuntero, 2, "ffi_arg_puntero_final");
+        resultado->addIncoming(nuloPtr, bloqueNulo);
+        resultado->addIncoming(punteroVal, bloqueVerificar);
+        return resultado;
+    }
+
+    // Resto de tipos FFI: chequeo dinámico siempre (defensa en profundidad,
+    // igual que lat_verificar_tipo para un parámetro anotado de una función
+    // normal -- ver GeneradorC::genArgumentoFFI), seguido de GEP+load sobre
+    // el campo "como" real (ver Codegen del plan: extractvalue/GEP + load,
+    // nunca ".como.X" -- eso es sintaxis de C).
+    llvm::Function* fnVerificar = abi_->declarar(modulo, "lat_ffi_verificar_tipo");
+    llvm::Value* nombreC = builder.CreateGlobalStringPtr(nombreFn, "ffi_fn_nombre", 0, &modulo);
+    llvm::Value* verificado = builder.CreateAlloca(tipoLatValor, nullptr, "ffi_arg_verificado");
+    builder.CreateCall(fnVerificar, {verificado, celdaArg, builder.getInt32(tipoFFIaLatTipo(tipo)),
+                                     nombreC, builder.getInt32(indice)});
+    llvm::Value* comoPtr = builder.CreateStructGEP(tipoLatValor, verificado, 1, "ffi_arg_como");
+
+    switch (tipo) {
+        case TipoFFI::Logico:
+            return builder.CreateLoad(builder.getInt32Ty(), comoPtr, "ffi_arg_logico");
+        case TipoFFI::Cadena:
+            return builder.CreateLoad(tipoPuntero, comoPtr, "ffi_arg_cadena");
+        case TipoFFI::Numero:
+            return builder.CreateLoad(builder.getDoubleTy(), comoPtr, "ffi_arg_numero");
+        default: {
+            // Entero8/16/32/64, Natural8/16/32/64: LAT_NUMERO comparte
+            // storage double (ver tabla de tipos FFI del plan); el ancho C
+            // exacto se aplica con fptosi/fptoui, equivalente al cast C
+            // "(int32_t)v.como.numero" de GeneradorC::genArgumentoFFI.
+            llvm::Value* numero = builder.CreateLoad(builder.getDoubleTy(), comoPtr, "ffi_arg_numero_raw");
+            llvm::Type* tipoDestino = tipoLLVMdeFFI(tipo, *contexto_);
+            return esTipoFFINatural(tipo)
+                       ? builder.CreateFPToUI(numero, tipoDestino, "ffi_arg_entero")
+                       : builder.CreateFPToSI(numero, tipoDestino, "ffi_arg_entero");
+        }
+    }
+}
+
+// PLAN_FFI.md (F6): llamada real al símbolo nativo (ya declarado por
+// declararExterno) y empaquetado del resultado en una celda %LatValor --
+// equivalente a GeneradorC::genLlamadaExterna.
+llvm::Value* GeneradorLLVM::genLlamadaExterna(const std::string& nombre, const InfoFuncionExterna& info,
+                                              Llamada& ll, llvm::IRBuilder<>& builder, llvm::Module& modulo,
+                                              const std::unordered_map<std::string, llvm::Value*>& variables) {
+    llvm::StructType* tipoLatValor = abi_->tipoLatValor();
+    llvm::Function* fnExterna = declararExterno(nombre, info, modulo);
+
+    std::vector<llvm::Value*> argsNativos;
+    for (size_t i = 0; i < info.parametrosTipo.size(); i++) {
+        Expresion* arg = (i < ll.argumentos.size()) ? ll.argumentos[i].get() : nullptr;
+        llvm::Value* v = genArgumentoFFI(arg, info.parametrosTipo[i], nombre, static_cast<int>(i + 1),
+                                         builder, modulo, variables);
+        if (!v) return nullptr;
+        argsNativos.push_back(v);
+    }
+    llvm::Value* llamadaNativa = builder.CreateCall(fnExterna, argsNativos);
+
+    llvm::Value* celda = builder.CreateAlloca(tipoLatValor, nullptr, "ffi_ret_celda");
+    switch (info.tipoRetorno) {
+        case TipoFFI::Nulo: {
+            llvm::Function* fnNulo = abi_->declarar(modulo, "lat_nulo");
+            builder.CreateCall(fnNulo, {celda});
+            break;
+        }
+        case TipoFFI::Logico: {
+            llvm::Function* fnLogico = abi_->declarar(modulo, "lat_logico");
+            builder.CreateCall(fnLogico, {celda, llamadaNativa});
+            break;
+        }
+        case TipoFFI::Cadena: {
+            llvm::Function* fnCadena = abi_->declarar(modulo, "lat_cadena");
+            builder.CreateCall(fnCadena, {celda, llamadaNativa});
+            break;
+        }
+        case TipoFFI::Puntero: {
+            llvm::Function* fnPuntero = abi_->declarar(modulo, "lat_puntero");
+            builder.CreateCall(fnPuntero, {celda, llamadaNativa});
+            break;
+        }
+        default: {
+            // Numero + Entero*/Natural*: empaquetar como double (lat_numero)
+            // -- mismo riesgo de precisión en enteros de 64 bits documentado
+            // en PLAN_FFI.md, igual que GeneradorC::genLlamadaExterna.
+            llvm::Function* fnNumero = abi_->declarar(modulo, "lat_numero");
+            llvm::Value* comoDouble = llamadaNativa;
+            if (info.tipoRetorno != TipoFFI::Numero) {
+                comoDouble = esTipoFFINatural(info.tipoRetorno)
+                                 ? builder.CreateUIToFP(llamadaNativa, builder.getDoubleTy())
+                                 : builder.CreateSIToFP(llamadaNativa, builder.getDoubleTy());
+            }
+            builder.CreateCall(fnNumero, {celda, comoDouble});
+            break;
+        }
+    }
+    return celda;
 }
 
 llvm::Function* GeneradorLLVM::declararMetodo(const std::string& claseNombre, MetodoDef& metodo,
@@ -1288,6 +1533,7 @@ std::unique_ptr<llvm::Module> GeneradorLLVM::generar(Programa& programa) {
     auto modulo = std::make_unique<llvm::Module>("latino_modulo", *contexto_);
 
     recolectarTipos(programa);
+    recolectarExterno(programa);  // PLAN_FFI.md (F6)
 
     // Prototipos de las funciones de usuario primero -- permite recursión
     // indirecta (mutua) exactamente igual que el patrón de dos pasadas de

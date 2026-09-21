@@ -106,6 +106,7 @@ void lat_abi_referenciar_todo(void) {
     (void)lat_error;
     (void)lat_es_verdadero;
     (void)lat_escribir;
+    (void)lat_ffi_verificar_tipo;
     (void)lat_funcion_nueva;
     (void)lat_igual;
     (void)lat_imprimir;
@@ -199,6 +200,7 @@ void lat_abi_referenciar_todo(void) {
     (void)lat_paquete_llamar;
     (void)lat_paquete_llamar_args;
     (void)lat_potencia;
+    (void)lat_puntero;
     (void)lat_restar;
     (void)lat_set_args;
     (void)lat_sis_args;

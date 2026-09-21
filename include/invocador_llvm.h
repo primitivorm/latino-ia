@@ -19,6 +19,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace llvm {
 class LLVMContext;
@@ -30,6 +31,11 @@ struct OpcionesLLVM {
     // LATINO_RUNTIME_DIR (misma semántica que OpcionesC::runtimeDir, ver
     // invocador_c.h).
     std::string runtimeDir;
+    // PLAN_FFI.md (F6): bibliotecas nombradas por "externo enlazar \"lib\"",
+    // ver GeneradorLLVM::bibliotecasEnlazadas() -- compilarLLVMAEjecutable
+    // las reenvía a OpcionesC::bibliotecasEnlazar (mismo campo que ya
+    // consume el paso de enlace del backend C).
+    std::vector<std::string> bibliotecasEnlazar;
 };
 
 // Emite `modulo` como objeto nativo y lo enlaza con el runtime de Latino

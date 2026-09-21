@@ -143,6 +143,14 @@ public:
     // ninguna tabla, es una comprobación en tiempo de ejecución por nombre.
     // `AccesoEste` (`este`) busca la celda `"este"` en `variables`, poblada
     // por `genMetodo` para métodos de instancia.
+    //
+    // (PLAN_FFI.md F6) `Llamada` con destino `Identificador` que no resuelve
+    // contra ningún builtin/función de usuario se prueba, por último, contra
+    // `funcionesExternas_` (poblada por `recolectarExterno`): si coincide,
+    // `genLlamadaExterna` declara el símbolo nativo con su firma C real
+    // (`declararExterno`) y genera el marshalling de cada argumento
+    // (`genArgumentoFFI`) -- paridad con
+    // `GeneradorC::genLlamada`/`genLlamadaExterna`.
     llvm::Value* genExpr(Expresion& expr, llvm::IRBuilder<>& builder, llvm::Module& modulo,
                          const std::unordered_map<std::string, llvm::Value*>& variables = {});
 
@@ -202,6 +210,12 @@ public:
     // padre no tiene constructor, no emite ninguna llamada (paridad exacta
     // con `GeneradorC::genSentencia(LlamadaBase)`, que en ese caso solo deja
     // un comentario).
+    //
+    // (PLAN_FFI.md F6) `InseguroBloque` (`inseguro ... fin`) traduce su
+    // cuerpo tal cual (`genBloque`, sin ningún basic block/envoltorio
+    // propio): es puramente un marcador estático ya consumido por el
+    // análisis semántico (F4), sin efecto en runtime -- paridad exacta con
+    // `GeneradorC::genSentencia(InseguroBloque)`.
     //
     // No maneja declaraciones de nivel superior distintas de FuncionDef
     // (ClaseDef/EstructuraDef/InterfazDef/Incluir -- Fase L8 las traduce vía
@@ -385,6 +399,14 @@ public:
     // main.cpp no vuelve a invocar a este generador después).
     std::unique_ptr<llvm::LLVMContext> tomarContexto() { return std::move(contexto_); }
 
+    // PLAN_FFI.md (F6): bibliotecas nombradas por "externo enlazar \"lib\"",
+    // recolectadas durante generar() -- mismo rol que
+    // GeneradorC::bibliotecasEnlazadas() (compiler.h), consumido por
+    // invocador_llvm.cpp para agregarlas al paso de enlace AOT (un objeto
+    // LLVM, a diferencia de un .c, no tiene ningún "#pragma comment(lib,...)"
+    // textual que embeber).
+    const std::set<std::string>& bibliotecasEnlazadas() const { return bibliotecasEnlazar_; }
+
 private:
     std::unique_ptr<llvm::LLVMContext> contexto_;
     std::unique_ptr<RuntimeAbiLLVM> abi_;
@@ -427,6 +449,48 @@ private:
     // actualPadre_ para resolver el constructor de la clase base.
     std::string actualClase_;
     std::string actualPadre_;
+
+    // PLAN_FFI.md (F6): firma de una función "externo" ya recolectada --
+    // equivalente a GeneradorC::InfoFuncionExterna (compiler.h).
+    struct InfoFuncionExterna {
+        std::vector<TipoFFI> parametrosTipo;
+        TipoFFI tipoRetorno = TipoFFI::Nulo;
+    };
+    std::unordered_map<std::string, InfoFuncionExterna> funcionesExternas_;
+    std::set<std::string> bibliotecasEnlazar_;  // nombres de "enlazar" (sin ".lib"/"-l")
+
+    // PLAN_FFI.md (F6): registra cada firma de un bloque "externo" de nivel
+    // superior y las bibliotecas nombradas por "enlazar" -- equivalente a
+    // GeneradorC::recolectarExterno (compiler.cpp).
+    void recolectarExterno(Programa& programa);
+
+    // PLAN_FFI.md (F6): declara (o recupera, si ya se declaró antes) el
+    // símbolo nativo 'nombre' en 'modulo' con su firma C real (tipos LLVM
+    // primitivos según tipoLLVMdeFFI, nunca la firma empaquetada LatValor de
+    // una función de usuario/runtime) -- análogo al "extern <tipo> nombre(...)"
+    // que emite GeneradorC::generar() en el preámbulo del .c.
+    llvm::Function* declararExterno(const std::string& nombre, const InfoFuncionExterna& info,
+                                    llvm::Module& modulo);
+
+    // PLAN_FFI.md (F6): extrae/convierte un argumento LatValor al valor C
+    // primitivo esperado por la firma -- equivalente a
+    // GeneradorC::genArgumentoFFI, pero con GEP+load reales sobre
+    // %struct.LatValor (ver Codegen del plan) en vez del ".como.X" que emite
+    // el backend C. El chequeo dinámico lat_ffi_verificar_tipo se emite
+    // siempre (defensa en profundidad, igual que en el backend C), salvo
+    // para el caso especial "nulo -> puntero NULL" (ver el comentario en la
+    // implementación). Devuelve nullptr si 'arg' es nullptr o si la
+    // subexpresión no se pudo traducir.
+    llvm::Value* genArgumentoFFI(Expresion* arg, TipoFFI tipo, const std::string& nombreFn, int indice,
+                                 llvm::IRBuilder<>& builder, llvm::Module& modulo,
+                                 const std::unordered_map<std::string, llvm::Value*>& variables);
+
+    // PLAN_FFI.md (F6): llamada real al símbolo nativo (declarado vía
+    // declararExterno) y empaquetado del resultado en una celda %LatValor --
+    // equivalente a GeneradorC::genLlamadaExterna.
+    llvm::Value* genLlamadaExterna(const std::string& nombre, const InfoFuncionExterna& info, Llamada& ll,
+                                   llvm::IRBuilder<>& builder, llvm::Module& modulo,
+                                   const std::unordered_map<std::string, llvm::Value*>& variables);
 
     // (Fase L8) Copia (nargs > idx) ? args[idx] : lat_nulo() a una celda
     // local fresca -- el patrón que necesitan "este" y cada parámetro de un

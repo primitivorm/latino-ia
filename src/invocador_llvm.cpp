@@ -111,6 +111,7 @@ int compilarLLVMAEjecutable(llvm::Module& modulo, const std::string& salidaExe,
     // LLVM en vez de GeneradorC.
     OpcionesC opcionesC;
     opcionesC.runtimeDir = opciones.runtimeDir;
+    opcionesC.bibliotecasEnlazar = opciones.bibliotecasEnlazar;  // PLAN_FFI.md (F6)
     return compilarAEjecutable(rutaObj.string(), salidaExe, opcionesC);
 }
 
