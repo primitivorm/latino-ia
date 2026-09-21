@@ -42,6 +42,13 @@ void colectar(Sentencia* s, std::set<std::string>& out) {
         colectarLista(re->cuerpo, out);
         return;
     }
+    // PLAN_FFI.md: "inseguro" es transparente para el hoisting -- una
+    // variable asignada dentro de un bloque "inseguro" se declara igual que
+    // si no estuviera envuelta en uno.
+    if (auto* ib = dynamic_cast<InseguroBloque*>(s)) {
+        colectarLista(ib->cuerpo, out);
+        return;
+    }
     // FuncionDef: no se desciende. ExprSentencia/Romper/Retornar: nada que declarar.
 }
 

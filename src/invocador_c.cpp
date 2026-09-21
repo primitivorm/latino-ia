@@ -76,14 +76,21 @@ int ejecutarMsvc(const std::string& archivoC, const std::string& salidaExe,
 
 // Compila con un compilador de estilo GNU (gcc/clang/cc).
 int ejecutarGnu(const std::string& cc, const std::string& archivoC,
-                const std::string& salidaExe, const std::string& runtimeDir) {
+                const std::string& salidaExe, const std::string& runtimeDir,
+                const std::vector<std::string>& bibliotecasEnlazar) {
     std::string libs = libsCSources(runtimeDir);
+    // PLAN_FFI.md (F5): "#pragma comment(lib,...)" del .c generado solo lo
+    // entiende MSVC; en GNU/Clang cada "externo enlazar \"lib\"" se agrega
+    // acá como "-l<lib>".
+    std::string enlazarExtra;
+    for (const std::string& lib : bibliotecasEnlazar)
+        enlazarExtra += " -l" + lib;
     std::string comando = entrecomillar(cc) + " -std=c11 -O2 -I " +
                           entrecomillar(runtimeDir) +
                           " -I " + entrecomillar(runtimeDir + "/libs") +
                           " " + entrecomillar(archivoC) +
                           " " + entrecomillar(runtimeDir + "/latino.c") + libs +
-                          " -o " + entrecomillar(salidaExe) + " -lm";
+                          " -o " + entrecomillar(salidaExe) + " -lm" + enlazarExtra;
     return std::system(comando.c_str());
 }
 
@@ -99,11 +106,11 @@ int compilarAEjecutable(const std::string& archivoC, const std::string& salidaEx
     int codigo;
     if (ccEnv != nullptr) {
         // El usuario indicó un compilador propio (gcc/clang) vía CC.
-        codigo = ejecutarGnu(ccEnv, archivoC, salidaExe, runtimeDir);
+        codigo = ejecutarGnu(ccEnv, archivoC, salidaExe, runtimeDir, opciones.bibliotecasEnlazar);
     } else if (std::string(LATINO_CC_ESTILO) == "msvc") {
         codigo = ejecutarMsvc(archivoC, salidaExe, runtimeDir);
     } else {
-        codigo = ejecutarGnu(LATINO_CC, archivoC, salidaExe, runtimeDir);
+        codigo = ejecutarGnu(LATINO_CC, archivoC, salidaExe, runtimeDir, opciones.bibliotecasEnlazar);
     }
 
     if (codigo != 0)

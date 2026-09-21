@@ -371,6 +371,8 @@ int main(int argc, char** argv) {
     std::string salidaAbs = fs::absolute(salida).string();
     OpcionesC opc;
     opc.runtimeDir = runtimeDir;
+    opc.bibliotecasEnlazar.assign(generador.bibliotecasEnlazadas().begin(),
+                                  generador.bibliotecasEnlazadas().end());
     int codigo = compilarAEjecutable(archivoC.string(), salidaAbs, opc);
     if (codigo != 0)
         return 1;
