@@ -21,16 +21,31 @@ public:
     // Devuelve el código C completo equivalente al programa.
     std::string generar(Programa& programa);
 
+    // PLAN_FFI.md (F5): bibliotecas nombradas por "externo enlazar \"lib\"",
+    // recolectadas durante generar(). En MSVC alcanza el "#pragma comment"
+    // que ya se emite en el propio .c; en GNU/Clang, invocador_c.cpp usa esto
+    // para agregar "-l<lib>" a la línea de enlace.
+    const std::set<std::string>& bibliotecasEnlazadas() const { return bibliotecasEnlazar; }
+
 private:
     struct InfoFuncion {
         size_t numParametros;
         bool variadico;
     };
 
+    // PLAN_FFI.md (F5): firma de una función "externo" ya recolectada, para
+    // que genLlamada resuelva el marshalling sin volver a recorrer el AST.
+    struct InfoFuncionExterna {
+        std::vector<TipoFFI> parametrosTipo;
+        TipoFFI tipoRetorno = TipoFFI::Nulo;
+    };
+
     std::ostringstream salida;
     int indentacion = 0;
     int contadorTemp = 0;
     std::unordered_map<std::string, InfoFuncion> funciones;
+    std::unordered_map<std::string, InfoFuncionExterna> funcionesExternas;
+    std::set<std::string> bibliotecasEnlazar;  // nombres de "enlazar" (sin ".lib"/"-l")
     std::unordered_map<std::string, ClaseDef*> clases;
     std::unordered_map<std::string, EstructuraDef*> estructuras;
     std::unordered_map<std::string, InterfazDef*> interfaces;
@@ -40,6 +55,7 @@ private:
     std::set<std::string> libsUsadas;  // librerías detectadas durante generación
 
     void recolectarFunciones(Programa& programa);
+    void recolectarExterno(Programa& programa);
     void recolectarTipos(Programa& programa);
 
     void emitir(const std::string& linea);   // escribe con sangría + salto
@@ -63,6 +79,15 @@ private:
     static std::string escaparCadena(const std::string& s);
     std::string genLlamada(Llamada* ll);
     std::string genAsignacionDestino(Expresion* destino, const std::string& valorC);
+
+    // PLAN_FFI.md (F5): marshalling de una llamada a una función "externo".
+    std::string genLlamadaExterna(const std::string& nombre, const InfoFuncionExterna& info,
+                                  Llamada* ll);
+    // Extrae/convierte un argumento LatValor al tipo C esperado por la firma,
+    // con el chequeo dinámico lat_ffi_verificar_tipo (mismo patrón que
+    // lat_verificar_tipo para parámetros anotados de una función normal).
+    std::string genArgumentoFFI(Expresion* arg, TipoFFI tipo, const std::string& nombreFn,
+                                int indice);
 };
 
 #endif  // COMPILER_H

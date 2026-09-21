@@ -667,3 +667,100 @@ que la sintaxis/aridad/tipos estáticos de la llamada son válidos —
 comportamiento esperado en esta fase (el codegen real es responsabilidad
 de F5/F6), pero vale la pena tenerlo presente para no confundir "compila"
 con "ya funciona" al probar manualmente antes de F5.
+
+F5 completa (codegen backend C): `GeneradorC` (`include/compiler.h`/
+`src/compiler.cpp`) gana una tabla propia `funcionesExternas` (nombre →
+`InfoFuncionExterna`: tipos de parámetros + retorno, sin nombres — igual
+alcance que la de `AnalizadorSemantico` en F4, pero recolectada de forma
+independiente por `recolectarExterno()`, ya que `compiler.cpp` no depende
+de `analizador_semantico.h`) y un `std::set<std::string> bibliotecasEnlazar`
+con los nombres de cada `externo enlazar "lib"`, ambos poblados recorriendo
+`programa.sentencias` en busca de `ExternoBloque` — mismo patrón que
+`recolectarFunciones`/`recolectarTipos` ya usaban para `FuncionDef`/
+`ClaseDef`. `generar()` emite, en el preámbulo (Fase 2, junto a los
+`#include`): `#include <stdint.h>` solo si hay al menos una función
+externa (ancho fijo de entero/natural), un `#ifdef _MSC_VER` /
+`#pragma comment(lib, "<lib>.lib")` / `#endif` por cada biblioteca de
+`enlazar`, y un `extern <tipo_C_retorno> <simbolo>(<tipos_C_parametros>);`
+por cada `FuncionExterna` con la firma C real (`tipoFFIaC`, nuevo, mapea
+cada `TipoFFI` a su tipo C: `double`/`int`/`const char*`/`void`/
+`int8_t`..`uint64_t`/`void*`) — nunca la firma empaquetada `LatValor
+lat_fn_x(LatValor...)` de una función Latino normal.
+
+`GeneradorC::genLlamada` gana una rama nueva justo antes del fallback
+`lat_nulo() /* llamada no soportada */` (la rama en la que hoy caía toda
+llamada a un nombre `externo`, según el hallazgo documentado al cierre de
+F4): si el nombre resuelve contra `funcionesExternas`, despacha a
+`genLlamadaExterna()`, que arma la llamada real al símbolo nativo
+marshallando cada argumento con `genArgumentoFFI()` (extrae el valor C
+primitivo de un `LatValor` con un chequeo dinámico
+`lat_ffi_verificar_tipo(...)` — emitido siempre, sin importar si F4 ya lo
+verificó estáticamente, mismo criterio de "defensa en profundidad" que ya
+usa `lat_verificar_tipo` para un parámetro anotado de una función Latino
+normal — seguido de `.como.<campo>` y, para los ocho anchos de entero/
+natural, un cast C al tipo exacto vía `tipoFFIaC`) y empaquetando el
+resultado según `TipoFFI::tipoRetorno` (`lat_numero`/`lat_logico`/
+`lat_cadena`/`lat_puntero`, o `(<llamada>, lat_nulo())` para retorno `nulo`
+— la coma permite descartar el resultado de una llamada C que devuelve
+`void` y devolver igual un `LatValor` en la misma expresión).
+
+Caso especial ya anticipado como pendiente en el cierre de F4 (`nulo` como
+puntero nulo hacia un parámetro `puntero`): `genArgumentoFFI` no llama a
+`lat_ffi_verificar_tipo` directamente para un parámetro `puntero`, porque
+`LAT_NULO != LAT_PUNTERO` haría fallar en runtime el caso legítimo
+`MessageBoxA(nulo, ...)`. En vez de eso, evalúa el argumento una sola vez
+en un temporal (`nuevoTemp()` + `emitir(...)`, mismo patrón ya usado por
+`genLlamada` para el arreglo de argumentos de un método estático) y
+genera `(<t>.tipo == LAT_NULO ? NULL : lat_ffi_verificar_tipo(<t>,
+LAT_PUNTERO, ...).como.puntero)` — el temporal evita evaluar dos veces una
+expresión con posibles efectos de lado (p. ej. otra llamada anidada).
+
+Hallazgo real de esta fase, no anticipado en el diseño original: ni
+`GeneradorC::genSentencia` ni `recolectarVariables`
+(`include/recolector_variables.h`/`src/recolector_variables.cpp`, código
+compartido con `GeneradorLLVM` según su propio comentario de cabecera)
+tenían ningún caso para `InseguroBloque` — antes de este cambio, el cuerpo
+completo de un bloque `inseguro ... fin` se descartaba en silencio al
+generar C (caía en el comentario final "FuncionDef u otros: no se emiten
+dentro de un bloque"), y ninguna variable asignada dentro de él se
+hoisteaba. Se agregó un caso explícito en ambos: `genSentencia` genera el
+cuerpo tal cual (`genBloque(ib->cuerpo)`, sin envoltorio — `inseguro` es
+puramente un marcador estático ya consumido por F4, sin efecto en
+runtime) y `recolectarVariables` desciende en él igual que en
+`si`/`mientras`/`repetir`. `ExternoBloque` sigue sin necesitar un caso en
+`genSentencia`: ya se recolectó en `recolectarExterno`/el preámbulo, y si
+apareciera anidado (la gramática lo permite igual que a un `FuncionDef`,
+ver `parseSentencia`) cae en el mismo fallback silencioso que un
+`FuncionDef` anidado, comportamiento ya existente y no nuevo de este
+plan.
+
+Cambios de enlazado: `OpcionesC` (`include/invocador_c.h`) gana
+`std::vector<std::string> bibliotecasEnlazar`; `main.cpp` la llena con
+`GeneradorC::bibliotecasEnlazadas()` (getter nuevo, público); `ejecutarGnu`
+(`src/invocador_c.cpp`) agrega `-l<lib>` por cada una a la línea de
+`gcc`/`clang` (GNU/Clang no entiende `#pragma comment`). `ejecutarMsvc` no
+cambió: el `#ifdef _MSC_VER` / `#pragma comment(lib,...)` ya embebido en el
+`.c` generado alcanza para MSVC sin tocar la línea de `cl.exe`.
+
+Verificado manualmente en esta máquina de desarrollo (MSVC/Visual Studio
+17 2022, sin LLVM instalado — mismo entorno que fases previas): (1) el caso
+recomendado por el propio plan, sin `enlazar` — `externo funcion
+abs(n: entero32): entero32` / `funcion strlen(s: cadena): entero64` dentro
+de un bloque `inseguro`, compilado y ejecutado de punta a punta, imprime
+`5` y `4`; (2) punteros opacos — `malloc`/`free` con `si p == nulo`,
+compilado y ejecutado, imprime `con memoria` y no crashea al liberar; (3)
+`externo enlazar "user32"` con `MessageBoxA` y `funcion inseguro
+saludar_nativo()` (la otra forma de habilitar `inseguro`, sin bloque
+envolvente) — verificado solo el C generado (`--solo-c`: `#pragma
+comment(lib, "user32.lib")` bajo `#ifdef _MSC_VER`, `extern int32_t
+MessageBoxA(void*, const char*, const char*, int32_t);`, marshalling
+correcto de `nulo` a `NULL`), sin compilar a ejecutable porque `MessageBoxA`
+abre un diálogo real que bloquearía la terminal. Los tres casos se
+descartaron después de la verificación (no quedan como archivos
+permanentes de este plan — `tests/test_ffi_e2e.cpp` los formaliza en F7).
+Suite completa de CTest (50 pruebas — build sin backend LLVM en esta
+máquina, ver nota de G7/L11 en `CLAUDE.md`) verificada en verde en serie
+tras el cambio (1226 s reales).
+
+Sin cambios en `GeneradorLLVM`/`runtime` en esta fase. F6 (backend LLVM)
+sigue pendiente.
