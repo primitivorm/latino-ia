@@ -1436,6 +1436,51 @@ de la clase accedente y el nivel de acceso requerido, y lanzan error si no se pe
 La implementación inicial puede omitir la verificación en runtime y hacerla solo en
 compilación (mejor esfuerzo).
 
+**Implementado (2026-09-22, auditoría de `input/`):** hallazgo real -- hasta
+esta fecha, `publico`/`privado`/`protegido` se parseaban y guardaban
+(`CampoDef::acceso`/`MetodoDef::acceso`) pero **nunca se hacían cumplir**:
+ni en compilación (`visitar(AccesoMiembro&)` no hacía ningún chequeo) ni en
+runtime (`lat_obj_get_seguro` en `runtime/latino.c` era un passthrough
+literal a `lat_obj_get`, sin verificar nada). Se implementó la mitad
+"compilación, mejor esfuerzo" que este Reto ya autorizaba como suficiente
+para la implementación inicial:
+
+- `AnalizadorSemantico::InfoTipo::campos` pasó de `unordered_set<string>`
+  (solo nombres) a `unordered_map<string, ModificadorAcceso>`; `InfoMetodo`
+  ganó el campo `acceso`, poblado en `recolectarTipos` desde
+  `CampoDef::acceso`/`MetodoDef::acceso`.
+- `verificarAccesoMiembro(tipoObjeto, miembro, linea)` (nuevo) busca
+  `miembro` en `tipoObjeto` y su cadena de `padre`; si lo encuentra con
+  acceso `Privado`, exige que `tipoActual` (la clase/estructura cuyo método
+  se está analizando) sea exactamente la clase declarante; si es
+  `Protegido`, exige que `tipoActual` sea la declarante o una subclase de
+  ella. Si el miembro no aparece en ningún nivel de la cadena, no hace nada
+  -- esta función no valida existencia de miembros (eso sigue resolviéndose
+  en runtime, `lat_obj_get`/`lat_obj_llamar_metodo`, fuera de alcance de
+  este cambio).
+- Se llama desde `visitar(AccesoMiembro&)` (cubre tanto lectura de campo
+  como el destino de una llamada a método, y tanto lectura como escritura
+  vía el destino de una `Asignacion`) solo cuando el tipo estático del
+  objeto se puede determinar: `este.X` siempre se permite sin más (ya se
+  está dentro de un método de la clase o de una subclase); `nuevo Clase().X`
+  inline se resuelve directo; y una variable con tipo conocido -- ya sea un
+  parámetro anotado (`p: Perro`) o la **última asignación vista** en el
+  mismo ámbito (`p = nuevo Perro(...)`, rastreada en la nueva pila paralela
+  `clasesVariable`, análoga a `ambitos`) -- habilita el chequeo para el
+  resto del ámbito. Cualquier reasignación a algo que no sea un `nuevo
+  Clase(...)` literal borra el dato en vez de arriesgar un hint incorrecto
+  (p. ej. `p = funcionDinamica()` degrada sin chequeo, nunca produce un
+  falso error). Un objeto de tipo dinámico/no determinable no se chequea en
+  absoluto -- misma filosofía de degradación gradual que el resto del
+  tipado opcional de `PLAN_TIPADO.md`.
+- La verificación en runtime (`lat_obj_get_seguro` real) sigue **fuera de
+  alcance**, tal como este Reto ya lo permitía explícitamente ("la
+  implementación inicial puede omitir la verificación en runtime").
+- Pruebas: 10 casos nuevos en `tests/test_semantico.cpp` (15 comprobaciones
+  -- privado/protegido/público, dentro/fuera de la clase, subclase,
+  estructura, degradación con tipo dinámico, y que una reasignación borra
+  el hint en vez de producir un falso positivo).
+
 ### Reto 7: Métodos estáticos
 
 **Problema**: `Animal.crear("Luna")` es una llamada a un método estático. El parser

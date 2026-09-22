@@ -100,6 +100,15 @@ private:
 
     // Cada ámbito mapea nombre de variable → tipo anotado (Ninguno si sin anotación).
     std::vector<std::unordered_map<std::string, TipoAnotado>> ambitos;
+    // PLAN_POO.md (Reto 6 / 4.10): pila paralela a 'ambitos' -- nombre de
+    // variable → nombre de clase, solo para variables cuyo tipo concreto se
+    // conoce en compilación (parámetro anotado "p: Perro", o última
+    // asignación vista "p = nuevo Perro(...)"). Es "mejor esfuerzo", no un
+    // análisis de flujo real: una reasignación a otra cosa borra el dato en
+    // vez de intentar fusionar ramas -- el objetivo es habilitar el control
+    // de acceso del Reto 6 solo cuando hay certeza razonable, nunca inventar
+    // un tipo. Se empuja/saca junto con 'ambitos' en entrarAmbito/salirAmbito.
+    std::vector<std::unordered_map<std::string, std::string>> clasesVariable;
     std::unordered_map<std::string, InfoFuncion> funciones;
     // PLAN_FFI.md (F4): tabla separada de funciones "externo" -- un nombre no
     // puede estar a la vez en `funciones` y en `funcionesExternas` (ver
@@ -121,6 +130,9 @@ private:
         bool esAbstracto = false;
         bool esEstatico = false;
         bool esSobreescritura = false;
+        // PLAN_POO.md (Reto 6 / 4.10): modificador de acceso del método, para
+        // el control de acceso "mejor esfuerzo" de visitar(AccesoMiembro&).
+        ModificadorAcceso acceso = ModificadorAcceso::Publico;
         int linea = 0;
     };
 
@@ -129,7 +141,10 @@ private:
         bool esAbstracta = false;
         std::string padre;
         std::vector<std::string> interfaces;
-        std::unordered_set<std::string> campos;
+        // PLAN_POO.md (Reto 6 / 4.10): nombre -> modificador de acceso (antes
+        // era un unordered_set<string>, solo de nombres -- se necesita el
+        // modificador para el control de acceso).
+        std::unordered_map<std::string, ModificadorAcceso> campos;
         std::unordered_map<std::string, InfoMetodo> metodos;
         std::vector<ParametroGenerico> genericos;  // PLAN_GENERICOS.md: <T, U: Bound> de la propia clase/estructura/interfaz
         int linea = 0;
@@ -199,6 +214,27 @@ private:
     // genérico a partir de un argumento identificador ya anotado
     // (p.ej. "x: numero = 5" seguido de "identidad(x)").
     TipoAnotado tipoDeVariable(const std::string& nombre) const;
+
+    // --- Control de acceso (PLAN_POO.md, Reto 6 / 4.10) --------------------
+    // Registra (o borra, si 'clase' está vacío) el nombre de clase concreto
+    // de 'nombre' en el ámbito activo -- ver el comentario de
+    // 'clasesVariable' en la sección de miembros.
+    void registrarClaseVariable(const std::string& nombre, const std::string& clase);
+    // Busca 'nombre' en la pila de clasesVariable, de adentro hacia afuera.
+    // "" si no hay ningún hint registrado (tipo dinámico/desconocido).
+    std::string tipoClaseDeVariable(const std::string& nombre) const;
+    // Nombre de clase estático de 'e' para control de acceso: "nuevo Clase()"
+    // se resuelve directo; un Identificador consulta tipoClaseDeVariable().
+    // "" si no se puede determinar (se salta el chequeo -- gradual).
+    std::string nombreClaseEstaticaAcceso(Expresion* e) const;
+    // Busca 'miembro' (campo o método) en 'tipoObjeto' y su cadena de
+    // 'padre'; si lo encuentra y su modificador de acceso no es Publico,
+    // reporta un error a menos que 'tipoActual' tenga permiso (privado: debe
+    // ser exactamente la clase declarante; protegido: la clase declarante o
+    // una subclase). Sin efecto si el miembro no se encuentra en ningún
+    // nivel de la cadena -- esta función no valida existencia de miembros,
+    // eso queda fuera de alcance (ver comentario en visitar(AccesoMiembro&)).
+    void verificarAccesoMiembro(const std::string& tipoObjeto, const std::string& miembro, int linea);
 };
 
 #endif  // ANALIZADOR_SEMANTICO_H

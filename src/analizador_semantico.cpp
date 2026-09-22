@@ -27,6 +27,7 @@ AnalizadorSemantico::AnalizadorSemantico()
 
 bool AnalizadorSemantico::analizar(Programa& programa) {
     ambitos.clear();
+    clasesVariable.clear();
     funciones.clear();
     funcionesExternas.clear();
     tipos.clear();
@@ -53,11 +54,14 @@ bool AnalizadorSemantico::analizar(Programa& programa) {
 // ---------------------------------------------------------------------------
 void AnalizadorSemantico::entrarAmbito() {
     ambitos.emplace_back();
+    clasesVariable.emplace_back();  // PLAN_POO.md (Reto 6): misma pila que ambitos
 }
 
 void AnalizadorSemantico::salirAmbito() {
     if (!ambitos.empty())
         ambitos.pop_back();
+    if (!clasesVariable.empty())
+        clasesVariable.pop_back();
 }
 
 void AnalizadorSemantico::declararVariable(const std::string& nombre,
@@ -78,6 +82,22 @@ bool AnalizadorSemantico::estaDeclarada(const std::string& nombre) const {
         if (ambito.count(nombre))
             return true;
     return false;
+}
+
+void AnalizadorSemantico::registrarClaseVariable(const std::string& nombre, const std::string& clase) {
+    if (clasesVariable.empty()) return;
+    if (clase.empty())
+        clasesVariable.back().erase(nombre);
+    else
+        clasesVariable.back()[nombre] = clase;
+}
+
+std::string AnalizadorSemantico::tipoClaseDeVariable(const std::string& nombre) const {
+    for (auto it = clasesVariable.rbegin(); it != clasesVariable.rend(); ++it) {
+        auto encontrado = it->find(nombre);
+        if (encontrado != it->end()) return encontrado->second;
+    }
+    return "";
 }
 
 TipoAnotado AnalizadorSemantico::tipoDeVariable(const std::string& nombre) const {
@@ -177,6 +197,19 @@ std::string AnalizadorSemantico::nombreConcretoDeExpr(Expresion* e) {
     return "";
 }
 
+// PLAN_POO.md (Reto 6 / 4.10): nombre de clase estático de 'e' para control
+// de acceso. Deliberadamente más limitado que nombreConcretoDeExpr: acá solo
+// interesan tipos de OBJETO (nunca "numero"/"cadena"/... -- no tienen campos
+// privados), y un Identificador SÍ se resuelve (vía tipoClaseDeVariable),
+// porque el caso de uso típico de "objeto.campo" es una variable, no un
+// "nuevo Clase()" inline en cada acceso.
+std::string AnalizadorSemantico::nombreClaseEstaticaAcceso(Expresion* e) const {
+    if (!e) return "";
+    if (auto* nuevo = dynamic_cast<NuevoExpr*>(e)) return nuevo->clase;
+    if (auto* id = dynamic_cast<Identificador*>(e)) return tipoClaseDeVariable(id->nombre);
+    return "";
+}
+
 void AnalizadorSemantico::usarIdentificador(const std::string& nombre, int linea) {
     if (estaDeclarada(nombre)) return;
     if (funciones.count(nombre)) return;  // nombre de función usado como valor
@@ -269,6 +302,10 @@ void AnalizadorSemantico::analizarMetodo(MetodoDef& metodo) {
                          "parámetro duplicado '" + p.nombre + "' en el método '" + metodo.nombre + "'");
         validarTipoObjeto(p.tipo, p.tipoClase, metodo.linea);
         declararVariable(p.nombre, p.tipo, metodo.linea);
+        // PLAN_POO.md (Reto 6): un parámetro "p: Perro" tiene tipo estático
+        // conocido durante todo el cuerpo del método -- habilita el control
+        // de acceso para "p.campo" sin necesitar ningún "nuevo" inline.
+        if (p.tipo == TipoAnotado::Objeto) registrarClaseVariable(p.nombre, p.tipoClase);
     }
 
     ++profundidadFuncion;
@@ -345,6 +382,69 @@ bool AnalizadorSemantico::tipoImplementaInterfaz(const std::string& nombreTipo,
     return false;
 }
 
+// PLAN_POO.md (Reto 6 / 4.10): control de acceso "mejor esfuerzo" en
+// compilación. Busca 'miembro' en 'tipoObjeto' y su cadena de herencia; si
+// no aparece en ningún nivel, no hace nada (esta función no valida
+// existencia de miembros -- un miembro desconocido cae, como siempre, en el
+// despacho dinámico de runtime, lat_obj_get/lat_obj_llamar_metodo). Si
+// aparece, compara el modificador de acceso contra 'tipoActual' (la
+// clase/estructura cuyo método se está analizando en este momento, "" si
+// estamos fuera de cualquier método).
+void AnalizadorSemantico::verificarAccesoMiembro(const std::string& tipoObjeto,
+                                                 const std::string& miembro, int linea) {
+    std::string declarante;
+    ModificadorAcceso acceso = ModificadorAcceso::Publico;
+    bool esMetodo = false;
+    bool encontrado = false;
+
+    for (std::string nivel = tipoObjeto; !nivel.empty();) {
+        const InfoTipo* t = obtenerTipo(nivel);
+        if (!t) break;
+        auto itCampo = t->campos.find(miembro);
+        if (itCampo != t->campos.end()) {
+            acceso = itCampo->second;
+            declarante = nivel;
+            encontrado = true;
+            break;
+        }
+        auto itMetodo = t->metodos.find(miembro);
+        if (itMetodo != t->metodos.end()) {
+            acceso = itMetodo->second.acceso;
+            declarante = nivel;
+            esMetodo = true;
+            encontrado = true;
+            break;
+        }
+        nivel = t->padre;
+    }
+
+    if (!encontrado || acceso == ModificadorAcceso::Publico) return;
+
+    const char* nombreMiembro = esMetodo ? "método" : "campo";
+
+    if (acceso == ModificadorAcceso::Privado) {
+        if (tipoActual != declarante)
+            agregarError(linea, std::string(nombreMiembro) + " privado '" + miembro +
+                                     "' no accesible fuera de '" + declarante + "'");
+        return;
+    }
+
+    // Protegido: 'tipoActual' debe ser 'declarante' o una subclase de él.
+    bool permitido = false;
+    for (std::string nivel = tipoActual; !nivel.empty();) {
+        if (nivel == declarante) {
+            permitido = true;
+            break;
+        }
+        const InfoTipo* t = obtenerTipo(nivel);
+        nivel = t ? t->padre : "";
+    }
+    if (!permitido)
+        agregarError(linea, std::string(nombreMiembro) + " protegido '" + miembro +
+                                 "' no accesible fuera de '" + declarante +
+                                 "' o sus subclases");
+}
+
 void AnalizadorSemantico::validarBoundConcreto(const std::string& concreto,
                                                const ParametroGenerico& g, int linea) {
     if (g.bounds.empty() || concreto.empty()) return;  // sin bound, o tipo dinámico: sin chequeo (gradual)
@@ -390,7 +490,7 @@ void AnalizadorSemantico::recolectarTipos(Programa& programa) {
                 if (!nombresCampos.insert(campo.nombre).second)
                     agregarError(campo.linea,
                                  "campo duplicado '" + campo.nombre + "' en la clase '" + c->nombre + "'");
-                info.campos.insert(campo.nombre);
+                info.campos[campo.nombre] = campo.acceso;
             }
 
             for (const MetodoDef& metodo : c->metodos) {
@@ -414,6 +514,7 @@ void AnalizadorSemantico::recolectarTipos(Programa& programa) {
                 infoMetodo.esAbstracto = metodo.esAbstracto;
                 infoMetodo.esEstatico = metodo.esEstatico;
                 infoMetodo.esSobreescritura = metodo.esSobreescritura;
+                infoMetodo.acceso = metodo.acceso;
                 infoMetodo.linea = metodo.linea;
                 for (const ParamFuncion& parametro : metodo.parametros) {
                     infoMetodo.parametros.push_back(parametro.tipo);
@@ -444,7 +545,7 @@ void AnalizadorSemantico::recolectarTipos(Programa& programa) {
                 if (!nombresCampos.insert(campo.nombre).second)
                     agregarError(campo.linea,
                                  "campo duplicado '" + campo.nombre + "' en la estructura '" + e->nombre + "'");
-                info.campos.insert(campo.nombre);
+                info.campos[campo.nombre] = campo.acceso;
             }
 
             for (const MetodoDef& metodo : e->metodos) {
@@ -468,6 +569,7 @@ void AnalizadorSemantico::recolectarTipos(Programa& programa) {
                 infoMetodo.esAbstracto = metodo.esAbstracto;
                 infoMetodo.esEstatico = metodo.esEstatico;
                 infoMetodo.esSobreescritura = metodo.esSobreescritura;
+                infoMetodo.acceso = metodo.acceso;
                 infoMetodo.linea = metodo.linea;
                 for (const ParamFuncion& parametro : metodo.parametros) {
                     infoMetodo.parametros.push_back(parametro.tipo);
@@ -506,6 +608,7 @@ void AnalizadorSemantico::recolectarTipos(Programa& programa) {
                 infoMetodo.esAbstracto = true;
                 infoMetodo.esEstatico = metodo.esEstatico;
                 infoMetodo.esSobreescritura = false;
+                infoMetodo.acceso = metodo.acceso;
                 infoMetodo.linea = metodo.linea;
                 for (const ParamFuncion& parametro : metodo.parametros) {
                     infoMetodo.parametros.push_back(parametro.tipo);
@@ -563,6 +666,18 @@ void AnalizadorSemantico::visitar(AccesoMiembro& n) {
     if (auto* id = dynamic_cast<Identificador*>(n.objeto.get()))
         if (esLibreria(id->nombre) || estaTipoDefinido(id->nombre)) return;
     n.objeto->aceptar(*this);
+
+    // PLAN_POO.md (Reto 6 / 4.10): control de acceso "mejor esfuerzo". 'este.X'
+    // siempre está permitido (se está, por definición, dentro de un método de
+    // la propia clase o de una subclase) -- no hace falta ni siquiera resolver
+    // un tipo estático para ese caso. Para el resto, solo se verifica cuando
+    // el tipo estático del objeto se puede determinar (ver
+    // nombreClaseEstaticaAcceso); si es dinámico, se degrada sin chequeo,
+    // igual filosofía que el resto del tipado gradual.
+    if (dynamic_cast<AccesoEste*>(n.objeto.get())) return;
+    std::string tipoObjeto = nombreClaseEstaticaAcceso(n.objeto.get());
+    if (!tipoObjeto.empty())
+        verificarAccesoMiembro(tipoObjeto, n.miembro, n.linea);
 }
 
 void AnalizadorSemantico::visitar(Llamada& n) {
@@ -1017,6 +1132,17 @@ void AnalizadorSemantico::visitar(Asignacion& n) {
                                      nombreTipoAnotado(real) + "'");
             }
             declararVariable(id->nombre, tipo, id->linea, n.esConst);
+            // PLAN_POO.md (Reto 6): rastreo "mejor esfuerzo" del tipo estático
+            // de una variable a partir de su última asignación vista --
+            // "p = nuevo Perro(...)" habilita el control de acceso para
+            // "p.campo" más adelante en el mismo ámbito. Cualquier otra
+            // asignación (incluida una anotación de tipo sin valor "nuevo")
+            // borra el dato en vez de arriesgar un hint incorrecto.
+            std::string claseValor;
+            if (i < n.valores.size())
+                if (auto* nuevo = dynamic_cast<NuevoExpr*>(n.valores[i].get()))
+                    claseValor = nuevo->clase;
+            registrarClaseVariable(id->nombre, claseValor);
         } else if (n.destinos[i]) {
             // destino tipo numeros[0] u obj.campo: se valida el objeto base.
             n.destinos[i]->aceptar(*this);
@@ -1089,6 +1215,7 @@ void AnalizadorSemantico::visitar(FuncionDef& n) {
                                       n.nombre + "'");
         validarTipoObjeto(p.tipo, p.tipoClase, n.linea);
         declararVariable(p.nombre, p.tipo, n.linea);
+        if (p.tipo == TipoAnotado::Objeto) registrarClaseVariable(p.nombre, p.tipoClase);  // PLAN_POO.md (Reto 6)
     }
 
     ++profundidadFuncion;
