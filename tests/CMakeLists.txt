@@ -123,6 +123,22 @@ target_include_directories(test_modulos PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
 add_test(NAME test_modulos COMMAND test_modulos)
 
+# Pruebas de generacion de codigo C para "externo"/"inseguro" (PLAN_FFI.md,
+# F5/F7): marshalling de argumentos/retorno y preambulo (extern/#pragma
+# comment/#include <stdint.h>). Mismo patron que test_codegen (Fase 5).
+add_executable(test_ffi
+  test_ffi.cpp
+  ${CMAKE_SOURCE_DIR}/src/lexer.cpp
+  ${CMAKE_SOURCE_DIR}/src/parser.cpp
+  ${CMAKE_SOURCE_DIR}/src/ast.cpp
+  ${CMAKE_SOURCE_DIR}/src/compiler.cpp
+  ${CMAKE_SOURCE_DIR}/src/fn_binaria.cpp
+  ${CMAKE_SOURCE_DIR}/src/recolector_variables.cpp
+)
+target_include_directories(test_ffi PRIVATE ${CMAKE_SOURCE_DIR}/include)
+
+add_test(NAME test_ffi COMMAND test_ffi)
+
 # Pruebas del runtime de FFI con C (PLAN_FFI.md, F3): LAT_PUNTERO y
 # lat_ffi_verificar_tipo. A diferencia de los tests anteriores (que
 # compilan el compilador de Latino), este compila directamente contra el
@@ -280,4 +296,5 @@ add_suite20(test_modulos_e2e)
 add_suite20(test_modulos_multi)
 add_suite20(test_poo_e2e)
 add_suite20(test_genericos_e2e)
+add_suite20(test_ffi_e2e)
 

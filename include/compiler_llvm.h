@@ -283,6 +283,18 @@ public:
     // sentencias de nivel superior de 'programa').
     void recolectarTipos(Programa& programa);
 
+    // PLAN_FFI.md (F6): registra cada firma de un bloque "externo" de nivel
+    // superior de 'programa' (tabla interna `funcionesExternas_`) y las
+    // bibliotecas nombradas por "enlazar" (`bibliotecasEnlazar_`, expuesto
+    // por `bibliotecasEnlazadas()`) -- equivalente a `recolectarTipos`, pero
+    // para `ExternoBloque`. Pública por el mismo motivo que `recolectarTipos`
+    // y `declararFuncion`: permite a un test llamarla directamente antes de
+    // pedirle a `genExpr(Llamada)`/`genSentencia(InseguroBloque)` que
+    // traduzca una llamada a una función `externo`, sin pasar por el
+    // `generar()` completo (que además construiría un `main` innecesario
+    // para una prueba aislada).
+    void recolectarExterno(Programa& programa);
+
     // (Fase L8) Declara (o recupera, si ya se declaró antes) el prototipo
     // LLVM del método 'metodo' de la clase/estructura 'claseNombre':
     // `void @lat_fn_<claseNombre>_<metodo.nombre>(ptr sret %ret, i32 %nargs,
@@ -458,11 +470,6 @@ private:
     };
     std::unordered_map<std::string, InfoFuncionExterna> funcionesExternas_;
     std::set<std::string> bibliotecasEnlazar_;  // nombres de "enlazar" (sin ".lib"/"-l")
-
-    // PLAN_FFI.md (F6): registra cada firma de un bloque "externo" de nivel
-    // superior y las bibliotecas nombradas por "enlazar" -- equivalente a
-    // GeneradorC::recolectarExterno (compiler.cpp).
-    void recolectarExterno(Programa& programa);
 
     // PLAN_FFI.md (F6): declara (o recupera, si ya se declaró antes) el
     // símbolo nativo 'nombre' en 'modulo' con su firma C real (tipos LLVM

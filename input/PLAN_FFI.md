@@ -889,3 +889,98 @@ esta máquina; queda pendiente de esa verificación (paridad de salida con el
 backend C sobre los mismos casos de F5, criterio de L12) para cuando F7
 agregue `test_codegen_llvm`/`test_ffi_e2e` con el backend LLVM habilitado, o
 en cualquier máquina con LLVM 18.1.x instalado.
+
+F7 completa (pruebas de cobertura): tres archivos nuevos en `tests/`, en vez
+de un único `test_ffi.cpp` dual-backend como sugería la tabla "Archivos
+modificados" original del plan -- desviación consistente con la que F2/F3/F4
+ya habían tomado (el parser/runtime/semántico de FFI quedaron cubiertos
+directamente en `test_parser.cpp`/`test_runtime_ffi.cpp`/`test_semantico.cpp`,
+no en un archivo unificado), así que lo único sin cobertura al llegar a F7
+era el codegen de ambos backends:
+
+- `tests/test_ffi.cpp` (nuevo, siempre se compila): codegen del backend C
+  (F5), mismo patrón que `test_codegen.cpp` (`generar(src)` parsea con
+  Lexer/Parser y llama a `GeneradorC::generar`, se compara el C emitido por
+  subcadena, sin compilar ni ejecutar). 17 comprobaciones: preámbulo (`extern
+  <firma real>;`, `#include <stdint.h>`, `#ifdef _MSC_VER` / `#pragma
+  comment(lib, "user32.lib")` con `enlazar`, ausencia de `#pragma comment`
+  sin `enlazar`, tipo de retorno por defecto `void` al omitir `:`), y
+  marshalling exacto (`(int32_t)lat_ffi_verificar_tipo(..., LAT_NUMERO,
+  ...).como.numero` para `entero32`, `.como.cadena` para `cadena`, el
+  temporal + ternario `_tN.tipo == LAT_NULO ? NULL : ...` para el literal
+  `nulo` hacia un parámetro `puntero`, el mismo patrón para un puntero que
+  *no* es el literal `nulo` -- encadenando `malloc`/`free` --, y
+  `lat_logico((int)(...))` para un retorno `logico`). Este archivo formaliza
+  también la verificación manual de F5 con `enlazar`/`MessageBoxA` (a
+  propósito, no se ejecuta -- ver más abajo).
+
+- `tests/test_codegen_llvm.cpp` (existente, sección nueva "PLAN_FFI.md F6"):
+  codegen del backend LLVM (F6), mismo patrón que las Fases L2-L8 ya
+  presentes en este archivo -- AST construido a mano (`externoBloque`/
+  `funcionExterna`/`inseguroBloque`, helpers nuevos junto a los ya
+  existentes `llamada`/`litNumero`/`litCadena`) y subcadena de IR +
+  `verifyModule`, SIN pasar por `generar()` completo. Para esto,
+  `GeneradorLLVM::recolectarExterno` (agregada en F6 como método privado)
+  pasó a ser pública en `compiler_llvm.h` -- mismo motivo exacto por el que
+  `recolectarTipos`/`declararFuncion`/`genFuncion`/`declararMetodo`/
+  `genMetodo` ya eran públicos desde L6/L8: permitir que una prueba puebla
+  el estado interno mínimo necesario (`funcionesExternas_`/
+  `bibliotecasEnlazar_`) y después ejercite `genExpr(Llamada)`/
+  `genSentencia(InseguroBloque)` de forma aislada, sin construir un
+  `Programa` completo ni un `main`. `declararExterno`/`genArgumentoFFI`/
+  `genLlamadaExterna` siguen privados: no hizo falta exponerlos porque
+  `genExpr(Llamada)` ya los invoca internamente. 6 pruebas nuevas: llamada
+  sin `enlazar` (`declare i32 @abs(i32)`, verificación dinámica, llamada
+  real, empaquetado con `lat_numero`), `enlazar` registra la biblioteca en
+  `bibliotecasEnlazadas()` (sin necesidad de generar ningún IR), el literal
+  `nulo` hacia un parámetro `puntero` bifurca con basic blocks reales
+  (`ffi_ptr_nulo:`/`ffi_ptr_verificar:`/`phi ptr`) en vez de un `select`, un
+  puntero que no es `nulo` encadenado (`malloc`/`free`, con
+  `declare ptr @malloc(i64)`/`declare void @free(ptr)`), retorno `cadena` +
+  `entero64` (conversión `sitofp`/`uitofp` antes de `lat_numero`), e
+  `InseguroBloque` traduciendo su cuerpo tal cual sin ningún basic block
+  propio. **Sin verificar con LLVM real en esta máquina** (mismo motivo de
+  siempre): compilar/ejecutar esta suite queda pendiente para cuando el
+  backend LLVM esté habilitado en algún build.
+
+- `tests/test_ffi_e2e.cpp` (nuevo, registrado con la macro `add_suite20` --
+  variantes automáticas `test_ffi_e2e`/`test_ffi_e2e_llvm`, backend C
+  verificado, LLVM no registrado en este build): 4 `CasoTest` reales,
+  compilados y ejecutados de punta a punta contra el binario `latino`, todos
+  sin `enlazar` (Decisión de diseño 6) -- `abs`/`strlen` (el caso recomendado
+  del plan), `malloc`/`free` con `si p == nulo`/`sino`, `funcion inseguro
+  calcular(n)` con un argumento SIN anotación estática (ejercita la ruta
+  dinámica de F4, `lat_ffi_verificar_tipo` en runtime, no un chequeo en
+  compilación), e `isalpha` con retorno `logico` (confirma que
+  `lat_logico((int)(...))` normaliza cualquier entero de C distinto de cero
+  a `cierto`). El caso con `enlazar`/`MessageBoxA` de F5 **no** se formaliza
+  aquí a propósito -- abre un diálogo real que bloquearía la ejecución
+  automática, exactamente la razón por la que F5 solo lo verificó con
+  `--solo-c`; su cobertura vive en `test_ffi.cpp` (verificación del C
+  generado, sin compilar a ejecutable, mismo criterio que F5). Las 4 pruebas
+  pasan con el backend C (26 s reales).
+
+Hallazgo real de esta fase, no un bug de F1-F6 sino una característica
+preexistente y sistémica de la gramática de anotaciones de tipo (no
+específica de FFI): un `: nulo` **explícito** como tipo de retorno de una
+firma `externo` no se puede escribir -- `Parser::parseFuncionExterna` exige
+`TokenType::Identificador` después de `:`, pero `nulo` lexa como
+`TokenType::PalabraReservada` (es palabra reservada desde antes de este
+plan), así que `funcion foo(p: puntero): nulo` falla con "se esperaba un
+tipo de retorno FFI válido". La misma restricción ya existía, sin relación
+con FFI, en la anotación de tipo de una variable normal
+(`Parser::parseAsignacionOExpr`, tipado gradual de `PLAN_TIPADO.md`): ningún
+`TipoAnotado`/`TipoFFI` cuyo nombre sea una palabra reservada es alcanzable
+por anotación explícita, solo por default. No se trata como bug a corregir
+en este plan -- la propia sección "Sintaxis propuesta" y el ejemplo de F2
+siempre usan la forma de omisión (`funcion free(p: puntero)`, sin `:`) para
+expresar un retorno `nulo`, nunca `: nulo` explícito, así que el
+comportamiento real coincide con el uso documentado; se ajustó únicamente
+el caso de prueba que asumía lo contrario.
+
+Suite completa de CTest (52 pruebas -- las 50 de F6 más `test_ffi` y
+`test_ffi_e2e`, nuevas de esta fase; backend LLVM sigue sin registrarse en
+este build) verificada en verde en serie tras el cambio.
+Con esto el plan v1 (fases F1-F7) queda completo en lo que a implementación
+y pruebas respecta; F8 (documentación y cierre: sección en `SINTAXIS.md`,
+entrada de estado en `CLAUDE.md`/`README.md`) sigue pendiente.
