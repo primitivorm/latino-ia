@@ -984,3 +984,40 @@ este build) verificada en verde en serie tras el cambio.
 Con esto el plan v1 (fases F1-F7) queda completo en lo que a implementación
 y pruebas respecta; F8 (documentación y cierre: sección en `SINTAXIS.md`,
 entrada de estado en `CLAUDE.md`/`README.md`) sigue pendiente.
+
+F8 completa (documentación y cierre): sección nueva "XII. FFI con C:
+`externo` / `inseguro`" en `SINTAXIS.md` (sintaxis, tabla de tipos FFI,
+punteros opacos, palabras reservadas nuevas), con las tres palabras
+insertadas en la lista de "Palabras reservadas hasta el momento"
+(renumerada a XIII); entrada de estado para este plan en `CLAUDE.md`, mismo
+criterio que las de `PLAN_LLVM.md`/`PLAN_MODULOS.md`/`PLAN_GENERICOS.md`,
+más las filas nuevas de `test_ffi`/`test_runtime_ffi`/`test_ffi_e2e` en su
+tabla de suites. `README.md` se actualizó más allá del alcance mínimo de
+esta fase: su tabla de fases estaba congelada en la Fase 29 y ni reflejaba
+el progreso real del backend LLVM ("L0-L1 y L2 completas" cuando ya estaban
+L0-L12) — se corrigió esa fila y se agregaron las Fases 30 (Módulos)/31
+(Genéricos)/32 (FFI), ninguna de las cuales se había documentado ahí pese a
+estar completas; también se agregaron subsecciones breves de Genéricos/
+Módulos/FFI en "Lenguaje soportado", las suites nuevas en "Pruebas", y los
+`PLAN_*.md` que faltaban en la tabla de `input/`. Con esto el plan v1
+(fases F1-F8) queda completo.
+
+**Corrección posterior (2026-09-22):** las notas de F5/F6/F7 de más arriba
+("sin LLVM instalado", "sin verificar con LLVM real en esta máquina") se
+basaban en que `build/` (el directorio de build en uso) no tiene LLVM
+configurado (`LLVM_DIR-NOTFOUND`) -- pero esta máquina sí tiene una
+instalación real de LLVM 18.1.x vía vcpkg, accesible desde un segundo
+directorio de build ya configurado, `build-llvm/` (con
+`LATINO_LLVM_BACKEND=ON`), que nunca se había probado en este plan. Al
+reconstruir ahí (`cmake --build build-llvm --config Release`) y correr las
+pruebas: `test_codegen_llvm.exe` (con la sección de F6/F7) pasa sus 233
+comprobaciones contra LLVM real, y `test_ffi_e2e` contra `--backend llvm`
+pasa sus 4 casos de punta a punta (`abs`/`strlen`, `malloc`/`free`,
+chequeo dinámico de tipo, retorno `logico`) -- confirmando la paridad de
+salida con el backend C (criterio de L12) que quedaba pendiente. El
+código de `GeneradorLLVM` de F6/F7 (`recolectarExterno`, `declararExterno`,
+`genArgumentoFFI`, `genLlamadaExterna`, la rama de `genExpr(Llamada)`, y el
+caso `InseguroBloque` de `genSentencia`) queda así verificado con LLVM
+real, sin necesidad de ningún cambio de código. La misma corrección aplica
+a las notas equivalentes de `PLAN_GENERICOS.md` (G6/G7) y a las entradas de
+`CLAUDE.md` para ambos planes.

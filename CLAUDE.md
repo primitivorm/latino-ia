@@ -386,6 +386,17 @@ el plan v1 (fases G1-G8) queda completo; `nuevo Pila<Pila<numero>>()`
 (anidado) e `implementa Contenedor<T>` con sustitución de tipo real siguen
 fuera de alcance de v1 (ver "Fuera de alcance" del plan).
 
+**Corrección posterior (2026-09-22):** la nota de arriba sobre "LLVM 18.1
+no está instalado aquí" era incorrecta — se basaba solo en que `build/`
+(el directorio en uso) no tiene LLVM configurado, sin revisar si existía
+un directorio de build alternativo. Esta máquina sí tiene una instalación
+real de LLVM 18.1.x vía vcpkg, accesible desde `build-llvm/` (ya
+configurado con `LATINO_LLVM_BACKEND=ON`). Reconstruyendo ahí
+(`cmake --build build-llvm --config Release`) y corriendo `ctest -C
+Release`, tanto el fix de erasure de G6 como la interacción con módulos de
+G7 quedan verificados con LLVM real: `test_genericos_e2e_llvm` y
+`ejemplos/genericos_llvm` (vía `test_e2e`) pasan.
+
 ## FFI con C al estilo de Rust (en desarrollo)
 
 Plan completo en [input/PLAN_FFI.md](input/PLAN_FFI.md). Agrega `externo`,
@@ -460,6 +471,15 @@ queda completo; bindgen automático, structs/uniones C por valor,
 callbacks nativos, convenciones de llamada no nativas, unificar `externo`
 con `paquete`, un `LAT_ENTERO64` sin pérdida de precisión y `link_name`
 quedan fuera de alcance de v1 (ver "Fuera de alcance" del plan).
+
+**Corrección posterior (2026-09-22):** igual que la nota de Genéricos más
+arriba, "LLVM 18.1 no está instalado aquí" era incorrecto —
+`build-llvm/` (segundo directorio de build, `LATINO_LLVM_BACKEND=ON`) ya
+tiene una instalación real de LLVM 18.1.x vía vcpkg. Reconstruyendo ahí,
+`test_codegen_llvm` (con la sección de F6/F7) pasa sus 233 comprobaciones
+y `test_ffi_e2e` con `--backend llvm` pasa sus 4 casos de punta a punta —
+el código de `GeneradorLLVM` de F6/F7 queda verificado con LLVM real, sin
+cambios de código.
 
 ## Ramas y PRs
 
