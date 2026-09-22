@@ -791,3 +791,33 @@ Plan cerrado. Las decisiones de diseño 1-8 se cumplieron sin desviaciones;
 el único punto que quedó fuera de v1 y explícitamente fuera de alcance
 desde el inicio es el re-export (M7) y los imports circulares "vivos" (ver
 "Fuera de alcance").
+
+**Corrección posterior (2026-09-22, auditoría de `input/`):** hallazgo real
+de interacción con `PLAN_GENERICOS.md` — exactamente el riesgo que el
+propio G7 de ese plan anticipó ("si `tipoArgs` almacenara nombres de tipo
+que también deban manglearse cuando refieren a una clase importada —
+`Pila<OtraClaseDelModulo>`, corregir en esta fase, no en G5") pero que
+nunca se verificó con un caso real. `ReescritorReferencias`
+(`src/resolutor_modulos.cpp`) reescribía `tipoClase`/`tipoRetornoClase`/
+`padre`/`interfaces` uno por uno, pero nunca `ParametroGenerico::bounds`
+ni ninguno de los cuatro campos "argumentos entre `<>`"
+(`ParamFuncion::tipoArgs`, `CampoDef::tipoArgs`, `NuevoExpr::tipoArgs`,
+`Llamada::tipoArgsExplicitos`) — todos agregados por `PLAN_GENERICOS.md`
+*después* de que este plan (M1-M8) ya había cerrado. Consecuencia
+concreta: `funcion maximo<T>(a: T, b: T): T donde T: Comparable` con
+`Comparable` importada de otro archivo (`importar { Comparable } desde
+"contrato.lat"`) fallaba con `"restricción genérica desconocida
+'Comparable'"` — un programa por otro lado válido, roto solo por la
+combinación de ambos mecanismos. Se agregaron `renombrarBounds()`/
+`renombrarListaTipos()` (mismo patrón que `renombrarTipo()`, aplicado a
+cada nombre de una lista) y se llaman desde los cinco sitios donde
+faltaban: `visitar(ClaseDef&/EstructuraDef&/InterfazDef&/FuncionDef&)`,
+`visitarMetodo()`, `visitarCampo()`, `visitar(NuevoExpr&)` y
+`visitar(Llamada&)`. Prueba de regresión:
+`genmulti_bound_interfaz_importada` en
+`tests/test_genericos_e2e.cpp` (reproduce el caso exacto de arriba, con
+`Comparable` en un archivo `.lat` separado) — confirmado que fallaba antes
+del fix (revertido temporalmente) y pasa después. Suite completa de CTest
+verificada en verde en ambos backends tras el cambio (sin tocar
+`AnalizadorSemantico`: el bug era enteramente de `ResolutorModulos` no
+reescribiendo estos cuatro campos, no del chequeo de bounds en sí).

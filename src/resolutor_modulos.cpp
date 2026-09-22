@@ -137,6 +137,7 @@ public:
     void visitar(AccesoMiembro& n) override { visitarExpr(n.objeto); }
     void visitar(Llamada& n) override {
         visitarExpr(n.destino);
+        renombrarListaTipos(n.tipoArgsExplicitos);  // PLAN_GENERICOS.md: turbofish "f::<OtraClaseDelModulo>(...)"
         for (auto& a : n.argumentos)
             visitarExpr(a);
     }
@@ -152,6 +153,7 @@ public:
     }
     void visitar(NuevoExpr& n) override {
         renombrarTipo(n.clase);
+        renombrarListaTipos(n.tipoArgs);  // PLAN_GENERICOS.md: "nuevo Pila<OtraClaseDelModulo>()"
         for (auto& a : n.argumentos)
             visitarExpr(a);
     }
@@ -214,10 +216,13 @@ public:
     }
 
     void visitar(FuncionDef& n) override {
+        renombrarBounds(n.genericos);
+        renombrarListaTipos(n.tipoRetornoArgs);
         visitarCuerpoFuncion(n.parametros, n.tipoRetorno, n.tipoRetornoClase, n.cuerpo);
     }
 
     void visitar(ClaseDef& n) override {
+        renombrarBounds(n.genericos);
         renombrarTipo(n.padre);
         for (auto& iface : n.interfaces)
             renombrarTipo(iface);
@@ -227,12 +232,14 @@ public:
             visitarMetodo(metodo);
     }
     void visitar(EstructuraDef& n) override {
+        renombrarBounds(n.genericos);
         for (auto& campo : n.campos)
             visitarCampo(campo);
         for (auto& metodo : n.metodos)
             visitarMetodo(metodo);
     }
     void visitar(InterfazDef& n) override {
+        renombrarBounds(n.genericos);
         for (auto& metodo : n.metodos)
             visitarMetodo(metodo);
     }
@@ -302,6 +309,24 @@ private:
         if (it != renombres_.end()) nombre = it->second;
     }
 
+    // PLAN_GENERICOS.md + PLAN_MODULOS.md (hallazgo real, ver auditoría de
+    // input/): cada nombre de esta lista es un nombre de tipo (de clase/
+    // estructura/interfaz), igual que los que ya pasan por renombrarTipo()
+    // uno por uno -- "argumentos entre <>" (tipoArgs/tipoRetornoArgs/
+    // tipoArgsExplicitos, p.ej. "Pila<OtraClaseDelModulo>") y "bounds" de un
+    // parámetro genérico (p.ej. "T: Comparable", donde Comparable puede ser
+    // una interfaz importada de otro módulo). Sin esto, AnalizadorSemantico
+    // los compara contra el nombre SIN manglar, que nunca coincide con el
+    // registrado (__mod_xxx__Nombre) -- falso "tipo desconocido"/
+    // "restricción genérica desconocida".
+    void renombrarListaTipos(std::vector<std::string>& nombres) const {
+        for (std::string& n : nombres) renombrarTipo(n);
+    }
+
+    void renombrarBounds(std::vector<ParametroGenerico>& genericos) const {
+        for (ParametroGenerico& g : genericos) renombrarListaTipos(g.bounds);
+    }
+
     // Recorre una expresión propia de un padre (una ranura ExprPtr, no solo
     // el Expresion apuntado), permitiendo reemplazar el nodo completo cuando
     // resulta ser "ns.X" (ver NamespaceImport arriba). Todo recorrido de un
@@ -347,8 +372,12 @@ private:
         recolectarLocales(cuerpo, locales);
         sombreado_.push_back(std::move(locales));
 
-        for (auto& p : parametros)
-            if (p.tipo == TipoAnotado::Objeto) renombrarTipo(p.tipoClase);
+        for (auto& p : parametros) {
+            if (p.tipo == TipoAnotado::Objeto) {
+                renombrarTipo(p.tipoClase);
+                renombrarListaTipos(p.tipoArgs);  // PLAN_GENERICOS.md: "p: Pila<OtraClaseDelModulo>"
+            }
+        }
         if (tipoRetorno == TipoAnotado::Objeto) renombrarTipo(tipoRetornoClase);
 
         visitarBloque(cuerpo);
@@ -357,12 +386,16 @@ private:
     }
 
     void visitarMetodo(MetodoDef& m) {
+        renombrarBounds(m.genericos);
+        renombrarListaTipos(m.tipoRetornoArgs);
         visitarCuerpoFuncion(m.parametros, m.tipoRetorno, m.tipoRetornoClase, m.cuerpo);
     }
 
     void visitarCampo(CampoDef& campo) {
-        if (campo.tipoAnotado == TipoAnotado::Objeto)
+        if (campo.tipoAnotado == TipoAnotado::Objeto) {
             renombrarTipo(campo.tipoClase);
+            renombrarListaTipos(campo.tipoArgs);  // PLAN_GENERICOS.md: "items: Pila<OtraClaseDelModulo>"
+        }
         visitarExpr(campo.valorDefecto);
     }
 };
