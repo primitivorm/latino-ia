@@ -51,6 +51,13 @@
 //      NombreClase.metodo(...) como llamada estática directa antes de caer
 //      al despacho dinámico; genSentencia traduce LlamadaBase (base(...))
 //      resolviendo el constructor de la clase padre.
+//   10. (PLAN_FFI.md F6) recolectarExterno puebla funcionesExternas_/
+//       bibliotecasEnlazar_; genExpr traduce una Llamada a una función
+//       "externo" con su firma C real (declararExterno) y el marshalling de
+//       cada argumento vía GEP+load sobre %struct.LatValor (genArgumentoFFI,
+//       con una bifurcación real de basic blocks -- no un simple `select`--
+//       para el caso "nulo -> puntero NULL"); genSentencia traduce
+//       InseguroBloque traduciendo su cuerpo tal cual.
 
 #include <iostream>
 #include <string>
@@ -1650,6 +1657,203 @@ static void prueba_l8_gen_interfaz_no_emite_nada(GeneradorLLVM& gen) {
     verificarModulo("l8_gen_interfaz", modulo);
 }
 
+// --- PLAN_FFI.md (F6): llamadas a funciones "externo" -----------------------
+//
+// A diferencia de las Fases L2-L8 (que ejercitan genExpr/genSentencia con
+// AST construido a mano SIN pasar por generar()), acá tampoco se pasa por
+// generar() -- alcanza con recolectarExterno(programa) (pública por el mismo
+// motivo que recolectarTipos: permitir pruebas aisladas) para poblar
+// funcionesExternas_/bibliotecasEnlazar_ antes de pedirle a
+// genExpr(Llamada)/genSentencia(InseguroBloque) que traduzcan la llamada --
+// mismo patrón que ya usan las pruebas L8 de método estático
+// (recolectarTipos + genExpr(Llamada)).
+
+static SentPtr inseguroBloque(ListaSent cuerpo) {
+    auto ib = std::make_unique<InseguroBloque>();
+    ib->cuerpo = std::move(cuerpo);
+    return ib;
+}
+
+static std::unique_ptr<ExternoBloque> externoBloque(const std::string& enlazar,
+                                                     std::vector<FuncionExterna> funciones) {
+    auto ext = std::make_unique<ExternoBloque>();
+    ext->enlazar = enlazar;
+    ext->funciones = std::move(funciones);
+    return ext;
+}
+
+static FuncionExterna funcionExterna(const std::string& nombre,
+                                     std::vector<std::pair<std::string, TipoFFI>> parametros,
+                                     TipoFFI retorno) {
+    FuncionExterna fe;
+    fe.nombre = nombre;
+    for (auto& p : parametros) fe.parametros.push_back(ParamFFI{p.first, p.second, 0});
+    fe.tipoRetorno = retorno;
+    return fe;
+}
+
+static ExprPtr litNulo() {
+    return std::make_unique<LitNulo>();
+}
+
+static void prueba_ffi_llamada_sin_enlazar(GeneradorLLVM& gen) {
+    llvm::Module modulo("ffi_sin_enlazar", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    Programa programa;
+    programa.sentencias.push_back(
+        externoBloque("", {funcionExterna("abs", {{"n", TipoFFI::Entero32}}, TipoFFI::Entero32)}));
+    gen.recolectarExterno(programa);
+
+    std::vector<ExprPtr> args;
+    args.push_back(litNumero(-5.0));
+    llvm::Value* resultado = gen.genExpr(*llamada("abs", std::move(args)), builder, modulo);
+    CHECK(resultado != nullptr, "abs(-5) debe generar un valor");
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "declare i32 @abs(i32)"),
+          "debe declarar el simbolo nativo con su firma C real (sin firma empaquetada)\n" << ir);
+    CHECK(contiene(ir, "call void @lat_ffi_verificar_tipo("),
+          "debe verificar dinamicamente el tipo del argumento\n" << ir);
+    CHECK(contiene(ir, "call i32 @abs("), "debe llamar al simbolo nativo real\n" << ir);
+    CHECK(contiene(ir, "call void @lat_numero("),
+          "el retorno entero32 debe empaquetarse como numero (double)\n" << ir);
+    verificarModulo("ffi_sin_enlazar", modulo);
+}
+
+static void prueba_ffi_enlazar_registra_biblioteca(GeneradorLLVM& gen) {
+    Programa programa;
+    programa.sentencias.push_back(externoBloque(
+        "user32",
+        {funcionExterna("MessageBoxA",
+                        {{"hwnd", TipoFFI::Puntero}, {"texto", TipoFFI::Cadena},
+                         {"titulo", TipoFFI::Cadena}, {"tipo", TipoFFI::Entero32}},
+                        TipoFFI::Entero32)}));
+    gen.recolectarExterno(programa);
+
+    CHECK(gen.bibliotecasEnlazadas().count("user32") == 1,
+          "'externo enlazar \"user32\"' debe registrar la biblioteca en bibliotecasEnlazadas()");
+}
+
+static void prueba_ffi_puntero_nulo_bifurca_sin_verificar(GeneradorLLVM& gen) {
+    llvm::Module modulo("ffi_puntero_nulo", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    Programa programa;
+    programa.sentencias.push_back(
+        externoBloque("", {funcionExterna("foo", {{"p", TipoFFI::Puntero}}, TipoFFI::Nulo)}));
+    gen.recolectarExterno(programa);
+
+    std::vector<ExprPtr> args;
+    args.push_back(litNulo());
+    llvm::Value* resultado = gen.genExpr(*llamada("foo", std::move(args)), builder, modulo);
+    CHECK(resultado != nullptr, "foo(nulo) debe generar un valor");
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    // Hallazgo de F4/F6 (ver PLAN_FFI.md): el literal "nulo" hacia un
+    // parametro "puntero" NUNCA debe llegar a lat_ffi_verificar_tipo (LAT_NULO
+    // != LAT_PUNTERO alli aborta el proceso) -- debe bifurcar antes, con
+    // basic blocks reales (no un simple select, que evaluaria ambos lados).
+    CHECK(contiene(ir, "ffi_ptr_nulo:"), "debe bifurcar hacia un bloque especifico para 'nulo'\n" << ir);
+    CHECK(contiene(ir, "ffi_ptr_verificar:"),
+          "debe bifurcar hacia el bloque que llama a lat_ffi_verificar_tipo\n" << ir);
+    CHECK(contiene(ir, "phi ptr "),
+          "debe fusionar el puntero NULL y el verificado con un phi\n" << ir);
+    verificarModulo("ffi_puntero_nulo", modulo);
+}
+
+static void prueba_ffi_puntero_no_nulo_encadenado(GeneradorLLVM& gen) {
+    llvm::Module modulo("ffi_puntero_no_nulo", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    Programa programa;
+    programa.sentencias.push_back(externoBloque(
+        "", {funcionExterna("malloc", {{"tam", TipoFFI::Entero64}}, TipoFFI::Puntero),
+             funcionExterna("free", {{"p", TipoFFI::Puntero}}, TipoFFI::Nulo)}));
+    gen.recolectarExterno(programa);
+
+    // p = malloc(16) -- ejercita el empaquetado de un retorno "puntero".
+    llvm::Value* celdaP = builder.CreateAlloca(gen.abi().tipoLatValor(), nullptr, "v_p");
+    std::vector<ExprPtr> argsMalloc;
+    argsMalloc.push_back(litNumero(16.0));
+    llvm::Value* resultadoMalloc = gen.genExpr(*llamada("malloc", std::move(argsMalloc)), builder, modulo);
+    CHECK(resultadoMalloc != nullptr, "malloc(16) debe generar un valor");
+    builder.CreateStore(builder.CreateLoad(gen.abi().tipoLatValor(), resultadoMalloc), celdaP);
+
+    // free(p) -- ejercita la rama "no nulo" (verificar + leer .como.puntero)
+    // de un argumento "puntero" que no es el literal "nulo".
+    std::unordered_map<std::string, llvm::Value*> variables{{"p", celdaP}};
+    std::vector<ExprPtr> argsFree;
+    argsFree.push_back(identificador("p"));
+    llvm::Value* resultadoFree =
+        gen.genExpr(*llamada("free", std::move(argsFree)), builder, modulo, variables);
+    CHECK(resultadoFree != nullptr, "free(p) debe generar un valor");
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "declare ptr @malloc(i64)"), "malloc debe declararse con su firma C real\n" << ir);
+    CHECK(contiene(ir, "declare void @free(ptr)"), "free debe declararse con su firma C real\n" << ir);
+    CHECK(contiene(ir, "call void @lat_puntero("),
+          "el retorno puntero de malloc debe empaquetarse con lat_puntero\n" << ir);
+    CHECK(contiene(ir, "ffi_ptr_verificar:"),
+          "un puntero que no es el literal 'nulo' debe pasar por la rama de verificacion\n" << ir);
+    verificarModulo("ffi_puntero_no_nulo", modulo);
+}
+
+static void prueba_ffi_cadena_y_entero64(GeneradorLLVM& gen) {
+    llvm::Module modulo("ffi_cadena_entero64", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    Programa programa;
+    programa.sentencias.push_back(
+        externoBloque("", {funcionExterna("strlen", {{"s", TipoFFI::Cadena}}, TipoFFI::Entero64)}));
+    gen.recolectarExterno(programa);
+
+    std::vector<ExprPtr> args;
+    args.push_back(litCadena("hola"));
+    llvm::Value* resultado = gen.genExpr(*llamada("strlen", std::move(args)), builder, modulo);
+    CHECK(resultado != nullptr, "strlen(\"hola\") debe generar un valor");
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "declare i64 @strlen(ptr)"), "strlen debe declararse con su firma C real\n" << ir);
+    CHECK(contiene(ir, "call i64 @strlen("), "debe llamar al simbolo nativo real\n" << ir);
+    CHECK(contiene(ir, "sitofp i64") || contiene(ir, "uitofp i64"),
+          "el retorno entero64 debe convertirse a double antes de empaquetar con lat_numero\n" << ir);
+    verificarModulo("ffi_cadena_entero64", modulo);
+}
+
+static void prueba_ffi_inseguro_bloque_traduce_cuerpo_tal_cual(GeneradorLLVM& gen) {
+    llvm::Module modulo("ffi_inseguro_bloque", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    Programa programa;
+    programa.sentencias.push_back(
+        externoBloque("", {funcionExterna("abs", {{"n", TipoFFI::Entero32}}, TipoFFI::Entero32)}));
+    gen.recolectarExterno(programa);
+
+    std::vector<ExprPtr> args;
+    args.push_back(litNumero(-5.0));
+    ListaSent cuerpo;
+    cuerpo.push_back(exprSentencia(llamada("abs", std::move(args))));
+    gen.genSentencia(*inseguroBloque(std::move(cuerpo)), builder, modulo, {});
+    CHECK(builder.GetInsertBlock()->getTerminator() == nullptr,
+          "InseguroBloque no debe emitir ningun terminador/basic block propio");
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "call i32 @abs("),
+          "el cuerpo de 'inseguro' debe traducirse tal cual, sin ningun envoltorio\n" << ir);
+    verificarModulo("ffi_inseguro_bloque", modulo);
+}
+
 int main() {
     CHECK(std::string(LATINO_RUNTIME_ABI_LL) != "",
           "config.h debe traer una ruta a runtime_abi.ll cuando LATINO_LLVM_BACKEND esta ON");
@@ -1724,8 +1928,16 @@ int main() {
     prueba_l8_llamada_base_sin_constructor_padre(gen);
     prueba_l8_gen_interfaz_no_emite_nada(gen);
 
+    prueba_ffi_llamada_sin_enlazar(gen);
+    prueba_ffi_enlazar_registra_biblioteca(gen);
+    prueba_ffi_puntero_nulo_bifurca_sin_verificar(gen);
+    prueba_ffi_puntero_no_nulo_encadenado(gen);
+    prueba_ffi_cadena_y_entero64(gen);
+    prueba_ffi_inseguro_bloque_traduce_cuerpo_tal_cual(gen);
+
     std::cout << "\nComprobaciones: " << g_checks << "   Fallos: " << g_fallos << std::endl;
     if (g_fallos == 0)
-        std::cout << "TODAS LAS PRUEBAS DE CODEGEN LLVM (FASES L2-L8) PASARON." << std::endl;
+        std::cout << "TODAS LAS PRUEBAS DE CODEGEN LLVM (FASES L2-L8, PLAN_FFI.md F6) PASARON."
+                  << std::endl;
     return g_fallos == 0 ? 0 : 1;
 }
