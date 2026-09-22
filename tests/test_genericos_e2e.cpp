@@ -127,6 +127,37 @@ static const harness::CasoTestMulti CASOS_MULTI[] = {
           "        retornar lista.ultimo(este.items)\n"
           "    fin\n"
           "fin\n" } } },
+
+    // Hallazgo real (auditoría de input/, ver PLAN_MODULOS.md/Reto de
+    // "Interacción con módulos"): un "bound" (T: Comparable) que nombra una
+    // interfaz importada de OTRO módulo -- a diferencia del caso anterior,
+    // que solo importa una clase genérica sin bounds. ResolutorModulos no
+    // manglaba ParametroGenerico::bounds, así que AnalizadorSemantico
+    // comparaba "Comparable" (sin manglar) contra el registro, que solo
+    // tiene la clave manglada -- "restricción genérica desconocida
+    // 'Comparable'" en un programa por otro lado válido.
+    { "genmulti_bound_interfaz_importada",
+      "importar { Comparable } desde \"contrato_mm.lat\"\n"
+      "clase Entero implementa Comparable\n"
+      "    publico valor: numero\n"
+      "    funcion Entero(valor: numero)\n"
+      "        este.valor = valor\n"
+      "    fin\n"
+      "    publico funcion compararCon(otroValor: Comparable): numero\n"
+      "        retornar este.valor - otroValor.valor\n"
+      "    fin\n"
+      "fin\n"
+      "funcion maximo<T>(a: T, b: T): T donde T: Comparable\n"
+      "    retornar a.compararCon(b) >= 0 ? a : b\n"
+      "fin\n"
+      "x = nuevo Entero(9)\n"
+      "y = nuevo Entero(4)\n"
+      "escribir(maximo::<Entero>(x, y).valor)\n",
+      "9",
+      { { "contrato_mm.lat",
+          "exportar interfaz Comparable\n"
+          "    funcion compararCon(otroValor: Comparable): numero\n"
+          "fin\n" } } },
 };
 
 int main(int argc, char* argv[]) {

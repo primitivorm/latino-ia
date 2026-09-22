@@ -397,6 +397,18 @@ Release`, tanto el fix de erasure de G6 como la interacción con módulos de
 G7 quedan verificados con LLVM real: `test_genericos_e2e_llvm` y
 `ejemplos/genericos_llvm` (vía `test_e2e`) pasan.
 
+**Segunda corrección posterior (2026-09-22):** G7 se dio por verificado
+solo con el caso "clase genérica exportada/importada sin bounds"
+(`Pila<T>`), pero el propio G7 ya había anticipado el riesgo que faltaba
+probar: "si `tipoArgs` almacenara nombres de tipo que también deban
+manglearse cuando refieren a una clase importada — `Pila<OtraClaseDelModulo>`,
+corregir en esta fase, no en G5". Ese caso (y su análogo con `bounds`,
+`T: Comparable` importada de otro archivo) nunca se probó y de hecho
+estaba roto: `ResolutorModulos` no reescribía `ParametroGenerico::bounds`
+ni `tipoArgs`/`tipoArgsExplicitos`/`tipoRetornoArgs`. Corregido junto con
+un hallazgo idéntico en `PLAN_MODULOS.md` (ver su propia sección de
+Estado) — detalle completo en `PLAN_MODULOS.md`, "Corrección posterior".
+
 ## FFI con C al estilo de Rust (en desarrollo)
 
 Plan completo en [input/PLAN_FFI.md](input/PLAN_FFI.md). Agrega `externo`,
