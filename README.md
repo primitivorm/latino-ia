@@ -13,9 +13,10 @@ predeterminado en builds con `LATINO_LLVM_BACKEND` habilitado, ver
 defecto si el build no incluye LLVM). Todas las librerías estándar documentadas en
 el [Manual-Latino](https://github.com/lenguaje-latino/Manual-Latino) están
 implementadas y cubiertas por pruebas E2E, incluyendo tipado gradual
-opcional y Programación Orientada a Objetos (clases, herencia, interfaces,
-estructuras). Un segundo backend basado en LLVM está en desarrollo activo —
-ver [Backend LLVM](#backend-llvm-en-desarrollo) más abajo.
+opcional, Programación Orientada a Objetos (clases, herencia, interfaces,
+estructuras), genéricos al estilo de Rust (`<T>`, bounds, turbofish),
+módulos (`exportar`/`importar`) y FFI con C al estilo de Rust (`externo`/
+`inseguro`, ver [FFI con C](#ffi-con-c-al-estilo-de-rust)).
 
 | Fase | Descripción | PR |
 |------|-------------|-----|
@@ -41,7 +42,10 @@ ver [Backend LLVM](#backend-llvm-en-desarrollo) más abajo.
 | 21–26 | 26 funciones nuevas en librerías estándar | #21, #22 |
 | 27   | Tipado gradual opcional (`var`/`const`, anotaciones de tipo) | #24, #25 |
 | 28   | Programación Orientada a Objetos (clases, herencia, interfaces, estructuras) | #26 |
-| 29   | Backend LLVM — en desarrollo, ver abajo (L0-L1 y L2 completas) | #27, #28 |
+| 29   | Backend LLVM — ver [Backend LLVM](#backend-llvm-en-desarrollo) (L0-L12 completas, L13 fuera de alcance temporal) | #27–#38 |
+| 30   | Módulos: `exportar` / `importar` (M1-M6 completas, M7 diferida) | #39–#45 |
+| 31   | Genéricos al estilo de Rust: `<T>`, bounds, `donde`, turbofish (G1-G8 completas) | #46–#47 |
+| 32   | FFI con C al estilo de Rust: `externo` / `inseguro` — ver [FFI con C](#ffi-con-c-al-estilo-de-rust) (F1-F8 completas) | #49–#56 |
 
 ## Estrategia
 
@@ -63,7 +67,7 @@ El código C generado enlaza con `runtime/latino.c` y las librerías de
 | `runtime/libs/`   | Librerías estándar en C: `cadena`, `lista`, `dic`, `mate`, `sis`, `archivo`, `paquete`. |
 | `ejemplos/`       | Programas `.lat` de ejemplo con anotaciones `#salida:` para pruebas E2E. |
 | `tests/`          | Suites de prueba unitarias y E2E (CTest). |
-| `input/`          | Planes de trabajo ([PLAN_BASE.md](input/PLAN_BASE.md), [PLAN_LIBS.md](input/PLAN_LIBS.md), [PLAN_POO.md](input/PLAN_POO.md), [PLAN_LLVM.md](input/PLAN_LLVM.md)). |
+| `input/`          | Planes de trabajo ([PLAN_BASE.md](input/PLAN_BASE.md), [PLAN_LIBS.md](input/PLAN_LIBS.md), [PLAN_POO.md](input/PLAN_POO.md), [PLAN_TIPADO.md](input/PLAN_TIPADO.md), [PLAN_LLVM.md](input/PLAN_LLVM.md), [PLAN_MODULOS.md](input/PLAN_MODULOS.md), [PLAN_GENERICOS.md](input/PLAN_GENERICOS.md), [PLAN_FFI.md](input/PLAN_FFI.md)). |
 | `SINTAXIS.md`     | Especificación completa del lenguaje (fuente de verdad). |
 
 ## Construir
@@ -207,6 +211,77 @@ También hay soporte para `interfaz` (implementación múltiple) y
 `estructura` (tipos valor). Detalle completo en
 [input/PLAN_POO.md](input/PLAN_POO.md).
 
+### Genéricos al estilo de Rust
+
+```latino
+funcion identidad<T>(x: T): T
+    retornar x
+fin
+
+escribir(identidad(5))                # 5 — T inferido de "5"
+escribir(identidad::<cadena>("hola"))  # hola — turbofish explícito
+
+clase Pila<T>
+    privado items: lista
+    funcion Pila()
+        este.items = []
+    fin
+    publico funcion apilar(valor: T)
+        lista.agregar(este.items, valor)
+    fin
+fin
+```
+
+`<T>` en `funcion`/`clase`/`estructura`/`interfaz`, restricciones ("bounds")
+con `:`/`+`/`donde`, y turbofish `::<...>` para instanciación explícita.
+Sin monomorphización (erasure: `LatValor` ya es dinámico). Detalle completo
+en [input/PLAN_GENERICOS.md](input/PLAN_GENERICOS.md).
+
+### Módulos: `exportar` / `importar`
+
+```latino
+# geometria.lat
+exportar const PI = 3.14159
+exportar funcion area_circulo(r)
+    retornar PI * r * r
+fin
+```
+
+```latino
+# principal.lat
+importar { area_circulo } desde "geometria.lat"
+escribir(area_circulo(2))   # 6.28318
+```
+
+Ámbito propio por archivo, al estilo de ES Modules/TypeScript — convive
+con `incluir` (que sigue siendo el mecanismo para librerías estándar y
+scripts sin necesidad de aislamiento). Detalle completo en
+[input/PLAN_MODULOS.md](input/PLAN_MODULOS.md).
+
+### FFI con C al estilo de Rust
+
+```latino
+externo
+    funcion abs(n: entero32): entero32
+    funcion strlen(s: cadena): entero64
+fin
+
+inseguro
+    escribir(abs(-5))          # 5
+    escribir(strlen("hola"))   # 4
+fin
+```
+
+Un bloque `externo` declara la firma **real** de una función C (tipos con
+ancho fijo, punteros opacos) y la llama directamente — resuelto en tiempo
+de compilación por el linker del sistema, al estilo de `extern "C"` de
+Rust. Toda llamada debe ocurrir dentro de `inseguro ... fin` (o una
+`funcion inseguro`), análogo a `unsafe`. Distinto de `incluir "paquete"`
+(carga dinámica en runtime con una firma ya empaquetada a Latino) — ambos
+mecanismos conviven. Detalle completo en
+[input/PLAN_FFI.md](input/PLAN_FFI.md) y en la sección XII de
+[SINTAXIS.md](SINTAXIS.md).
+
 ### Operadores
 
 ```latino
@@ -227,13 +302,18 @@ ctest --output-on-failure
 
 Las pruebas incluyen:
 - Unitarias para lexer, AST, parser, análisis semántico y generación de código
-  (incluye tipado gradual y POO: `test_tipado`, `test_poo`).
+  (incluye tipado gradual, POO, genéricos y FFI: `test_tipado`, `test_poo`,
+  `test_genericos`, `test_ffi`, `test_runtime_ffi`).
 - E2E para cada programa de `ejemplos/` (compila, ejecuta y compara salida),
-  incluyendo `test_poo_e2e`.
+  incluyendo `test_poo_e2e`, `test_genericos_e2e`, `test_modulos_e2e`,
+  `test_modulos_multi` y `test_ffi_e2e`.
 - Suites de cobertura por librería: `test_lib_cadena`, `test_lib_lista`, `test_lib_dic`,
   `test_lib_mate`, `test_lib_sis`, `test_lib_archivo`, `test_funciones_base`, `test_incluir`.
-- `test_codegen_llvm`: mecanismo de ABI del backend LLVM (Fase L2, solo se
-  registra si el build tiene `LATINO_LLVM_BACKEND` habilitado).
+- `test_codegen_llvm`: mecanismo de ABI del backend LLVM (Fase L2) y, desde
+  la Fase 32, codegen de FFI (solo se registra si el build tiene
+  `LATINO_LLVM_BACKEND` habilitado).
+- `test_modulos`: resolución unitaria de `exportar`/`importar`, sin pasar
+  por el binario `latino` real.
 
 ## Backend LLVM (en desarrollo)
 

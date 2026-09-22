@@ -552,8 +552,104 @@ el valor es dinámico, se degrada igual que el resto del tipado gradual
 (sin chequeo). Plan completo, decisiones de diseño y alcance en
 [input/PLAN_GENERICOS.md](input/PLAN_GENERICOS.md).
 
+## XII. FFI con C: `externo` / `inseguro`
+
+Un bloque `externo` declara la firma **real** de una función C (tipos con
+ancho fijo, punteros opacos) para llamarla directamente, sin escribir
+ningún código C intermedio — el mismo modelo mental que `extern "C"` de
+Rust. Se resuelve en tiempo de **compilación** (el linker del sistema
+busca el símbolo al enlazar el ejecutable), a diferencia de
+`paquete.cargar`/`paquete.llamar` (carga dinámica en runtime, con una
+firma ya empaquetada a Latino) — ambos mecanismos conviven, cada uno
+resuelve un problema distinto.
+
+```latino
+# Sin "enlazar": el símbolo ya está en el runtime C que todo ejecutable
+# Latino enlaza siempre (msvcrt/ucrt en Windows, libc en Linux/macOS).
+externo
+    funcion abs(n: entero32): entero32
+    funcion strlen(s: cadena): entero64
+fin
+
+# Con "enlazar": biblioteca de importación adicional para el enlace.
+externo enlazar "user32"
+    funcion MessageBoxA(hwnd: puntero, texto: cadena, titulo: cadena,
+                         tipo: entero32): entero32
+fin
+```
+
+Toda llamada a una función `externo` debe ocurrir dentro de un bloque
+`inseguro ... fin`, o dentro de una función marcada `funcion inseguro`
+— análogo a `unsafe` en Rust: un chequeo puramente estático (para que el
+uso de FFI sea visible en una revisión de código), sin ningún efecto en
+tiempo de ejecución.
+
+```latino
+inseguro
+    escribir(abs(-5))            # 5
+    escribir(strlen("hola"))     # 4
+fin
+
+funcion inseguro saludar_nativo()
+    MessageBoxA(nulo, "Hola desde Latino", "FFI", 0)
+fin
+```
+
+### Tipos FFI
+
+`numero`/`cadena`/`logico`/`nulo` se reutilizan tal cual en una firma
+`externo` (mapeo exacto y sin pérdida a `double`/`const char*`/`int`/
+`void`). Los anchos fijos y el puntero opaco son exclusivos de FFI —
+nunca se exponen los tipos C ambiguos por plataforma (`int`, `long`,
+`size_t`):
+
+| Tipo | Tipo C | Nota |
+|---|---|---|
+| `entero8` / `16` / `32` / `64` | `int8_t` … `int64_t` | con signo |
+| `natural8` / `16` / `32` / `64` | `uint8_t` … `uint64_t` | sin signo |
+| `puntero` | `void*` | opaco: no se indexa ni se lee desde Latino |
+
+Un `entero64`/`natural64` que vuelve a Latino con un valor mayor a 2^53
+pierde precisión (`LatValor` numérico es un `double`), igual que los
+`Number` de JavaScript.
+
+### Punteros opacos
+
+```latino
+externo
+    funcion malloc(tam: entero64): puntero
+    funcion free(p: puntero)
+fin
+
+inseguro
+    p = malloc(16)
+    si p == nulo
+        escribir("sin memoria")
+    sino
+        free(p)
+    fin
+fin
+```
+
+`p == nulo` / `p != nulo` funcionan con el operador de igualdad normal;
+`p es nulo` **no** — `es` solo acepta un nombre de clase a su derecha. El
+ciclo de vida de un `puntero` es responsabilidad del programador: Latino
+no tiene un destructor determinístico para él (misma responsabilidad que
+deja `unsafe` en Rust).
+
+### Palabras reservadas nuevas
+
+| Palabra | Uso |
+|---|---|
+| `externo` | abre un bloque de declaraciones de funciones nativas |
+| `enlazar` | (dentro de `externo`) biblioteca de importación adicional a enlazar |
+| `inseguro` | habilita, en un bloque o una función completa, llamar funciones `externo` |
+
+Plan completo, decisiones de diseño y alcance en
+[input/PLAN_FFI.md](input/PLAN_FFI.md).
+
 <a name="plbrsRvds"></a>
-## XII. Palabras reservadas hasta el momento
+## XIII. Palabras reservadas hasta el momento
 ```
 caso
 cierto  | verdadero
@@ -562,13 +658,16 @@ defecto | otro
 desde
 donde
 elegir
+enlazar
 exportar
+externo
 falso
 fin
 funcion | fun
 global
 hasta
 importar
+inseguro
 mientras
 nulo
 para

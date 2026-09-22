@@ -95,7 +95,10 @@ Suites de prueba disponibles:
 | `test_lib_mate` | Librería `mate` |
 | `test_lib_sis` | Librería `sis` |
 | `test_lib_archivo` | Librería `archivo` |
-| `test_codegen_llvm` | ABI del backend LLVM (Fase L2 de `PLAN_LLVM.md`); solo se registra si `LATINO_LLVM_BACKEND` está habilitado |
+| `test_codegen_llvm` | ABI del backend LLVM (Fase L2 de `PLAN_LLVM.md`) y, desde la Fase F6, codegen de FFI (`PLAN_FFI.md`); solo se registra si `LATINO_LLVM_BACKEND` está habilitado |
+| `test_runtime_ffi` | Runtime de FFI con C: `LAT_PUNTERO`/`lat_ffi_verificar_tipo` (Fase F3 de `PLAN_FFI.md`) |
+| `test_ffi` | Parser/semántico/codegen (backend C) de `externo`/`inseguro` (`PLAN_FFI.md`) |
+| `test_ffi_e2e` | Programas completos con `externo`/`inseguro` llamando símbolos ya enlazados por defecto (Fase F7 de `PLAN_FFI.md`) |
 
 ## Convenciones del código
 
@@ -382,6 +385,81 @@ Todo verificado solo con backend `c` (ver nota de LLVM arriba). Con esto
 el plan v1 (fases G1-G8) queda completo; `nuevo Pila<Pila<numero>>()`
 (anidado) e `implementa Contenedor<T>` con sustitución de tipo real siguen
 fuera de alcance de v1 (ver "Fuera de alcance" del plan).
+
+## FFI con C al estilo de Rust (en desarrollo)
+
+Plan completo en [input/PLAN_FFI.md](input/PLAN_FFI.md). Agrega `externo`,
+un segundo mecanismo para consumir código C nativo, distinto de
+`incluir "paquete"` (`runtime/libs/paquete.c`: carga dinámica en runtime
+con una firma ya empaquetada a Latino): un bloque `externo` declara la
+firma **real** de una función C (tipos con ancho fijo, punteros opacos,
+ver sección XII de [SINTAXIS.md](SINTAXIS.md)) y se resuelve en tiempo de
+**compilación**, al estilo de `extern "C"` de Rust. Toda llamada a una
+función `externo` debe ocurrir dentro de un bloque `inseguro ... fin` (o
+una función `funcion inseguro nombre(...)`) — análogo a `unsafe`: un
+chequeo puramente estático, sin ningún efecto en runtime. `paquete` y
+`externo` conviven indefinidamente, cada uno resuelve un problema
+distinto.
+
+**Estado:** fases F1-F7 completas; F8 (esta entrada) cierra el plan v1.
+F1 (lexer/AST): palabras reservadas `externo`/`enlazar`/`inseguro`; enum
+`TipoFFI` (`numero`/`cadena`/`logico`/`nulo` reutilizados del tipado
+gradual + `entero8..64`/`natural8..64`/`puntero` nuevos); nodos
+`ExternoBloque`/`InseguroBloque`; campo `inseguro` en `FuncionDef`. F2
+(parser): `parseExterno()`/`parseFuncionExterna()`/`parseInseguro()`, con
+`enlazar` opcional y tipo de retorno opcional (`TipoFFI::Nulo` por
+defecto, equivalente a omitir `: void` en C — un `: nulo` explícito no se
+puede escribir, porque `nulo` lexa como palabra reservada, no
+identificador, la misma restricción sistémica que ya afecta a cualquier
+anotación de tipo con nombre reservado, sin relación con FFI). F3
+(runtime): `LAT_PUNTERO` nuevo en `LatTipo`/`LatValor` (`void*` sin
+ref-conteo); constructor `lat_puntero`; `lat_ffi_verificar_tipo` (chequeo
+dinámico, mismo patrón que `lat_verificar_tipo`); `p == nulo`/`p != nulo`
+funcionan vía `son_iguales` — `p es nulo` no, porque `es` exige un
+`Identificador` a su derecha y `nulo` es palabra reservada. F4
+(semántico): tabla `funcionesExternas` separada de `funciones`; pila/
+contador `inseguroActivo` que valida cada `Llamada` a un nombre externo;
+chequeo de aridad exacta (sin variádicas) y de tipo estático cuando el
+argumento es un literal o una variable ya anotada, degradado a runtime en
+el resto de los casos; excepción explícita para el literal `nulo` hacia
+un parámetro `puntero`. F5 (codegen backend C): declaraciones
+`extern <firma C real>` + `#pragma comment(lib,...)` bajo `#ifdef
+_MSC_VER` en el preámbulo; marshalling real de cada argumento
+(`lat_ffi_verificar_tipo(...).como.X`, con un temporal + ternario para el
+caso `nulo -> NULL` de un `puntero`) y del retorno (constructor de
+runtime correspondiente); `invocador_c.cpp` agrega `-l<lib>` para GNU/
+Clang. Hallazgo de esta fase: `InseguroBloque` no tenía caso en
+`GeneradorC::genSentencia`/`recolectarVariables` — se agregó. F6 (codegen
+backend LLVM): mismo marshalling, pero con GEP+load reales sobre
+`%struct.LatValor` (nunca `.como.X`, eso es sintaxis de C) y, para el caso
+`nulo -> puntero NULL`, una bifurcación real de basic blocks + `PHINode`
+(nunca un `select`, que evaluaría ambos lados incondicionalmente);
+`declararExterno` declara el símbolo nativo con su firma LLVM primitiva
+real, nunca la firma empaquetada `(sret, ptr...)` de una función de
+usuario/runtime. `tools/abi_probe.c` tuvo que agregar
+`lat_puntero`/`lat_ffi_verificar_tipo` (F3 los dejó fuera, así que
+`RuntimeAbiLLVM` no podía resolverlos); `ejecutarMsvc` (`invocador_c.cpp`)
+ganó un parámetro `bibliotecasEnlazar` para agregar `<lib>.lib`
+explícitamente, porque un objeto emitido por LLVM no tiene ningún
+`#pragma comment` textual que embeber como el backend C. F7 (pruebas):
+`tests/test_ffi.cpp` (codegen backend C, 17 comprobaciones), una sección
+nueva en `tests/test_codegen_llvm.cpp` (codegen backend LLVM, 6 pruebas —
+requirió hacer público `GeneradorLLVM::recolectarExterno`, igual que ya lo
+son `recolectarTipos`/`declararFuncion`) y `tests/test_ffi_e2e.cpp` (4
+`CasoTest` reales contra el binario `latino`: `abs`/`strlen`, `malloc`/
+`free` con verificación de puntero nulo, chequeo dinámico de tipo sin
+anotación estática, retorno `logico`) — todos sin `enlazar` (el caso con
+`enlazar`/`MessageBoxA` abriría un diálogo real que bloquearía la
+ejecución automática; su cobertura vive en `test_ffi.cpp`, verificando
+solo el C generado). Verificado solo con el backend `c` en esta máquina de
+desarrollo (LLVM 18.1 no está instalado aquí, mismo motivo que en
+`PLAN_LLVM.md`/`PLAN_GENERICOS.md`); el código de `GeneradorLLVM` de F6/F7
+replica patrones ya probados con LLVM real de fases anteriores, pero
+queda pendiente de esa verificación. Con esto el plan v1 (fases F1-F8)
+queda completo; bindgen automático, structs/uniones C por valor,
+callbacks nativos, convenciones de llamada no nativas, unificar `externo`
+con `paquete`, un `LAT_ENTERO64` sin pérdida de precisión y `link_name`
+quedan fuera de alcance de v1 (ver "Fuera de alcance" del plan).
 
 ## Ramas y PRs
 
