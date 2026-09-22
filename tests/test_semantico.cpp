@@ -242,6 +242,161 @@ static void prueba_poo_nuevo_clase_abstracta_error() {
                "no se puede instanciar la clase abstracta 'Figura'");
 }
 
+// PLAN_POO.md (Reto 6 / 4.10): control de acceso "mejor esfuerzo" en
+// compilación -- privado/protegido/publico sobre campos y métodos, cuando el
+// tipo estático del objeto se puede determinar (nuevo Clase(), parámetro
+// anotado, o última asignación "nombre = nuevo Clase(...)" vista en el mismo
+// ámbito). Ver el hallazgo real de este plan (Fase 32.5): antes de esto,
+// publico/privado/protegido se parseaban y guardaban pero nunca se hacían
+// cumplir.
+static void prueba_poo_acceso_privado_inline_error() {
+  esperarError("poo_acceso_privado_inline",
+               "clase A\n"
+               "  privado x: numero\n"
+               "  funcion A()\n"
+               "    este.x = 1\n"
+               "  fin\n"
+               "fin\n"
+               "y = nuevo A().x\n",
+               "campo privado 'x' no accesible fuera de 'A'");
+}
+
+static void prueba_poo_acceso_privado_variable_error() {
+  esperarError("poo_acceso_privado_variable",
+               "clase A\n"
+               "  privado x: numero\n"
+               "  funcion A()\n"
+               "    este.x = 1\n"
+               "  fin\n"
+               "fin\n"
+               "a = nuevo A()\n"
+               "y = a.x\n",
+               "campo privado 'x' no accesible fuera de 'A'");
+}
+
+static void prueba_poo_acceso_privado_metodo_error() {
+  esperarError("poo_acceso_privado_metodo",
+               "clase A\n"
+               "  privado funcion ayuda(): numero\n"
+               "    retornar 1\n"
+               "  fin\n"
+               "fin\n"
+               "a = nuevo A()\n"
+               "y = a.ayuda()\n",
+               "método privado 'ayuda' no accesible fuera de 'A'");
+}
+
+static void prueba_poo_acceso_privado_dentro_de_la_clase_ok() {
+  esperarOK("poo_acceso_privado_dentro",
+            "clase A\n"
+            "  privado x: numero\n"
+            "  funcion A()\n"
+            "    este.x = 1\n"
+            "  fin\n"
+            "  publico funcion obtener(): numero\n"
+            "    retornar este.x\n"
+            "  fin\n"
+            "fin\n"
+            "a = nuevo A()\n"
+            "escribir(a.obtener())\n");
+}
+
+static void prueba_poo_acceso_protegido_subclase_ok() {
+  esperarOK("poo_acceso_protegido_subclase",
+            "clase A\n"
+            "  protegido x: numero\n"
+            "  funcion A()\n"
+            "    este.x = 1\n"
+            "  fin\n"
+            "fin\n"
+            "clase B extiende A\n"
+            "  publico funcion obtener(): numero\n"
+            "    retornar este.x\n"
+            "  fin\n"
+            "fin\n"
+            "b = nuevo B()\n"
+            "escribir(b.obtener())\n");
+}
+
+static void prueba_poo_acceso_protegido_fuera_de_clase_error() {
+  esperarError("poo_acceso_protegido_fuera",
+               "clase A\n"
+               "  protegido x: numero\n"
+               "  funcion A()\n"
+               "    este.x = 1\n"
+               "  fin\n"
+               "fin\n"
+               "clase C\n"
+               "  publico funcion tocar(a: A): numero\n"
+               "    retornar a.x\n"
+               "  fin\n"
+               "fin\n",
+               "campo protegido 'x' no accesible fuera de 'A' o sus subclases");
+}
+
+static void prueba_poo_acceso_publico_ok() {
+  esperarOK("poo_acceso_publico",
+            "clase A\n"
+            "  publico x: numero\n"
+            "  funcion A()\n"
+            "    este.x = 1\n"
+            "  fin\n"
+            "fin\n"
+            "a = nuevo A()\n"
+            "escribir(a.x)\n");
+}
+
+static void prueba_poo_acceso_dinamico_sin_chequeo_ok() {
+  // Sin anotación de tipo ni asignación literal "nuevo Clase()" visible: el
+  // tipo estático de 'obj' no se puede determinar, así que el chequeo se
+  // degrada sin error (misma filosofía que el resto del tipado gradual) --
+  // el caso real se difiere a runtime (lat_obj_get / lat_obj_llamar_metodo).
+  esperarOK("poo_acceso_dinamico_sin_chequeo",
+            "clase A\n"
+            "  privado x: numero\n"
+            "  funcion A()\n"
+            "    este.x = 1\n"
+            "  fin\n"
+            "fin\n"
+            "funcion identidad(v)\n"
+            "  retornar v\n"
+            "fin\n"
+            "a = identidad(nuevo A())\n"
+            "y = a.x\n");
+}
+
+static void prueba_poo_acceso_reasignacion_limpia_hint_ok() {
+  // "a" se reasigna a algo dinámico (retorno de una función, no un "nuevo"
+  // literal): el hint de clase se borra en vez de seguir apuntando a 'A' --
+  // sin esto, este caso reportaría (incorrectamente) un error.
+  esperarOK("poo_acceso_reasignacion_limpia_hint",
+            "clase A\n"
+            "  privado x: numero\n"
+            "  funcion A()\n"
+            "    este.x = 1\n"
+            "  fin\n"
+            "fin\n"
+            "funcion dinamico()\n"
+            "  retornar nuevo A()\n"
+            "fin\n"
+            "a = nuevo A()\n"
+            "a = dinamico()\n"
+            "y = a.x\n");
+}
+
+static void prueba_poo_acceso_estructura_error() {
+  esperarError("poo_acceso_estructura",
+               "estructura Punto\n"
+               "  privado x: numero\n"
+               "  funcion Punto(x: numero)\n"
+               "    este.x = x\n"
+               "  fin\n"
+               "fin\n"
+               "p = nuevo Punto(1)\n"
+               "y = p.x\n",
+               "campo privado 'x' no accesible fuera de 'Punto'");
+}
+
 // PLAN_FFI.md (F4): tabla funcionesExternas, chequeo de "inseguro", aridad,
 // tipo estático y colisión de nombres.
 
@@ -376,6 +531,16 @@ int main() {
   prueba_poo_nuevo_interfaz_error();
   prueba_poo_base_fuera_constructor();
   prueba_poo_nuevo_clase_abstracta_error();
+  prueba_poo_acceso_privado_inline_error();
+  prueba_poo_acceso_privado_variable_error();
+  prueba_poo_acceso_privado_metodo_error();
+  prueba_poo_acceso_privado_dentro_de_la_clase_ok();
+  prueba_poo_acceso_protegido_subclase_ok();
+  prueba_poo_acceso_protegido_fuera_de_clase_error();
+  prueba_poo_acceso_publico_ok();
+  prueba_poo_acceso_dinamico_sin_chequeo_ok();
+  prueba_poo_acceso_reasignacion_limpia_hint_ok();
+  prueba_poo_acceso_estructura_error();
   prueba_ffi_llamada_fuera_de_inseguro();
   prueba_ffi_llamada_en_bloque_inseguro_ok();
   prueba_ffi_funcion_inseguro_ok();

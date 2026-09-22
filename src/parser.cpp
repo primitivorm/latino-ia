@@ -1096,6 +1096,7 @@ ExprPtr Parser::parsePostfijo() {
             auto m = std::make_unique<AccesoMiembro>();
             m->objeto = std::move(e);
             m->miembro = actual.lexeme;
+            m->linea = actual.line;  // usado por el control de acceso de PLAN_POO.md (Reto 6)
             avanzar();
             e = std::move(m);
         } else if (esOperador("++") || esOperador("--")) {
