@@ -1854,6 +1854,59 @@ static void prueba_ffi_inseguro_bloque_traduce_cuerpo_tal_cual(GeneradorLLVM& ge
     verificarModulo("ffi_inseguro_bloque", modulo);
 }
 
+// --- Hallazgo real (auditoría de input/): variables de nivel superior ------
+//
+// Una variable/constante de nivel superior (p.ej. "const PI = 3.14159") se
+// declaraba como un `alloca` local al entry block de `main`, invisible para
+// cualquier función definida a nivel superior que la referenciara --
+// `genExpr(Identificador)` devolvía `nullptr` porque el nombre no estaba en
+// el `variables` local de esa función. `declararGlobales()` (pública por el
+// mismo motivo que `recolectarTipos`) las declara como
+// `llvm::GlobalVariable` reales del módulo; `genFuncion`/`genMetodo` las
+// fusionan en su propio `variables` local.
+
+static void prueba_global_visible_en_funcion(GeneradorLLVM& gen) {
+    llvm::Module modulo("global_visible_en_funcion", gen.contexto());
+
+    Programa programa;
+    programa.sentencias.push_back(asignacionSimple("PI", litNumero(3.14159)));
+    gen.declararGlobales(programa, modulo);
+
+    FuncionDef f;
+    f.nombre = "area_circulo";
+    f.parametros.push_back(ParamFuncion{"radio"});
+    f.cuerpo.push_back(retornar(
+        binaria("*", binaria("*", identificador("PI"), identificador("radio")), identificador("radio"))));
+    gen.genFuncion(f, modulo);
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "@v_PI = internal global %struct.LatValor zeroinitializer"),
+          "PI debe declararse como global real del modulo, no alloca local\n" << ir);
+    CHECK(contiene(ir, "@v_PI"),
+          "la funcion debe poder referenciar la celda global por nombre\n" << ir);
+    verificarModulo("global_visible_en_funcion", modulo);
+}
+
+static void prueba_local_con_mismo_nombre_que_global_no_colisiona(GeneradorLLVM& gen) {
+    llvm::Module modulo("local_shadow_global", gen.contexto());
+
+    Programa programa;
+    programa.sentencias.push_back(asignacionSimple("x", litNumero(1.0)));
+    gen.declararGlobales(programa, modulo);
+
+    FuncionDef f;
+    f.nombre = "usa_local_no_la_global";
+    f.cuerpo.push_back(asignacionSimple("x", litNumero(99.0)));  // local: no debe mutar la global
+    f.cuerpo.push_back(retornar(identificador("x")));
+    gen.genFuncion(f, modulo);
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "%v_x = alloca %struct.LatValor"),
+          "un local con el mismo nombre que una global debe declarar su "
+          "propio alloca, no reusar la celda global\n" << ir);
+    verificarModulo("local_shadow_global", modulo);
+}
+
 int main() {
     CHECK(std::string(LATINO_RUNTIME_ABI_LL) != "",
           "config.h debe traer una ruta a runtime_abi.ll cuando LATINO_LLVM_BACKEND esta ON");
@@ -1934,6 +1987,9 @@ int main() {
     prueba_ffi_puntero_no_nulo_encadenado(gen);
     prueba_ffi_cadena_y_entero64(gen);
     prueba_ffi_inseguro_bloque_traduce_cuerpo_tal_cual(gen);
+
+    prueba_global_visible_en_funcion(gen);
+    prueba_local_con_mismo_nombre_que_global_no_colisiona(gen);
 
     std::cout << "\nComprobaciones: " << g_checks << "   Fallos: " << g_fallos << std::endl;
     if (g_fallos == 0)

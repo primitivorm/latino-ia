@@ -888,6 +888,24 @@ void GeneradorC::generarCuerpo(Programa& programa) {
     }
     if (hayFunciones) emitir("");
 
+    // Hallazgo real (auditoría de input/): una variable/constante de nivel
+    // superior (p.ej. "const PI = 3.14159") se declaraba como LOCAL de
+    // main() -- invisible para cualquier función definida a nivel superior
+    // que la referenciara ("identificador no declarado" al compilar el C
+    // generado; nunca se detectó porque ningún ejemplo/prueba existente
+    // ejercitaba este patrón). Se declaran acá como globales reales de C,
+    // ANTES de las definiciones de función/método, para que puedan verlas.
+    // Sin inicializador explícito: static-storage se zero-inicializa por el
+    // propio estándar de C, y LAT_NULO es el primer valor de LatTipo (0), así
+    // que el resultado es exactamente lat_nulo() sin necesidad de llamarlo.
+    // main() sigue siendo quien las asigna con su valor real, en el mismo
+    // orden de sentencias que antes -- solo cambia dónde vive el storage.
+    std::set<std::string> vars;
+    recolectarVariables(programa.sentencias, vars, {});
+    for (const std::string& v : vars)
+        emitir("static LatValor " + varC(v) + ";");
+    if (!vars.empty()) emitir("");
+
     // Definiciones de las funciones de usuario.
     for (auto& s : programa.sentencias)
         if (auto* f = dynamic_cast<FuncionDef*>(s.get()))
@@ -903,11 +921,6 @@ void GeneradorC::generarCuerpo(Programa& programa) {
     emitir("int main(int argc, char *argv[]) {");
     ++indentacion;
     emitir("lat_set_args(argc, argv);");
-
-    std::set<std::string> vars;
-    recolectarVariables(programa.sentencias, vars, {});
-    for (const std::string& v : vars)
-        emitir("LatValor " + varC(v) + " = lat_nulo();");
 
     for (auto& s : programa.sentencias)
         if (!dynamic_cast<FuncionDef*>(s.get()))

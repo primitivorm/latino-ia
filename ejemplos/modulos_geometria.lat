@@ -1,0 +1,31 @@
+# Módulos: exportar / importar (PLAN_MODULOS.md), al estilo de ES Modules /
+# TypeScript. Este archivo se comporta como una "librería": expone PI y dos
+# funciones con "exportar" para que otro archivo las importe (ver
+# modulos_ejemplo.lat). Un archivo con exportar/importar tiene ámbito propio
+# -- distinto de "incluir", que sigue siendo el mecanismo para librerías
+# estándar y scripts sin necesidad de aislamiento.
+exportar const PI = 3.14159
+
+exportar funcion area_circulo(radio)
+    retornar PI * radio * radio
+fin
+
+exportar funcion perimetro_circulo(radio)
+    retornar 2 * PI * radio
+fin
+
+# Declaración de nivel superior SIN "exportar": privada a este módulo, no
+# se puede importar desde otro archivo.
+funcion normalizar_radio(radio)
+    retornar radio < 0 ? 0 : radio
+fin
+
+# El código de nivel superior de un módulo se ejecuta una sola vez, la
+# primera vez que se importa algo de él -- igual que en ES Modules/
+# TypeScript. Por eso esta línea también aparece en la salida de
+# modulos_ejemplo.lat, antes de lo que ese archivo imprime por su cuenta.
+escribir("geometria: modulo cargado")
+#salida: geometria: modulo cargado
+
+escribir(area_circulo(normalizar_radio(3)))
+#salida: 28.27431

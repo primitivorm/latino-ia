@@ -1,0 +1,42 @@
+# POO — Control de acceso: publico / privado / protegido (PLAN_POO.md,
+# Reto 6). "privado" solo es accesible dentro de la propia clase; "protegido"
+# dentro de la clase o sus subclases; "publico" (el valor por defecto si se
+# omite el modificador) siempre es accesible.
+clase CuentaBancaria
+    privado saldo: numero
+    protegido titular: cadena
+
+    funcion CuentaBancaria(titular: cadena, saldoInicial: numero)
+        este.titular = titular
+        este.saldo = saldoInicial
+    fin
+
+    # "saldo" es privado: solo se puede leer/escribir desde dentro de la
+    # propia clase -- de ahí el método publico que lo expone controladamente.
+    publico funcion consultarSaldo(): numero
+        retornar este.saldo
+    fin
+
+    publico funcion depositar(monto: numero)
+        este.saldo = este.saldo + monto
+    fin
+fin
+
+clase CuentaDeAhorro extiende CuentaBancaria
+    funcion CuentaDeAhorro(titular: cadena, saldoInicial: numero)
+        base(titular, saldoInicial)
+    fin
+
+    # "titular" es protegido: una subclase SÍ puede leerlo directamente,
+    # a diferencia de una clase no relacionada.
+    publico funcion descripcion(): cadena
+        retornar "Cuenta de " .. este.titular
+    fin
+fin
+
+cuenta = nuevo CuentaDeAhorro("Ana", 100)
+cuenta.depositar(50)
+escribir(cuenta.consultarSaldo())    #salida: 150
+escribir(cuenta.descripcion())       #salida: Cuenta de Ana
+
+# cuenta.saldo    # error de compilación: campo privado 'saldo' no accesible fuera de 'CuentaBancaria'

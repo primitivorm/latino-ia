@@ -1,0 +1,19 @@
+# Módulos: exportar / importar (PLAN_MODULOS.md) -- import nombrado desde
+# otro archivo .lat (ver modulos_geometria.lat, que define y exporta esto).
+importar { PI, area_circulo, perimetro_circulo } desde "modulos_geometria.lat"
+
+escribir(PI)
+escribir(area_circulo(3))
+escribir(perimetro_circulo(3))
+
+# El código de nivel superior de "modulos_geometria.lat" se ejecuta una sola
+# vez, ANTES de este archivo (dependencia primero) -- por eso la salida
+# incluye también su línea "geometria: modulo cargado" y su propio
+# escribir(area_circulo(...)), aunque este archivo nunca los llame
+# explícitamente.
+#salida:
+#geometria: modulo cargado
+#28.27431
+#3.14159
+#28.27431
+#18.84954

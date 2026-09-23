@@ -14,6 +14,7 @@
 #include <llvm/IR/DataLayout.h>
 #include <llvm/IR/DerivedTypes.h>
 #include <llvm/IR/Function.h>
+#include <llvm/IR/GlobalVariable.h>
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Module.h>
 #include <llvm/IR/Verifier.h>
@@ -1163,7 +1164,16 @@ void GeneradorLLVM::genFuncion(FuncionDef& f, llvm::Module& modulo) {
     // comentario de esta función en compiler_llvm.h): el llamador puede
     // pasar el puntero de su propia variable, y Latino tiene semántica de
     // paso por valor.
-    std::unordered_map<std::string, llvm::Value*> variables;
+    //
+    // Arranca con una copia de globales_ (hallazgo real, ver
+    // compiler_llvm.h) para que un nombre libre (nunca asignado dentro de
+    // este cuerpo) resuelva a la celda global real -- los parámetros y
+    // locales que se agregan después SOBRESCRIBEN por nombre (asignación
+    // directa, nunca `.insert()`, que no pisa una clave existente), para
+    // que un parámetro/local con el mismo nombre que una global la oculte
+    // dentro de esta función sin mutarla, igual que AnalizadorSemantico ya
+    // exige con su pila de ámbitos.
+    std::unordered_map<std::string, llvm::Value*> variables = globales_;
     for (size_t i = 0; i < f.parametros.size(); i++, ++argumento) {
         llvm::Value* celda =
             builder.CreateAlloca(tipoLatValor, nullptr, "v_" + f.parametros[i].nombre);
@@ -1183,7 +1193,7 @@ void GeneradorLLVM::genFuncion(FuncionDef& f, llvm::Module& modulo) {
     std::set<std::string> nombresLocales;
     recolectarVariables(f.cuerpo, nombresLocales, excluir);
     auto locales = declararLocales(nombresLocales, builder, modulo);
-    variables.insert(locales.begin(), locales.end());
+    for (auto& [nombre, celda] : locales) variables[nombre] = celda;  // sobrescribe, ver arriba
 
     // Chequeos de tipo de parámetros anotados (tipado gradual, Fase 27) --
     // paridad con GeneradorC::genFuncion. PLAN_GENERICOS.md: un parámetro
@@ -1229,6 +1239,24 @@ void GeneradorLLVM::recolectarTipos(Programa& programa) {
             estructuras_[e->nombre] = e;
         else if (auto* i = dynamic_cast<InterfazDef*>(s.get()))
             interfaces_[i->nombre] = i;
+    }
+}
+
+// Hallazgo real (auditoría de input/): ver el comentario de esta función en
+// compiler_llvm.h. Cada variable/constante de nivel superior pasa de ser un
+// `alloca` local al entry block de `main` a un `llvm::GlobalVariable` real
+// del módulo -- visible por nombre desde cualquier función/método, no solo
+// desde `main`.
+void GeneradorLLVM::declararGlobales(Programa& programa, llvm::Module& modulo) {
+    globales_.clear();
+    std::set<std::string> nombres;
+    recolectarVariables(programa.sentencias, nombres, {});
+    llvm::StructType* tipoLatValor = abi_->tipoLatValor();
+    for (const std::string& nombre : nombres) {
+        auto* gv = new llvm::GlobalVariable(
+            modulo, tipoLatValor, /*isConstant=*/false, llvm::GlobalValue::InternalLinkage,
+            llvm::Constant::getNullValue(tipoLatValor), "v_" + nombre);
+        globales_[nombre] = gv;
     }
 }
 
@@ -1477,7 +1505,9 @@ void GeneradorLLVM::genMetodo(const std::string& claseNombre, MetodoDef& metodo,
     llvm::Value* nargs = &*argumento++;
     llvm::Value* argsPtr = &*argumento++;
 
-    std::unordered_map<std::string, llvm::Value*> variables;
+    // Arranca con una copia de globales_ -- mismo motivo/mismo hallazgo real
+    // que en genFuncion (ver su comentario y el de compiler_llvm.h).
+    std::unordered_map<std::string, llvm::Value*> variables = globales_;
     bool instancia = !metodo.esEstatico;
     if (instancia)
         variables["este"] = genArgumentoDeArray(argsPtr, nargs, 0, builder, modulo, "este");
@@ -1495,7 +1525,7 @@ void GeneradorLLVM::genMetodo(const std::string& claseNombre, MetodoDef& metodo,
     std::set<std::string> nombresLocales;
     recolectarVariables(metodo.cuerpo, nombresLocales, excluir);
     auto locales = declararLocales(nombresLocales, builder, modulo);
-    variables.insert(locales.begin(), locales.end());
+    for (auto& [nombre, celda] : locales) variables[nombre] = celda;  // sobrescribe, ver genFuncion
 
     // Chequeos de tipo de parámetros anotados -- paridad con
     // GeneradorC::genMetodo/genFuncion. PLAN_GENERICOS.md: erasure -- ver
@@ -1570,6 +1600,7 @@ std::unique_ptr<llvm::Module> GeneradorLLVM::generar(Programa& programa) {
 
     recolectarTipos(programa);
     recolectarExterno(programa);  // PLAN_FFI.md (F6)
+    declararGlobales(programa, *modulo);  // hallazgo real, ver compiler_llvm.h
 
     // Prototipos de las funciones de usuario primero -- permite recursión
     // indirecta (mutua) exactamente igual que el patrón de dos pasadas de
@@ -1632,15 +1663,15 @@ std::unique_ptr<llvm::Module> GeneradorLLVM::generar(Programa& programa) {
                         llvm::ConstantInt::get(fnAbiVerificar->getArg(2)->getType(),
                                                 layout->getElementOffset(0))});
 
-    // Variables locales de nivel superior + el resto de las sentencias
-    // (genBloque/genSentencia ya no traducen Incluir/FuncionDef/ClaseDef/
-    // EstructuraDef/InterfazDef -- ver el comentario al final de
-    // genSentencia -- así que no hace falta filtrarlas aquí, a diferencia de
-    // GeneradorC::generarCuerpo, que sí filtra FuncionDef a mano).
-    std::set<std::string> nombresLocales;
-    recolectarVariables(programa.sentencias, nombresLocales, {});
-    std::unordered_map<std::string, llvm::Value*> variables =
-        declararLocales(nombresLocales, builder, *modulo);
+    // Variables de nivel superior + el resto de las sentencias (genBloque/
+    // genSentencia ya no traducen Incluir/FuncionDef/ClaseDef/EstructuraDef/
+    // InterfazDef -- ver el comentario al final de genSentencia -- así que
+    // no hace falta filtrarlas aquí, a diferencia de
+    // GeneradorC::generarCuerpo, que sí filtra FuncionDef a mano). Ya no son
+    // 'alloca' locales al entry block de este 'main': son las celdas
+    // globales reales de declararGlobales() (mismas que ve cualquier
+    // función/método), simplemente copiadas al 'variables' de este bloque.
+    std::unordered_map<std::string, llvm::Value*> variables = globales_;
 
     genBloque(programa.sentencias, builder, *modulo, variables);
     if (!bloqueTerminado(builder))
