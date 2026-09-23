@@ -283,6 +283,25 @@ public:
     // sentencias de nivel superior de 'programa').
     void recolectarTipos(Programa& programa);
 
+    // Hallazgo real (auditoría de input/): una variable/constante de nivel
+    // superior (p.ej. "const PI = 3.14159") se declaraba como un `alloca`
+    // local al entry block de `main()` -- invisible para cualquier función
+    // definida a nivel superior que la referenciara (`genExpr(Identificador)`
+    // devolvía `nullptr` porque el nombre no estaba en el `variables` local
+    // de esa función; nunca se detectó porque ningún ejemplo/prueba
+    // existente ejercitaba este patrón). Declara cada una como un
+    // `llvm::GlobalVariable` real del módulo (zero-inicializado -- mismo
+    // argumento que en `GeneradorC`: `LAT_NULO` es el primer valor de
+    // `LatTipo`, 0, así que un `%struct.LatValor` en cero ya representa
+    // `lat_nulo()` sin necesidad de llamarlo) en vez de un `alloca`. Debe
+    // llamarse antes de traducir cualquier función/método/el cuerpo de
+    // `main` -- `genFuncion`/`genMetodo`/`generar()` fusionan estas globales
+    // en su propio `variables` local (ver el comentario de `globales_` más
+    // abajo) para que un nombre no asignado dentro de esa función/método
+    // resuelva a la celda global real, exactamente como ya resolvía
+    // `GeneradorC` con una variable C de nivel de archivo.
+    void declararGlobales(Programa& programa, llvm::Module& modulo);
+
     // PLAN_FFI.md (F6): registra cada firma de un bloque "externo" de nivel
     // superior de 'programa' (tabla interna `funcionesExternas_`) y las
     // bibliotecas nombradas por "enlazar" (`bibliotecasEnlazar_`, expuesto
@@ -440,6 +459,15 @@ private:
         bool variadico;
     };
     std::unordered_map<std::string, InfoFuncionUsuario> funciones_;
+
+    // Nombre de variable de nivel superior -> celda global real (ver
+    // declararGlobales arriba). genFuncion/genMetodo/generar() insertan
+    // estas entradas en su propio 'variables' local ANTES de sus propios
+    // parámetros/locales, para que la asignación normal (que sí sobrescribe
+    // una clave existente) modele el mismo sombreado léxico que ya usa
+    // AnalizadorSemantico -- un parámetro/local con el mismo nombre oculta
+    // la global dentro de esa función/método, nunca la muta.
+    std::unordered_map<std::string, llvm::Value*> globales_;
 
     // (Fase L6) Celda de retorno (el parámetro sret) de la función que
     // genFuncion esté traduciendo en este momento; nullptr fuera de la
