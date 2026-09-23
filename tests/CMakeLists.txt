@@ -291,6 +291,45 @@ add_suite20(test_lib_dic)
 add_suite20(test_lib_mate)
 add_suite20(test_lib_sis)
 add_suite20(test_lib_archivo)
+
+# Hallazgo de la auditoría de input/PLAN_LIBS.md: "paquete" (carga dinámica
+# de bibliotecas nativas, Fase 16) no tenía ninguna prueba funcional --
+# ejemplos/paquete_ejemplo.lat existe pero a propósito no llama
+# paquete.cargar de verdad (no había ninguna .dll/.so real en el repo).
+# Se agrega una biblioteca de prueba real (tests/fixtures/paquete_fixture.c)
+# para cargar/llamar de punta a punta. No puede usar add_suite20 tal cual:
+# necesita un argumento extra, la ruta de esa biblioteca ya compilada (ver
+# tests/test_lib_paquete.cpp).
+add_library(test_paquete_fixture SHARED
+  fixtures/paquete_fixture.c
+  ${CMAKE_SOURCE_DIR}/runtime/latino.c
+  ${CMAKE_SOURCE_DIR}/runtime/libs/paquete.c
+)
+target_include_directories(test_paquete_fixture PRIVATE ${CMAKE_SOURCE_DIR}/runtime)
+set_target_properties(test_paquete_fixture PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+
+add_executable(test_lib_paquete test_lib_paquete.cpp)
+add_test(
+  NAME test_lib_paquete
+  COMMAND test_lib_paquete
+          $<TARGET_FILE:latino>
+          "${CMAKE_SOURCE_DIR}/runtime"
+          "${CMAKE_CURRENT_BINARY_DIR}"
+          $<TARGET_FILE:test_paquete_fixture>
+)
+if(LATINO_LLVM_BACKEND)
+  file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/llvm")
+  add_test(
+    NAME test_lib_paquete_llvm
+    COMMAND test_lib_paquete
+            $<TARGET_FILE:latino>
+            "${CMAKE_SOURCE_DIR}/runtime"
+            "${CMAKE_CURRENT_BINARY_DIR}/llvm"
+            $<TARGET_FILE:test_paquete_fixture>
+            llvm
+  )
+endif()
+
 add_suite20(test_incluir)
 add_suite20(test_modulos_e2e)
 add_suite20(test_modulos_multi)

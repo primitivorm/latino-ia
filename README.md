@@ -308,7 +308,7 @@ Las pruebas incluyen:
   incluyendo `test_poo_e2e`, `test_genericos_e2e`, `test_modulos_e2e`,
   `test_modulos_multi` y `test_ffi_e2e`.
 - Suites de cobertura por librería: `test_lib_cadena`, `test_lib_lista`, `test_lib_dic`,
-  `test_lib_mate`, `test_lib_sis`, `test_lib_archivo`, `test_funciones_base`, `test_incluir`.
+  `test_lib_mate`, `test_lib_sis`, `test_lib_archivo`, `test_lib_paquete`, `test_funciones_base`, `test_incluir`.
 - `test_codegen_llvm`: mecanismo de ABI del backend LLVM (Fase L2) y, desde
   la Fase 32, codegen de FFI (solo se registra si el build tiene
   `LATINO_LLVM_BACKEND` habilitado).
