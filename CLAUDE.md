@@ -95,6 +95,7 @@ Suites de prueba disponibles:
 | `test_lib_mate` | Librería `mate` |
 | `test_lib_sis` | Librería `sis` |
 | `test_lib_archivo` | Librería `archivo` |
+| `test_lib_paquete` | Librería `paquete`: carga dinámica real contra `tests/fixtures/paquete_fixture.c` (agregada en la auditoría de `input/`, ver `PLAN_LIBS.md`) |
 | `test_codegen_llvm` | ABI del backend LLVM (Fase L2 de `PLAN_LLVM.md`) y, desde la Fase F6, codegen de FFI (`PLAN_FFI.md`); solo se registra si `LATINO_LLVM_BACKEND` está habilitado |
 | `test_runtime_ffi` | Runtime de FFI con C: `LAT_PUNTERO`/`lat_ffi_verificar_tipo` (Fase F3 de `PLAN_FFI.md`) |
 | `test_ffi` | Parser/semántico/codegen (backend C) de `externo`/`inseguro` (`PLAN_FFI.md`) |

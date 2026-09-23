@@ -40,6 +40,14 @@ Generador de Código.
 | Librería `paquete`     | 1     | 0             | 1         |
 | **TOTAL**              | **99**| **3**         | **96**    |
 
+*(Nota, auditoría de 2026-09-22: esta tabla es la foto INICIAL del plan,
+antes de empezar la Fase 9 -- los conteos reales que terminó implementando
+cada fase son mayores y están en la sección de cada Fase más abajo, p.ej.
+`cadena` terminó con 27+ funciones documentadas en la Fase 10, no 22; el
+código real (`runtime/libs/cadena.c`) tiene incluso más que eso. No se
+actualizan los números de esta tabla para no borrar el registro histórico
+de dónde arrancó el plan.)*
+
 ---
 
 ## Arquitectura de las Librerías
@@ -479,6 +487,16 @@ escribe s ~= "[0-9]+"   # cierto
 - Linux/macOS: `<regex.h>` POSIX
 - Función: `lat_regex_match(LatValor cadena, LatValor patron)` → `LatValor` lógico
 
+**Implementado (difiere de lo planeado arriba, corregido en la auditoría de
+`input/` de 2026-09-22):** ninguna de las dos plataformas usa `<regex.h>`
+-- `runtime/latino.c` implementa un motor de RegEx propio, portable,
+sin dependencias de plataforma (`rx_match`/`rx_len`/`rx_star`/`rx_uno`,
+soporta `^`, `$`, `*`, `+`, `?` y clases de carácter). La función pública
+es `lat_coincide(LatValor a, LatValor b)` (`runtime/latino.h`), no
+`lat_regex_match`. El comentario de `runtime/latino.h` que describía esto
+como "por ahora, igualdad de cadenas" también estaba desactualizado -- se
+corrigió para reflejar el motor real.
+
 ---
 
 ## Fase 19 — Manejo de Memoria ✅
@@ -552,9 +570,19 @@ El lenguaje se considera **100% implementado** cuando:
 - [ ] Cada función documentada en `Manual-Latino/docs/librerias/` tiene al menos un test que pasa
 - [ ] Cada función documentada en `Manual-Latino/docs/funciones/` tiene al menos un test que pasa
 - [ ] Cada estructura de control de `Manual-Latino/docs/sintaxis/` compila y ejecuta correctamente
-- [ ] `incluir "cadena"`, `incluir "lista"`, `incluir "mate"`, `incluir "sis"`, `incluir "archivo"`, `incluir "dic"`, `incluir "paquete"` resuelven correctamente
-- [ ] El operador `~=` (regex) funciona sobre cadenas
+- [x] `incluir "cadena"`, `incluir "lista"`, `incluir "mate"`, `incluir "sis"`, `incluir "archivo"`, `incluir "dic"`, `incluir "paquete"` resuelven correctamente
+      (`tests/test_incluir.cpp` + `tests/test_lib_paquete.cpp`, agregada en la auditoría de 2026-09-22 -- antes de esa fecha `paquete` no tenía ninguna prueba funcional)
+- [x] El operador `~=` (regex) funciona sobre cadenas
+      (`ejemplos/regex_ejemplo.lat` vía `test_e2e`, tokenización en `tests/test_lexer.cpp`)
 - [ ] `leer()` funciona en modo interactivo y en pipe
+      (sin prueba automatizada: `tests/test_harness.h` no provee entrada por stdin al binario compilado; verificado solo manualmente hasta ahora)
+
+**Nota (auditoría de 2026-09-22):** este checklist estaba enteramente sin
+marcar pese a que las Fases 19/20 arriba ya estaban con ✅ -- nunca se
+había actualizado tras completarlas. Los primeros cuatro puntos dependen
+de `Manual-Latino/docs/`, un repositorio externo a `latino-ia` no
+accesible desde acá, así que quedan sin marcar (no confirmados ni negados)
+en vez de asumidos.
 
 ---
 

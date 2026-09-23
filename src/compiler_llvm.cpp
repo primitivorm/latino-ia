@@ -392,6 +392,42 @@ llvm::Value* GeneradorLLVM::genExpr(Expresion& expr, llvm::IRBuilder<>& builder,
                         return celda;
                     }
 
+                    // Hallazgo de la auditoría de PLAN_LIBS.md: paquete.llamar(modulo,
+                    // nombre, nargs, arg0, ...) es la única función de librería cuyo
+                    // tercer parámetro fijo NO es un LatValor real en C --
+                    // lat_paquete_llamar(LatValor, LatValor, int nargs, ...) recibe
+                    // "nargs" como un i32 crudo, escrito por el usuario en el sitio de
+                    // llamada (no derivado de contar argumentos, a diferencia de
+                    // cadena.formato arriba). Se extrae el valor real con GEP+load
+                    // sobre %struct.LatValor (mismo patrón que PLAN_FFI.md F6) en vez
+                    // de pasar el argumento como puntero a celda -- nunca funcionó
+                    // llamado así, solo "milib.fn(args)" (que pasa por
+                    // lat_obj_llamar_metodo con su propio nargs literal) funcionaba.
+                    if (lib == "paquete" && fn == "llamar" && n->argumentos.size() >= 3) {
+                        llvm::Function* fnRt = abi_->declarar(modulo, "lat_paquete_llamar");
+                        if (!fnRt) return nullptr;
+                        llvm::Value* celda =
+                            builder.CreateAlloca(tipoLatValor, nullptr, "paquete_llamar_ret");
+                        llvm::Value* vModulo = genExpr(*n->argumentos[0], builder, modulo, variables);
+                        llvm::Value* vNombre = genExpr(*n->argumentos[1], builder, modulo, variables);
+                        llvm::Value* vNargs = genExpr(*n->argumentos[2], builder, modulo, variables);
+                        if (!vModulo || !vNombre || !vNargs) return nullptr;
+                        llvm::Value* comoNargs =
+                            builder.CreateStructGEP(tipoLatValor, vNargs, 1, "paquete_nargs_como");
+                        llvm::Value* nargsDouble =
+                            builder.CreateLoad(builder.getDoubleTy(), comoNargs, "paquete_nargs_double");
+                        llvm::Value* nargsInt =
+                            builder.CreateFPToSI(nargsDouble, builder.getInt32Ty(), "paquete_nargs_i32");
+                        std::vector<llvm::Value*> args{celda, vModulo, vNombre, nargsInt};
+                        for (size_t i = 3; i < n->argumentos.size(); i++) {
+                            llvm::Value* v = genExpr(*n->argumentos[i], builder, modulo, variables);
+                            if (!v) return nullptr;
+                            args.push_back(v);
+                        }
+                        builder.CreateCall(fnRt, args);
+                        return celda;
+                    }
+
                     // Resto de funciones de librería: args fijos.
                     llvm::Function* fnRt = abi_->declarar(modulo, "lat_" + lib + "_" + fn);
                     if (!fnRt) return nullptr;

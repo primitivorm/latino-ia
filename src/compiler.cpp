@@ -388,6 +388,27 @@ std::string GeneradorC::genLlamada(Llamada* ll) {
                     return s;
                 }
 
+                // Hallazgo de la auditoría de PLAN_LIBS.md: paquete.llamar(modulo,
+                // nombre, nargs, arg0, ...) es la única función de librería cuyo
+                // tercer parámetro fijo NO es un LatValor real en C --
+                // lat_paquete_llamar(LatValor, LatValor, int nargs, ...) recibe
+                // "nargs" como un int crudo, escrito por el usuario en el sitio de
+                // llamada (no derivado de contar argumentos, a diferencia de
+                // cadena.formato arriba). El camino genérico de "args fijos" de
+                // abajo pasaba ese argumento tal cual (un LatValor), rompiendo la
+                // compilación C con un error de conversión de tipo -- nunca
+                // funcionó llamado así, solo "milib.fn(args)" (que pasa por
+                // lat_obj_llamar_metodo, con su propio nargs literal) funcionaba.
+                if (lib == "paquete" && fn == "llamar" && ll->argumentos.size() >= 3) {
+                    std::string s = "lat_paquete_llamar(" + genExpr(ll->argumentos[0].get()) +
+                                    ", " + genExpr(ll->argumentos[1].get()) + ", (int)(" +
+                                    genExpr(ll->argumentos[2].get()) + ").como.numero";
+                    for (size_t i = 3; i < ll->argumentos.size(); i++)
+                        s += ", " + genExpr(ll->argumentos[i].get());
+                    s += ")";
+                    return s;
+                }
+
                 // Resto de funciones de librería: args fijos
                 std::string nombre_c = "lat_" + lib + "_" + fn;
                 std::string s = nombre_c + "(";

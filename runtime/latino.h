@@ -124,7 +124,7 @@ LatValor lat_menor_igual(LatValor a, LatValor b);
 LatValor lat_mayor_igual(LatValor a, LatValor b);
 LatValor lat_y(LatValor a, LatValor b);
 LatValor lat_o(LatValor a, LatValor b);
-LatValor lat_coincide(LatValor a, LatValor b);   /* ~= : por ahora, igualdad de cadenas */
+LatValor lat_coincide(LatValor a, LatValor b);   /* ~= : coincidencia de patrón (rx_match en latino.c, motor de RegEx propio) */
 
 int lat_es_verdadero(LatValor v);
 
