@@ -17,7 +17,12 @@ option(LATINO_LLVM_BACKEND "Habilitar el backend de codegen basado en LLVM" ON)
 if(LATINO_LLVM_BACKEND)
   # LLVMExports.cmake publica LLVMSupport con la dependencia ZLIB::ZLIB.
   # Hay que crear ese target antes de cargar la configuración de LLVM.
-  find_package(ZLIB REQUIRED)
+  # Solo hace falta en Linux: ahí el paquete de LLVM (p.ej. llvm-18-dev)
+  # enlaza contra la zlib del sistema; en Windows (vcpkg) y macOS (brew) el
+  # LLVMExports.cmake correspondiente no depende de ZLIB::ZLIB.
+  if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    find_package(ZLIB REQUIRED)
+  endif()
   find_package(LLVM 18.1 CONFIG QUIET)
   if(NOT LLVM_FOUND)
     message(WARNING
