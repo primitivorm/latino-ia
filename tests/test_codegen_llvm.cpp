@@ -62,6 +62,7 @@
 #include <iostream>
 #include <string>
 #include <unordered_map>
+#include <utility>
 
 #include <llvm/IR/DataLayout.h>
 #include <llvm/IR/DerivedTypes.h>
@@ -102,7 +103,43 @@ static std::string irComoTexto(llvm::Module& modulo) {
 }
 
 static bool contiene(const std::string& t, const std::string& sub) {
-    return t.find(sub) != std::string::npos;
+    if (t.find(sub) != std::string::npos) return true;
+
+    // En SysV, RuntimeAbiLLVM llama a los símbolos reales mediante wrappers
+    // internos que adaptan LatValor al ABI indirecto del generador.
+    if (sub.find("@lat_") != std::string::npos && sub.find("@lat_fn_") == std::string::npos) {
+        std::string wrapper = sub;
+        wrapper.replace(wrapper.find("@lat_"), 5, "@__latino_abi_lat_");
+        if (t.find(wrapper) != std::string::npos) return true;
+    }
+
+    const std::pair<const char*, const char*> variantes[] = {
+        {"@lat_lista_de(", "@lat_lista_de_args("},
+        {"@lat_dic_de(", "@lat_dic_de_args("},
+        {"@lat_imprimirf(", "@lat_imprimirf_args("},
+        {"@lat_cadena_formato(", "@lat_cadena_formato_args("},
+        {"@lat_obj_llamar_metodo(", "@lat_obj_llamar_metodo_args("},
+        {"@lat_obj_llamar_metodo(", "@lat_obj_llamar_metodo_llvm_args("},
+        {"@lat_funcion_nueva(", "@lat_funcion_nueva_llvm("},
+    };
+    for (const auto& variante : variantes) {
+        if (sub.find(variante.first) != std::string::npos &&
+            t.find(variante.second) != std::string::npos)
+            return true;
+    }
+    return false;
+}
+
+static size_t posicionLlamada(const std::string& ir, const std::string& llamada) {
+    size_t posicion = ir.find(llamada);
+    if (posicion != std::string::npos) return posicion;
+    std::string wrapper = llamada;
+    size_t inicio = wrapper.find("@lat_");
+    if (inicio != std::string::npos) {
+        wrapper.replace(inicio, 5, "@__latino_abi_lat_");
+        return ir.find(wrapper);
+    }
+    return std::string::npos;
 }
 
 static void verificarModulo(const std::string& nombre, llvm::Module& modulo) {
@@ -157,7 +194,8 @@ static void prueba_l2_declarar_y_llamar_runtime() {
     llvm::Function* fnSumar = abi.declarar(modulo, "lat_sumar");
     CHECK(fnNumero != nullptr, "lat_numero debe existir en runtime_abi.ll");
     CHECK(fnSumar != nullptr, "lat_sumar debe existir en runtime_abi.ll");
-    CHECK(modulo.getFunction("lat_numero") == fnNumero,
+    CHECK(modulo.getFunction("lat_numero") == fnNumero ||
+              modulo.getFunction("__latino_abi_lat_numero") == fnNumero,
           "declarar() debe insertar la funcion en el modulo destino");
     if (!fnNumero || !fnSumar) return;
 
@@ -1371,8 +1409,8 @@ static void prueba_l8_nuevo_clase_herencia_cadena_ancestros(GeneradorLLVM& gen) 
           "debe crear el objeto con el ancestro mas antiguo (Animal)\n" << ir);
     CHECK(contiene(ir, "c\"Perro\\00\""),
           "debe registrar tambien la clase hoja (Perro) via lat_obj_set_clase\n" << ir);
-    size_t posNuevo = ir.find("call void @lat_obj_nuevo(");
-    size_t posSetClase = ir.find("call void @lat_obj_set_clase(");
+    size_t posNuevo = posicionLlamada(ir, "call void @lat_obj_nuevo(");
+    size_t posSetClase = posicionLlamada(ir, "call void @lat_obj_set_clase(");
     CHECK(posNuevo != std::string::npos && posSetClase != std::string::npos && posNuevo < posSetClase,
           "lat_obj_nuevo(raiz) debe emitirse antes de lat_obj_set_clase(hoja)\n" << ir);
     verificarModulo("l8_nuevo_herencia", modulo);

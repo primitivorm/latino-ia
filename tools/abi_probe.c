@@ -68,6 +68,7 @@ void lat_abi_referenciar_todo(void) {
     (void)lat_cadena_es_numerico;
     (void)lat_cadena_esta_vacia;
     (void)lat_cadena_formato;
+    (void)lat_cadena_formato_args;
     (void)lat_cadena_indice;
     (void)lat_cadena_inicia_con;
     (void)lat_cadena_insertar;
@@ -95,6 +96,7 @@ void lat_abi_referenciar_todo(void) {
     (void)lat_dic_contiene;
     (void)lat_dic_copiar;
     (void)lat_dic_de;
+    (void)lat_dic_de_args;
     (void)lat_dic_elementos;
     (void)lat_dic_eliminar;
     (void)lat_dic_llaves;
@@ -108,9 +110,11 @@ void lat_abi_referenciar_todo(void) {
     (void)lat_escribir;
     (void)lat_ffi_verificar_tipo;
     (void)lat_funcion_nueva;
+    (void)lat_funcion_nueva_llvm;
     (void)lat_igual;
     (void)lat_imprimir;
     (void)lat_imprimirf;
+    (void)lat_imprimirf_args;
     (void)lat_incluir;
     (void)lat_leer;
     (void)lat_limpiar;
@@ -121,6 +125,7 @@ void lat_abi_referenciar_todo(void) {
     (void)lat_lista_contiene;
     (void)lat_lista_crear;
     (void)lat_lista_de;
+    (void)lat_lista_de_args;
     (void)lat_lista_eliminar;
     (void)lat_lista_eliminar_indice;
     (void)lat_lista_encontrar;
@@ -191,6 +196,8 @@ void lat_abi_referenciar_todo(void) {
     (void)lat_obj_get;
     (void)lat_obj_get_seguro;
     (void)lat_obj_llamar_metodo;
+    (void)lat_obj_llamar_metodo_args;
+    (void)lat_obj_llamar_metodo_llvm_args;
     (void)lat_obj_nuevo;
     (void)lat_obj_set;
     (void)lat_obj_set_clase;

@@ -9,6 +9,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifndef _WIN32
+#include <strings.h>
+#endif
 
 /* -------------------------------------------------------------------------
  * Utilidades internas
@@ -507,11 +510,9 @@ LatValor lat_cadena_separar(LatValor sv, LatValor delimv) {
  * Formato
  * ---------------------------------------------------------------------- */
 
-LatValor lat_cadena_formato(size_t n, ...) {
+LatValor lat_cadena_formato_args(size_t n, const LatValor* args) {
     if (n == 0) return lat_cadena("");
-    va_list ap;
-    va_start(ap, n);
-    LatValor fmt_v = va_arg(ap, LatValor);
+    LatValor fmt_v = args[0];
     const char *fmt = valor_cadena(fmt_v);
 
     /* Construir la cadena de formato estándar usando conversión de LatValor */
@@ -538,7 +539,7 @@ LatValor lat_cadena_formato(size_t n, ...) {
             pos += snprintf(buf + pos, sizeof(buf) - (size_t)pos, "%s", spec);
             continue;
         }
-        LatValor arg = va_arg(ap, LatValor);
+        LatValor arg = args[arg_idx];
         arg_idx++;
 
         char tmp[256];
@@ -563,8 +564,18 @@ LatValor lat_cadena_formato(size_t n, ...) {
         if (written > 0) pos += written;
     }
     buf[pos] = '\0';
-    va_end(ap);
     return lat_cadena(buf);
+}
+
+LatValor lat_cadena_formato(size_t n, ...) {
+    LatValor* args = (LatValor*)malloc(sizeof(LatValor) * n);
+    va_list ap;
+    va_start(ap, n);
+    for (size_t i = 0; i < n; i++) args[i] = va_arg(ap, LatValor);
+    va_end(ap);
+    LatValor resultado = lat_cadena_formato_args(n, args);
+    free(args);
+    return resultado;
 }
 
 /* -------------------------------------------------------------------------

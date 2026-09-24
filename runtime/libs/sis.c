@@ -2,6 +2,10 @@
 
 #define _CRT_SECURE_NO_WARNINGS
 
+#ifndef _WIN32
+#define _DEFAULT_SOURCE
+#endif
+
 #include "sis.h"
 
 #include <stdio.h>
