@@ -96,6 +96,17 @@ bool esTipoFFINatural(TipoFFI t) {
            t == TipoFFI::Natural64;
 }
 
+llvm::Value* empaquetarLatValores(const std::vector<llvm::Value*>& valores,
+                                  llvm::IRBuilder<>& builder, llvm::StructType* tipoLatValor) {
+    llvm::Value* arreglo = builder.CreateAlloca(
+        tipoLatValor, builder.getInt64(valores.empty() ? 1 : valores.size()), "args_latino");
+    for (size_t i = 0; i < valores.size(); ++i) {
+        llvm::Value* destino = builder.CreateGEP(tipoLatValor, arreglo, builder.getInt64(i), "arg_latino");
+        builder.CreateStore(builder.CreateLoad(tipoLatValor, valores[i]), destino);
+    }
+    return arreglo;
+}
+
 }  // namespace
 
 GeneradorLLVM::GeneradorLLVM()
@@ -249,15 +260,16 @@ llvm::Value* GeneradorLLVM::genExpr(Expresion& expr, llvm::IRBuilder<>& builder,
         // no una lista que la contiene -- igual que GeneradorC::genExpr.
         if (n->elementos.size() == 1 && dynamic_cast<VarArgs*>(n->elementos[0].get()))
             return genExpr(*n->elementos[0], builder, modulo, variables);
-        llvm::Function* fn = abi_->declarar(modulo, "lat_lista_de");
+        llvm::Function* fn = abi_->declarar(modulo, "lat_lista_de_args");
         llvm::Value* celda = builder.CreateAlloca(tipoLatValor, nullptr, "lista_lit");
-        std::vector<llvm::Value*> args{celda, builder.getInt64(n->elementos.size())};
+        std::vector<llvm::Value*> valores;
         for (auto& el : n->elementos) {
             llvm::Value* v = genExpr(*el, builder, modulo, variables);
             if (!v) return nullptr;
-            args.push_back(v);
+            valores.push_back(v);
         }
-        builder.CreateCall(fn, args);
+        llvm::Value* arreglo = empaquetarLatValores(valores, builder, tipoLatValor);
+        builder.CreateCall(fn, {celda, builder.getInt64(valores.size()), arreglo});
         return celda;
     }
     if (auto* n = dynamic_cast<Llamada*>(&expr)) {
@@ -310,14 +322,15 @@ llvm::Value* GeneradorLLVM::genExpr(Expresion& expr, llvm::IRBuilder<>& builder,
             // aquí porque no hay ninguna celda que devolver, no porque el
             // nodo sea "no soportado".
             if (nombre == "imprimirf") {
-                llvm::Function* fn = abi_->declarar(modulo, "lat_imprimirf");
-                std::vector<llvm::Value*> args{builder.getInt64(n->argumentos.size())};
+                llvm::Function* fn = abi_->declarar(modulo, "lat_imprimirf_args");
+                std::vector<llvm::Value*> valores;
                 for (auto& a : n->argumentos) {
                     llvm::Value* v = genExpr(*a, builder, modulo, variables);
                     if (!v) return nullptr;
-                    args.push_back(v);
+                    valores.push_back(v);
                 }
-                builder.CreateCall(fn, args);
+                llvm::Value* arreglo = empaquetarLatValores(valores, builder, tipoLatValor);
+                builder.CreateCall(fn, {builder.getInt64(valores.size()), arreglo});
                 return nullptr;
             }
 
@@ -352,16 +365,17 @@ llvm::Value* GeneradorLLVM::genExpr(Expresion& expr, llvm::IRBuilder<>& builder,
                 args.push_back(arg);
             }
             if (info.variadico) {
-                llvm::Function* fnListaDe = abi_->declarar(modulo, "lat_lista_de");
+                llvm::Function* fnListaDe = abi_->declarar(modulo, "lat_lista_de_args");
                 llvm::Value* resto = builder.CreateAlloca(tipoLatValor, nullptr, "llamada_resto");
                 size_t nResto = (nargs > info.numParametros) ? nargs - info.numParametros : 0;
-                std::vector<llvm::Value*> argsResto{resto, builder.getInt64(nResto)};
+                std::vector<llvm::Value*> valoresResto;
                 for (size_t i = info.numParametros; i < nargs; i++) {
                     llvm::Value* v = genExpr(*n->argumentos[i], builder, modulo, variables);
                     if (!v) return nullptr;
-                    argsResto.push_back(v);
+                    valoresResto.push_back(v);
                 }
-                builder.CreateCall(fnListaDe, argsResto);
+                llvm::Value* arregloResto = empaquetarLatValores(valoresResto, builder, tipoLatValor);
+                builder.CreateCall(fnListaDe, {resto, builder.getInt64(nResto), arregloResto});
                 args.push_back(resto);
             }
             builder.CreateCall(info.fn, args);
@@ -379,17 +393,17 @@ llvm::Value* GeneradorLLVM::genExpr(Expresion& expr, llvm::IRBuilder<>& builder,
 
                     // cadena.formato es variádica (primer arg = fmt, resto = valores).
                     if (lib == "cadena" && fn == "formato") {
-                        llvm::Function* fnRt = abi_->declarar(modulo, "lat_cadena_formato");
+                        llvm::Function* fnRt = abi_->declarar(modulo, "lat_cadena_formato_args");
                         llvm::Value* celda =
                             builder.CreateAlloca(tipoLatValor, nullptr, "cadena_formato");
-                        std::vector<llvm::Value*> args{celda,
-                                                        builder.getInt64(n->argumentos.size())};
+                        std::vector<llvm::Value*> valores;
                         for (auto& a : n->argumentos) {
                             llvm::Value* v = genExpr(*a, builder, modulo, variables);
                             if (!v) return nullptr;
-                            args.push_back(v);
+                            valores.push_back(v);
                         }
-                        builder.CreateCall(fnRt, args);
+                        llvm::Value* arreglo = empaquetarLatValores(valores, builder, tipoLatValor);
+                        builder.CreateCall(fnRt, {celda, builder.getInt64(valores.size()), arreglo});
                         return celda;
                     }
 
@@ -405,7 +419,7 @@ llvm::Value* GeneradorLLVM::genExpr(Expresion& expr, llvm::IRBuilder<>& builder,
                     // llamado así, solo "milib.fn(args)" (que pasa por
                     // lat_obj_llamar_metodo con su propio nargs literal) funcionaba.
                     if (lib == "paquete" && fn == "llamar" && n->argumentos.size() >= 3) {
-                        llvm::Function* fnRt = abi_->declarar(modulo, "lat_paquete_llamar");
+                        llvm::Function* fnRt = abi_->declarar(modulo, "lat_paquete_llamar_args");
                         if (!fnRt) return nullptr;
                         llvm::Value* celda =
                             builder.CreateAlloca(tipoLatValor, nullptr, "paquete_llamar_ret");
@@ -419,13 +433,14 @@ llvm::Value* GeneradorLLVM::genExpr(Expresion& expr, llvm::IRBuilder<>& builder,
                             builder.CreateLoad(builder.getDoubleTy(), comoNargs, "paquete_nargs_double");
                         llvm::Value* nargsInt =
                             builder.CreateFPToSI(nargsDouble, builder.getInt32Ty(), "paquete_nargs_i32");
-                        std::vector<llvm::Value*> args{celda, vModulo, vNombre, nargsInt};
+                        std::vector<llvm::Value*> valores;
                         for (size_t i = 3; i < n->argumentos.size(); i++) {
                             llvm::Value* v = genExpr(*n->argumentos[i], builder, modulo, variables);
                             if (!v) return nullptr;
-                            args.push_back(v);
+                            valores.push_back(v);
                         }
-                        builder.CreateCall(fnRt, args);
+                        llvm::Value* arreglo = empaquetarLatValores(valores, builder, tipoLatValor);
+                        builder.CreateCall(fnRt, {celda, vModulo, vNombre, nargsInt, arreglo});
                         return celda;
                     }
 
@@ -525,36 +540,38 @@ llvm::Value* GeneradorLLVM::genExpr(Expresion& expr, llvm::IRBuilder<>& builder,
             // estructuras_ análoga a la de GeneradorC.
             llvm::Value* objeto = genExpr(*am->objeto, builder, modulo, variables);
             if (!objeto) return nullptr;
-            llvm::Function* fn = abi_->declarar(modulo, "lat_obj_llamar_metodo");
+            llvm::Function* fn = abi_->declarar(modulo, "lat_obj_llamar_metodo_llvm_args");
             if (!fn) return nullptr;
             llvm::Value* nombreC =
                 builder.CreateGlobalStringPtr(am->miembro, "metodo_nombre", 0, &modulo);
             llvm::Value* celda = builder.CreateAlloca(tipoLatValor, nullptr, "metodo_ret");
-            std::vector<llvm::Value*> args{celda, objeto, nombreC,
-                                            builder.getInt32((int)n->argumentos.size())};
+            std::vector<llvm::Value*> valores;
             for (auto& a : n->argumentos) {
                 llvm::Value* v = genExpr(*a, builder, modulo, variables);
                 if (!v) return nullptr;
-                args.push_back(v);
+                valores.push_back(v);
             }
-            builder.CreateCall(fn, args);
+            llvm::Value* arreglo = empaquetarLatValores(valores, builder, tipoLatValor);
+            builder.CreateCall(fn, {celda, objeto, nombreC,
+                                    builder.getInt32((int)valores.size()), arreglo});
             return celda;
         }
 
         return nullptr;
     }
     if (auto* n = dynamic_cast<DiccionarioLiteral*>(&expr)) {
-        llvm::Function* fn = abi_->declarar(modulo, "lat_dic_de");
+        llvm::Function* fn = abi_->declarar(modulo, "lat_dic_de_args");
         llvm::Value* celda = builder.CreateAlloca(tipoLatValor, nullptr, "dic_lit");
-        std::vector<llvm::Value*> args{celda, builder.getInt64(n->pares.size())};
+        std::vector<llvm::Value*> valores;
         for (auto& par : n->pares) {
             llvm::Value* clave = genExpr(*par.clave, builder, modulo, variables);
             llvm::Value* valor = genExpr(*par.valor, builder, modulo, variables);
             if (!clave || !valor) return nullptr;
-            args.push_back(clave);
-            args.push_back(valor);
+            valores.push_back(clave);
+            valores.push_back(valor);
         }
-        builder.CreateCall(fn, args);
+        llvm::Value* arreglo = empaquetarLatValores(valores, builder, tipoLatValor);
+        builder.CreateCall(fn, {celda, builder.getInt64(n->pares.size()), arreglo});
         return celda;
     }
     if (auto* n = dynamic_cast<NuevoExpr*>(&expr)) {
@@ -565,7 +582,7 @@ llvm::Value* GeneradorLLVM::genExpr(Expresion& expr, llvm::IRBuilder<>& builder,
         llvm::Function* fnObjSetClase = abi_->declarar(modulo, "lat_obj_set_clase");
         llvm::Function* fnObjSet = abi_->declarar(modulo, "lat_obj_set");
         llvm::Function* fnObjSetMetodo = abi_->declarar(modulo, "lat_obj_set_metodo");
-        llvm::Function* fnFuncionNueva = abi_->declarar(modulo, "lat_funcion_nueva");
+        llvm::Function* fnFuncionNueva = abi_->declarar(modulo, "lat_funcion_nueva_llvm");
 
         llvm::Value* obj = builder.CreateAlloca(tipoLatValor, nullptr, "obj_nuevo");
 

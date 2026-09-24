@@ -15,6 +15,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # solo major; hay que pedir "18.1" explícitamente.)
 option(LATINO_LLVM_BACKEND "Habilitar el backend de codegen basado en LLVM" ON)
 if(LATINO_LLVM_BACKEND)
+  # LLVMExports.cmake publica LLVMSupport con la dependencia ZLIB::ZLIB.
+  # Hay que crear ese target antes de cargar la configuración de LLVM.
+  find_package(ZLIB REQUIRED)
   find_package(LLVM 18.1 CONFIG QUIET)
   if(NOT LLVM_FOUND)
     message(WARNING

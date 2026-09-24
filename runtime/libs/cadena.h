@@ -51,6 +51,7 @@ LatValor lat_cadena_separar(LatValor s, LatValor delim);          /* → lista d
 
 /* Formato */
 LatValor lat_cadena_formato(size_t n, ...);                       /* sprintf de LatValores     */
+LatValor lat_cadena_formato_args(size_t n, const LatValor* args);
 
 /* Expresiones regulares (implementación básica sin POSIX) */
 LatValor lat_cadena_regex(LatValor s, LatValor patron);           /* primera coincidencia o nulo */

@@ -34,6 +34,7 @@ typedef struct LatObjeto LatObjeto;
 typedef struct LatModulo LatModulo;
 
 typedef LatValor (*LatFnModulo)(int nargs, LatValor* args);
+typedef void (*LatFnLLVM)(LatValor* resultado, int nargs, LatValor* args);
 
 struct LatValor {
     LatTipo tipo;
@@ -80,6 +81,8 @@ LatValor lat_numero(double n);
 LatValor lat_cadena(const char* s);
 LatValor lat_lista_de(size_t n, ...);            /* n elementos LatValor */
 LatValor lat_dic_de(size_t n, ...);              /* n pares: clave, valor (ambos LatValor) */
+LatValor lat_lista_de_args(size_t n, const LatValor* args);
+LatValor lat_dic_de_args(size_t n, const LatValor* args);
 
 /* PLAN_FFI.md (F3): puntero nativo opaco devuelto/recibido por una función
  * "externo" (p.ej. malloc, un handle de Win32). No es indexable ni legible
@@ -99,7 +102,12 @@ LatValor lat_obj_get_seguro(LatValor objeto, const char* nombre);
 void     lat_obj_set(LatValor objeto, const char* nombre, LatValor valor);
 void     lat_obj_set_metodo(LatValor objeto, const char* nombre, LatValor fn);
 LatValor lat_obj_llamar_metodo(LatValor objeto, const char* nombre, int nargs, ...);
+LatValor lat_obj_llamar_metodo_args(LatValor objeto, const char* nombre, int nargs,
+                                    const LatValor* args);
+LatValor lat_obj_llamar_metodo_llvm_args(LatValor objeto, const char* nombre, int nargs,
+                                         const LatValor* args);
 LatValor lat_funcion_nueva(LatFnModulo fn);
+LatValor lat_funcion_nueva_llvm(LatFnLLVM fn);
 void     lat_obj_set_clase(LatValor objeto, const char* clase);
 int      lat_obj_es_instancia(LatValor objeto, const char* clase);
 
@@ -144,6 +152,7 @@ LatValor lat_anumero(LatValor v);
 LatValor lat_leer(void);
 LatValor lat_tipo(LatValor v);
 void lat_imprimirf(size_t n, ...);
+void lat_imprimirf_args(size_t n, const LatValor* args);
 LatValor lat_limpiar(void);
 LatValor lat_error(LatValor v);
 LatValor lat_incluir(LatValor v);

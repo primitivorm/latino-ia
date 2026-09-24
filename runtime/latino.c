@@ -233,14 +233,20 @@ static void lista_agregar(LatLista* l, LatValor v) {
 }
 
 LatValor lat_lista_de(size_t n, ...) {
-    LatValor v;
+    LatValor* args = (LatValor*)malloc(sizeof(LatValor) * n);
     va_list ap;
-    size_t i;
-    LatLista* l = lista_nueva(n);
     va_start(ap, n);
-    for (i = 0; i < n; i++)
-        lista_agregar(l, va_arg(ap, LatValor));
+    for (size_t i = 0; i < n; i++) args[i] = va_arg(ap, LatValor);
     va_end(ap);
+    LatValor v = lat_lista_de_args(n, args);
+    free(args);
+    return v;
+}
+
+LatValor lat_lista_de_args(size_t n, const LatValor* args) {
+    LatValor v;
+    LatLista* l = lista_nueva(n);
+    for (size_t i = 0; i < n; i++) lista_agregar(l, args[i]);
     v.tipo = LAT_LISTA;
     v.como.lista = l;
     return v;
@@ -275,19 +281,26 @@ static void dic_poner(LatDic* d, const char* clave, LatValor valor) {
 }
 
 LatValor lat_dic_de(size_t n, ...) {
-    LatValor v;
+    LatValor* args = (LatValor*)malloc(sizeof(LatValor) * n * 2);
     va_list ap;
-    size_t i;
-    LatDic* d = dic_nuevo(n);
     va_start(ap, n);
-    for (i = 0; i < n; i++) {
-        LatValor clave = va_arg(ap, LatValor);
-        LatValor valor = va_arg(ap, LatValor);
+    for (size_t i = 0; i < n * 2; i++) args[i] = va_arg(ap, LatValor);
+    va_end(ap);
+    LatValor v = lat_dic_de_args(n, args);
+    free(args);
+    return v;
+}
+
+LatValor lat_dic_de_args(size_t n, const LatValor* args) {
+    LatValor v;
+    LatDic* d = dic_nuevo(n);
+    for (size_t i = 0; i < n; i++) {
+        LatValor clave = args[i * 2];
+        LatValor valor = args[i * 2 + 1];
         char* k = lat_a_cadena(clave);
         dic_poner(d, k, valor);
         free(k);
     }
-    va_end(ap);
     v.tipo = LAT_DICCIONARIO;
     v.como.dic = d;
     return v;
@@ -369,7 +382,8 @@ void lat_obj_set_metodo(LatValor objeto, const char* nombre, LatValor fn) {
     dic_poner(objeto.como.objeto->metodos, nombre, fn);
 }
 
-LatValor lat_obj_llamar_metodo(LatValor objeto, const char* nombre, int nargs, ...) {
+LatValor lat_obj_llamar_metodo_args(LatValor objeto, const char* nombre, int nargs,
+                                    const LatValor* valores) {
     if (objeto.tipo == LAT_OBJETO) {
         if (!objeto.como.objeto) return lat_nulo();
         LatValor metodo = dic_obtener(objeto.como.objeto->metodos, nombre);
@@ -388,11 +402,7 @@ LatValor lat_obj_llamar_metodo(LatValor objeto, const char* nombre, int nargs, .
         if (!args) return lat_nulo();
         args[0] = objeto;
 
-        va_list ap;
-        va_start(ap, nargs);
-        for (int i = 0; i < nargs; i++)
-            args[i + 1] = va_arg(ap, LatValor);
-        va_end(ap);
+        for (int i = 0; i < nargs; i++) args[i + 1] = valores[i];
 
         LatFnModulo fn = metodo.como.funcion;
         LatValor resultado = fn(nargs + 1, args);
@@ -407,11 +417,7 @@ LatValor lat_obj_llamar_metodo(LatValor objeto, const char* nombre, int nargs, .
             lat_valor_liberar(nombreCad);
             return lat_nulo();
         }
-        va_list ap;
-        va_start(ap, nargs);
-        for (int i = 0; i < nargs; i++)
-            args[i] = va_arg(ap, LatValor);
-        va_end(ap);
+        for (int i = 0; i < nargs; i++) args[i] = valores[i];
         LatValor resultado = lat_paquete_llamar_args(objeto, nombreCad, nargs, args);
         free(args);
         lat_valor_liberar(nombreCad);
@@ -422,10 +428,49 @@ LatValor lat_obj_llamar_metodo(LatValor objeto, const char* nombre, int nargs, .
     return lat_nulo();
 }
 
+LatValor lat_obj_llamar_metodo_llvm_args(LatValor objeto, const char* nombre, int nargs,
+                                         const LatValor* valores) {
+    if (objeto.tipo != LAT_OBJETO) {
+        return lat_obj_llamar_metodo_args(objeto, nombre, nargs, valores);
+    }
+    if (!objeto.como.objeto) return lat_nulo();
+    LatValor metodo = dic_obtener(objeto.como.objeto->metodos, nombre);
+    if (metodo.tipo != LAT_FUNCION) return lat_nulo();
+
+    LatValor* args = (LatValor*)malloc(sizeof(LatValor) * (size_t)(nargs + 1));
+    if (!args) return lat_nulo();
+    args[0] = objeto;
+    for (int i = 0; i < nargs; i++) args[i + 1] = valores[i];
+
+    LatValor resultado = lat_nulo();
+    LatFnLLVM fn = (LatFnLLVM)(void*)metodo.como.funcion;
+    fn(&resultado, nargs + 1, args);
+    free(args);
+    return resultado;
+}
+
+LatValor lat_obj_llamar_metodo(LatValor objeto, const char* nombre, int nargs, ...) {
+    LatValor* args = (LatValor*)malloc(sizeof(LatValor) * (size_t)nargs);
+    va_list ap;
+    va_start(ap, nargs);
+    for (int i = 0; i < nargs; i++) args[i] = va_arg(ap, LatValor);
+    va_end(ap);
+    LatValor resultado = lat_obj_llamar_metodo_args(objeto, nombre, nargs, args);
+    free(args);
+    return resultado;
+}
+
 LatValor lat_funcion_nueva(LatFnModulo fn) {
     LatValor v;
     v.tipo = LAT_FUNCION;
     v.como.funcion = fn;
+    return v;
+}
+
+LatValor lat_funcion_nueva_llvm(LatFnLLVM fn) {
+    LatValor v;
+    v.tipo = LAT_FUNCION;
+    v.como.funcion = (LatFnModulo)(void*)fn;
     return v;
 }
 
@@ -608,7 +653,7 @@ LatValor lat_obtener_indice(LatValor cont, LatValor indice) {
         free(k);
         return val;
     }
-    abortar("el valor no admite indexación");
+        abortar("el valor no admite indexación");
     return lat_nulo();
 }
 
@@ -801,13 +846,10 @@ LatValor lat_tipo(LatValor v) {
     return lat_cadena("desconocido");
 }
 
-void lat_imprimirf(size_t n, ...) {
+void lat_imprimirf_args(size_t n, const LatValor* args) {
     if (n == 0) return;
-    va_list ap;
-    va_start(ap, n);
-    LatValor fmtVal = va_arg(ap, LatValor);
+    LatValor fmtVal = args[0];
     if (fmtVal.tipo != LAT_CADENA) {
-        va_end(ap);
         return;
     }
     const char* fmt = fmtVal.como.cadena;
@@ -838,7 +880,7 @@ void lat_imprimirf(size_t n, ...) {
             if (*fmt) fmt++;
             
             if (argIdx < n) {
-                LatValor arg = va_arg(ap, LatValor);
+                LatValor arg = args[argIdx];
                 argIdx++;
                 
                 if (typeChar == 's' || typeChar == 'S') {
@@ -868,7 +910,16 @@ void lat_imprimirf(size_t n, ...) {
             fmt++;
         }
     }
+}
+
+void lat_imprimirf(size_t n, ...) {
+    LatValor* args = (LatValor*)malloc(sizeof(LatValor) * n);
+    va_list ap;
+    va_start(ap, n);
+    for (size_t i = 0; i < n; i++) args[i] = va_arg(ap, LatValor);
     va_end(ap);
+    lat_imprimirf_args(n, args);
+    free(args);
 }
 
 LatValor lat_limpiar(void) {
