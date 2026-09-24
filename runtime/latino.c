@@ -653,7 +653,7 @@ LatValor lat_obtener_indice(LatValor cont, LatValor indice) {
         free(k);
         return val;
     }
-        abortar("el valor no admite indexación");
+    abortar("el valor no admite indexación");
     return lat_nulo();
 }
 
