@@ -137,10 +137,48 @@ void ImpresorAST::visitar(Incluir& n) {
     linea("Incluir \"" + n.modulo + "\"");
 }
 
+void ImpresorAST::visitar(ImportarDecl& n) {
+    std::string firma = "Importar";
+    switch (n.tipo) {
+        case TipoImportar::Nombrado: {
+            firma += " {";
+            for (size_t i = 0; i < n.nombres.size(); ++i) {
+                if (i) firma += ",";
+                firma += " " + n.nombres[i].origen;
+                if (n.nombres[i].alias != n.nombres[i].origen)
+                    firma += " como " + n.nombres[i].alias;
+            }
+            firma += " }";
+            break;
+        }
+        case TipoImportar::Espacio:
+            firma += " * como " + n.aliasEspacio;
+            break;
+        case TipoImportar::PorDefecto:
+            firma += " " + n.nombreLocal;
+            break;
+    }
+    firma += " desde \"" + n.ruta + "\"";
+    linea(firma);
+}
+
+void ImpresorAST::visitar(ExportarDesde& n) {
+    std::string firma = "ExportarDesde {";
+    for (size_t i = 0; i < n.nombres.size(); ++i) {
+        if (i) firma += ",";
+        firma += " " + n.nombres[i].origen;
+        if (n.nombres[i].alias != n.nombres[i].origen)
+            firma += " como " + n.nombres[i].alias;
+    }
+    firma += " } desde \"" + n.ruta + "\"";
+    linea(firma);
+}
+
 void ImpresorAST::visitar(Asignacion& n) {
     std::string extra = "";
     if (n.esVar) extra = " [var]";
     else if (n.esConst) extra = " [const]";
+    if (n.exportado) extra += n.esDefecto ? " [exportado por defecto]" : " [exportado]";
     linea("Asignacion (" + std::to_string(n.destinos.size()) + " = " +
           std::to_string(n.valores.size()) + ")" + extra);
     ++nivel;
@@ -228,6 +266,27 @@ static std::string nombreTipoAst(TipoAnotado t) {
     }
 }
 
+// PLAN_FFI.md: nombre de lexema de un TipoFFI (para --ast, no usado por el
+// parser -- el parser va de lexema a enum, no al revés).
+static std::string nombreTipoFFI(TipoFFI t) {
+    switch (t) {
+        case TipoFFI::Numero:    return "numero";
+        case TipoFFI::Logico:    return "logico";
+        case TipoFFI::Cadena:    return "cadena";
+        case TipoFFI::Nulo:      return "nulo";
+        case TipoFFI::Entero8:   return "entero8";
+        case TipoFFI::Entero16:  return "entero16";
+        case TipoFFI::Entero32:  return "entero32";
+        case TipoFFI::Entero64:  return "entero64";
+        case TipoFFI::Natural8:  return "natural8";
+        case TipoFFI::Natural16: return "natural16";
+        case TipoFFI::Natural32: return "natural32";
+        case TipoFFI::Natural64: return "natural64";
+        case TipoFFI::Puntero:   return "puntero";
+    }
+    return "";
+}
+
 void ImpresorAST::visitar(FuncionDef& n) {
     std::string firma = "Funcion '" + n.nombre + "' (";
     for (size_t i = 0; i < n.parametros.size(); ++i) {
@@ -241,6 +300,8 @@ void ImpresorAST::visitar(FuncionDef& n) {
     firma += ")";
     if (n.tipoRetorno != TipoAnotado::Ninguno)
         firma += " -> " + nombreTipoAst(n.tipoRetorno);
+    if (n.exportado) firma += n.esDefecto ? " [exportado por defecto]" : " [exportado]";
+    if (n.inseguro) firma += " [inseguro]";  // PLAN_FFI.md
     linea(firma);
     linea("cuerpo:");
     hijos(n.cuerpo);
@@ -249,4 +310,137 @@ void ImpresorAST::visitar(FuncionDef& n) {
 void ImpresorAST::visitar(Retornar& n) {
     linea("Retornar");
     if (n.valor) hijo(*n.valor);
+}
+
+// --- POO ---------------------------------------------------------------
+
+static std::string accesoATexto(ModificadorAcceso a) {
+    switch (a) {
+        case ModificadorAcceso::Publico:   return "publico";
+        case ModificadorAcceso::Privado:   return "privado";
+        case ModificadorAcceso::Protegido: return "protegido";
+    }
+    return "publico";
+}
+
+// Nombre del tipo anotado de un campo/retorno/parámetro POO, incluyendo el
+// nombre de clase cuando el tipo es un objeto definido por el usuario.
+static std::string tipoPooATexto(TipoAnotado t, const std::string& clase) {
+    if (t == TipoAnotado::Objeto) return clase;
+    return nombreTipoAst(t);
+}
+
+void ImpresorAST::campo(const CampoDef& c) {
+    std::string firma = "Campo '" + c.nombre + "' [" + accesoATexto(c.acceso) + "]";
+    if (c.esEstatico) firma += " [estatico]";
+    std::string tipo = tipoPooATexto(c.tipoAnotado, c.tipoClase);
+    if (!tipo.empty()) firma += ": " + tipo;
+    linea(firma);
+    if (c.valorDefecto) hijo(*c.valorDefecto);
+}
+
+void ImpresorAST::metodo(MetodoDef& m) {
+    std::string firma = "Metodo '" + m.nombre + "' [" + accesoATexto(m.acceso) + "] (";
+    for (size_t i = 0; i < m.parametros.size(); ++i) {
+        if (i) firma += ", ";
+        firma += m.parametros[i].nombre;
+        std::string tipoParam = tipoPooATexto(m.parametros[i].tipo, m.parametros[i].tipoClase);
+        if (!tipoParam.empty()) firma += ":" + tipoParam;
+    }
+    firma += ")";
+    std::string tipoRet = tipoPooATexto(m.tipoRetorno, m.tipoRetornoClase);
+    if (!tipoRet.empty()) firma += " -> " + tipoRet;
+    if (m.esEstatico) firma += " [estatico]";
+    if (m.esAbstracto) firma += " [abstracto]";
+    if (m.esSobreescritura) firma += " [sobreescribir]";
+    if (m.esConstructor) firma += " [constructor]";
+    linea(firma);
+    if (!m.cuerpo.empty()) {
+        linea("cuerpo:");
+        hijos(m.cuerpo);
+    }
+}
+
+void ImpresorAST::visitar(ClaseDef& n) {
+    std::string firma = "Clase '" + n.nombre + "'";
+    if (n.esAbstracta) firma += " [abstracta]";
+    if (!n.padre.empty()) firma += " extiende " + n.padre;
+    if (!n.interfaces.empty()) {
+        firma += " implementa ";
+        for (size_t i = 0; i < n.interfaces.size(); ++i) {
+            if (i) firma += ", ";
+            firma += n.interfaces[i];
+        }
+    }
+    if (n.exportado) firma += n.esDefecto ? " [exportado por defecto]" : " [exportado]";
+    linea(firma);
+    ++nivel;
+    for (const CampoDef& c : n.campos) campo(c);
+    for (MetodoDef& m : n.metodos) metodo(m);
+    --nivel;
+}
+
+void ImpresorAST::visitar(EstructuraDef& n) {
+    std::string firma = "Estructura '" + n.nombre + "'";
+    if (n.exportado) firma += n.esDefecto ? " [exportado por defecto]" : " [exportado]";
+    linea(firma);
+    ++nivel;
+    for (const CampoDef& c : n.campos) campo(c);
+    for (MetodoDef& m : n.metodos) metodo(m);
+    --nivel;
+}
+
+void ImpresorAST::visitar(InterfazDef& n) {
+    std::string firma = "Interfaz '" + n.nombre + "'";
+    if (n.exportado) firma += n.esDefecto ? " [exportado por defecto]" : " [exportado]";
+    linea(firma);
+    ++nivel;
+    for (MetodoDef& m : n.metodos) metodo(m);
+    --nivel;
+}
+
+void ImpresorAST::visitar(NuevoExpr& n) {
+    linea("Nuevo '" + n.clase + "' (" + std::to_string(n.argumentos.size()) + " args)");
+    for (auto& a : n.argumentos)
+        if (a) hijo(*a);
+}
+
+void ImpresorAST::visitar(EsExpr& n) {
+    linea("Es '" + n.clase + "'");
+    if (n.objeto) hijo(*n.objeto);
+}
+
+void ImpresorAST::visitar(AccesoEste&) {
+    linea("Este");
+}
+
+void ImpresorAST::visitar(LlamadaBase& n) {
+    linea("LlamadaBase (" + std::to_string(n.argumentos.size()) + " args)");
+    for (auto& a : n.argumentos)
+        if (a) hijo(*a);
+}
+
+// --- FFI con C (PLAN_FFI.md) --------------------------------------------
+
+void ImpresorAST::visitar(ExternoBloque& n) {
+    std::string firma = "Externo";
+    if (!n.enlazar.empty()) firma += " enlazar \"" + n.enlazar + "\"";
+    linea(firma);
+    ++nivel;
+    for (const FuncionExterna& f : n.funciones) {
+        std::string firmaFn = "Funcion '" + f.nombre + "' (";
+        for (size_t i = 0; i < f.parametros.size(); ++i) {
+            if (i) firmaFn += ", ";
+            firmaFn += f.parametros[i].nombre + ":" + nombreTipoFFI(f.parametros[i].tipo);
+        }
+        firmaFn += ") -> " + nombreTipoFFI(f.tipoRetorno);
+        linea(firmaFn);
+    }
+    --nivel;
+}
+
+void ImpresorAST::visitar(InseguroBloque& n) {
+    linea("Inseguro");
+    linea("cuerpo:");
+    hijos(n.cuerpo);
 }

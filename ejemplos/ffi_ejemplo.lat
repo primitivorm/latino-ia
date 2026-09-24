@@ -1,0 +1,32 @@
+# FFI con C al estilo de Rust (PLAN_FFI.md): un bloque "externo" declara la
+# firma REAL de una función C (tipos con ancho fijo, punteros opacos) y la
+# llama directamente, sin escribir ningún código C intermedio -- distinto de
+# "incluir \"paquete\"" (carga dinámica en runtime con una firma ya
+# empaquetada a Latino, ver paquete_ejemplo.lat).
+#
+# Sin "enlazar": los símbolos ya están en el runtime C que todo ejecutable
+# Latino enlaza siempre (msvcrt/ucrt en Windows, libc en Linux/macOS).
+externo
+    funcion abs(n: entero32): entero32
+    funcion strlen(s: cadena): entero64
+fin
+
+# Toda llamada a una función "externo" debe ocurrir dentro de un bloque
+# "inseguro" (análogo a "unsafe" en Rust) -- un chequeo puramente estático,
+# sin ningún efecto en tiempo de ejecución.
+inseguro
+    escribir(abs(-5))            #salida: 5
+    escribir(strlen("hola"))     #salida: 4
+fin
+
+# También se puede marcar una función completa como "inseguro", en vez de
+# envolver cada llamada en su propio bloque.
+externo
+    funcion toupper(c: entero32): entero32
+fin
+
+funcion inseguro mayuscula_de(letra: numero)
+    retornar toupper(letra)
+fin
+
+escribir(mayuscula_de(97))    #salida: 65

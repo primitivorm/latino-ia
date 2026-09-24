@@ -11,7 +11,7 @@ enum class TokenType {
     Flotante,          // 3.14159
     Cadena,            // "hola", 'A'  (el lexema NO incluye las comillas)
     PalabraReservada,  // si, sino, desde, funcion, ...
-    Operador,          // + - * / % ^  && ||  .. ++ --  == != < > <= >= ~=  =  .  ? :  ...
+    Operador,          // + - * / % ^  && ||  .. ++ --  == != < > <= >= ~=  =  .  ? :  ...  ::
     Delimitador,       // ( ) [ ] { } , ;
     FinDeLinea,        // salto(s) de línea: terminador de sentencia en Latino
     FinDeArchivo       // fin del código fuente

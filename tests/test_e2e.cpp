@@ -98,7 +98,8 @@ static std::vector<std::string> extraerTokensEsperados(const std::string& rutaLa
 
 int main(int argc, char* argv[]) {
     if (argc < 5) {
-        std::cerr << "Uso: " << argv[0] << " <ruta_a_latino> <archivo.lat> <ruta_salida_exe> <directorio_runtime>\n";
+        std::cerr << "Uso: " << argv[0]
+                  << " <ruta_a_latino> <archivo.lat> <ruta_salida_exe> <directorio_runtime> [backend c|llvm]\n";
         return 2;
     }
 
@@ -106,6 +107,12 @@ int main(int argc, char* argv[]) {
     std::string archivoLat = argv[2];
     std::string salidaExe = argv[3];
     std::string runtimeDir = argv[4];
+    // Fase L11 (ver input/PLAN_LLVM.md): backend opcional, default "c" -- el
+    // mismo arnés E2E se reutiliza contra --backend=llvm sin duplicar el
+    // archivo (test_e2e_llvm.cpp), registrado por tests/CMakeLists.txt como
+    // pruebas "e2e_<ejemplo>_llvm" adicionales cuando LATINO_LLVM_BACKEND
+    // está habilitado.
+    std::string backend = (argc >= 6) ? argv[5] : "c";
 
     std::cout << "[E2E] Analizando: " << archivoLat << std::endl;
 
@@ -119,7 +126,8 @@ int main(int argc, char* argv[]) {
     // 2. Compilar el archivo .lat usando latino.
     std::string cmdCompilacion = entrecomillar(compilador) + " " + entrecomillar(archivoLat) +
                                  " -o " + entrecomillar(salidaExe) +
-                                 " --runtime " + entrecomillar(runtimeDir);
+                                 " --runtime " + entrecomillar(runtimeDir) +
+                                 " --backend " + backend;
 
     std::cout << "[E2E] Compilando: " << cmdCompilacion << std::endl;
     std::string stdoutCompilacion;

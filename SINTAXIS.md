@@ -383,19 +383,291 @@ actores["Chilindrina"] = "Maria Antonieta"
 escribir(actores["Chilindrina"])
 #salida: Maria Antonieta
 ```
+## X. Módulos: `exportar` / `importar`
+
+Cada archivo `.lat` puede comportarse como un módulo con ámbito propio, al
+estilo de ES Modules/TypeScript. Si un archivo no usa ni `exportar` ni
+`importar`, sigue siendo un script plano de siempre, compatible con
+`incluir "archivo.lat"` — ese mecanismo no cambia y sigue siendo el
+indicado para librerías estándar (`incluir "cadena"`, etc.) y para scripts
+que no necesitan aislamiento de nombres.
+
+### Exportar
+
+Anteponer `exportar` a una declaración de nivel superior (función, clase,
+estructura, interfaz, `var`/`const` o asignación simple) la hace parte de
+la API pública del archivo. Toda declaración de nivel superior que **no**
+lleve `exportar` es privada a ese módulo y no puede importarse desde otro
+archivo.
+
+```python
+exportar const PI = 3.14159
+
+exportar funcion area_circulo(r)
+    retornar PI * r * r
+fin
+
+funcion normalizar_radio(r)     # privada: no visible desde otro archivo
+    retornar r < 0 ? 0 : r
+fin
+```
+
+También existe `exportar por defecto`, del cual solo puede haber uno por
+archivo, y que puede envolver una expresión, una función o una clase:
+
+```python
+exportar por defecto funcion saludar(nombre)
+    retornar "Hola, " .. nombre
+fin
+```
+
+### Importar
+
+```python
+# Nombrado, con alias opcional
+importar { area_circulo, Circulo } desde "geometria.lat"
+importar { area_circulo como area } desde "geometria.lat"
+
+# Espacio de nombres completo
+importar * como geo desde "geometria.lat"
+
+# Por defecto
+importar Config desde "config.lat"
+
+escribir(area_circulo(2))
+escribir(geo.area_circulo(2))
+c = nuevo geo.Circulo(3)
+```
+
+Un nombre calificado por namespace (`geo.X`) también puede usarse como tipo:
+`nuevo geo.Circulo(...)`, `expr es geo.Circulo`, `extiende geo.Circulo`,
+`implementa geo.Figura`, o como anotación de tipo de un campo/parámetro.
+
+Importar de un archivo que no exportó ese nombre es un error de
+compilación (`el módulo 'X.lat' no exporta 'nombre'`); importar de un
+archivo que nunca usó `exportar` también lo es, y sugiere `incluir` en su
+lugar. Los imports circulares también son un error de compilación, con la
+cadena de archivos involucrados.
+
+`exportar { X } desde "otro.lat"` (re-export/"barril", para reexportar
+piezas de otro módulo sin darles un nombre local en el archivo actual) se
+acepta en el parser, pero su resolución todavía no está implementada.
+
+### Palabras reservadas nuevas
+
+| Palabra | Uso |
+|---|---|
+| `exportar` | marca una declaración como parte de la API pública del módulo |
+| `importar` | trae nombres exportados de otro módulo al ámbito actual |
+| `como` | alias en `importar`/`exportar` (`X como Y`, `importar * como ns`) |
+
+(`desde` y `defecto` ya eran palabras reservadas antes de este mecanismo.)
+
+## XI. Genéricos
+
+Funciones, clases, estructuras e interfaces pueden declarar parámetros de
+tipo entre `<>`, al estilo de Rust. Un parámetro genérico se comporta como
+"cualquier tipo, pero siempre el mismo dentro de ese uso" — a diferencia de
+Rust, el runtime de Latino ya es dinámicamente tipado (`LatValor`), así que
+no hay especialización de código por tipo concreto: `identidad(5)` e
+`identidad("hola")` comparten exactamente el mismo código compilado.
+
+```latino
+funcion identidad<T>(x: T): T
+    retornar x
+fin
+
+escribir(identidad(5))                # 5 — T inferido de "5"
+escribir(identidad::<cadena>("hola"))  # hola — turbofish explícito
+```
+
+### Restricciones ("bounds")
+
+Un bound exige que el tipo concreto implemente una interfaz. Se combinan
+con `+`, y también pueden escribirse en una cláusula `donde` al final de
+la firma:
+
+```latino
+interfaz Comparable
+    funcion compararCon(otroValor: Comparable): numero
+fin
+
+funcion maximo<T: Comparable>(a: T, b: T): T
+    retornar a.compararCon(b) >= 0 ? a : b
+fin
+
+# Equivalente con "donde":
+funcion maximo2<T>(a: T, b: T): T donde T: Comparable
+    retornar a.compararCon(b) >= 0 ? a : b
+fin
+```
+
+### Clases y estructuras genéricas
+
+```latino
+clase Pila<T>
+    privado items: lista
+
+    funcion Pila()
+        este.items = []
+    fin
+
+    publico funcion apilar(valor: T)
+        lista.agregar(este.items, valor)
+    fin
+
+    publico funcion cima(): T
+        retornar lista.ultimo(este.items)
+    fin
+fin
+
+p: Pila<numero> = nuevo Pila<numero>()
+p.apilar(1)
+p.apilar(2)
+escribir(p.cima())   # 2
+```
+
+`lista`/`dic` aceptan la misma sintaxis como azúcar documental/estática:
+`nums: lista<numero> = [1, 2, 3]`.
+
+### Turbofish (`::<...>`)
+
+`<...>` solo es válido en posición de tipo (declaración, anotación,
+`nuevo Clase<...>()`) — nunca en posición de expresión, porque
+`identidad<numero>(5)` sería ambiguo con una comparación encadenada. Para
+dar un argumento de tipo explícito en una llamada se usa `::<...>`, igual
+que en Rust:
+
+```latino
+funcion vacio<T>(): T
+    retornar nulo
+fin
+
+x = vacio::<numero>()   # T solo aparece en el retorno: turbofish obligatorio
+```
+
+Los bounds se verifican en tiempo de compilación cuando el tipo concreto
+se conoce (literal, `nuevo Clase(...)`, variable anotada, o turbofish); si
+el valor es dinámico, se degrada igual que el resto del tipado gradual
+(sin chequeo). Plan completo, decisiones de diseño y alcance en
+[input/PLAN_GENERICOS.md](input/PLAN_GENERICOS.md).
+
+## XII. FFI con C: `externo` / `inseguro`
+
+Un bloque `externo` declara la firma **real** de una función C (tipos con
+ancho fijo, punteros opacos) para llamarla directamente, sin escribir
+ningún código C intermedio — el mismo modelo mental que `extern "C"` de
+Rust. Se resuelve en tiempo de **compilación** (el linker del sistema
+busca el símbolo al enlazar el ejecutable), a diferencia de
+`paquete.cargar`/`paquete.llamar` (carga dinámica en runtime, con una
+firma ya empaquetada a Latino) — ambos mecanismos conviven, cada uno
+resuelve un problema distinto.
+
+```latino
+# Sin "enlazar": el símbolo ya está en el runtime C que todo ejecutable
+# Latino enlaza siempre (msvcrt/ucrt en Windows, libc en Linux/macOS).
+externo
+    funcion abs(n: entero32): entero32
+    funcion strlen(s: cadena): entero64
+fin
+
+# Con "enlazar": biblioteca de importación adicional para el enlace.
+externo enlazar "user32"
+    funcion MessageBoxA(hwnd: puntero, texto: cadena, titulo: cadena,
+                         tipo: entero32): entero32
+fin
+```
+
+Toda llamada a una función `externo` debe ocurrir dentro de un bloque
+`inseguro ... fin`, o dentro de una función marcada `funcion inseguro`
+— análogo a `unsafe` en Rust: un chequeo puramente estático (para que el
+uso de FFI sea visible en una revisión de código), sin ningún efecto en
+tiempo de ejecución.
+
+```latino
+inseguro
+    escribir(abs(-5))            # 5
+    escribir(strlen("hola"))     # 4
+fin
+
+funcion inseguro saludar_nativo()
+    MessageBoxA(nulo, "Hola desde Latino", "FFI", 0)
+fin
+```
+
+### Tipos FFI
+
+`numero`/`cadena`/`logico`/`nulo` se reutilizan tal cual en una firma
+`externo` (mapeo exacto y sin pérdida a `double`/`const char*`/`int`/
+`void`). Los anchos fijos y el puntero opaco son exclusivos de FFI —
+nunca se exponen los tipos C ambiguos por plataforma (`int`, `long`,
+`size_t`):
+
+| Tipo | Tipo C | Nota |
+|---|---|---|
+| `entero8` / `16` / `32` / `64` | `int8_t` … `int64_t` | con signo |
+| `natural8` / `16` / `32` / `64` | `uint8_t` … `uint64_t` | sin signo |
+| `puntero` | `void*` | opaco: no se indexa ni se lee desde Latino |
+
+Un `entero64`/`natural64` que vuelve a Latino con un valor mayor a 2^53
+pierde precisión (`LatValor` numérico es un `double`), igual que los
+`Number` de JavaScript.
+
+### Punteros opacos
+
+```latino
+externo
+    funcion malloc(tam: entero64): puntero
+    funcion free(p: puntero)
+fin
+
+inseguro
+    p = malloc(16)
+    si p == nulo
+        escribir("sin memoria")
+    sino
+        free(p)
+    fin
+fin
+```
+
+`p == nulo` / `p != nulo` funcionan con el operador de igualdad normal;
+`p es nulo` **no** — `es` solo acepta un nombre de clase a su derecha. El
+ciclo de vida de un `puntero` es responsabilidad del programador: Latino
+no tiene un destructor determinístico para él (misma responsabilidad que
+deja `unsafe` en Rust).
+
+### Palabras reservadas nuevas
+
+| Palabra | Uso |
+|---|---|
+| `externo` | abre un bloque de declaraciones de funciones nativas |
+| `enlazar` | (dentro de `externo`) biblioteca de importación adicional a enlazar |
+| `inseguro` | habilita, en un bloque o una función completa, llamar funciones `externo` |
+
+Plan completo, decisiones de diseño y alcance en
+[input/PLAN_FFI.md](input/PLAN_FFI.md).
+
 <a name="plbrsRvds"></a>
-## X. Palabras reservadas hasta el momento
+## XIII. Palabras reservadas hasta el momento
 ```
 caso
 cierto  | verdadero
+como
 defecto | otro
 desde
+donde
 elegir
+enlazar
+exportar
+externo
 falso
 fin
 funcion | fun
 global
 hasta
+importar
+inseguro
 mientras
 nulo
 para

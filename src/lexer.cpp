@@ -198,6 +198,7 @@ Token Lexer::getNextToken() {
         case '?':
             return Token{TokenType::Operador, "?", startLine};
         case ':':
+            if (peekChar() == ':') { getNextChar(); return Token{TokenType::Operador, "::", startLine}; }
             return Token{TokenType::Operador, ":", startLine};
     }
 
@@ -211,10 +212,24 @@ void Lexer::reportError(const std::string& message, int line) {
 
 bool Lexer::esPalabraReservada(const std::string& palabra) const {
     static const std::set<std::string> palabrasReservadas = {
+        // Existentes
         "caso", "cierto", "verdadero", "defecto", "otro", "desde", "elegir", "falso", "fin",
         "funcion", "fun", "global", "hasta", "incluir", "mientras", "nulo", "para", "repetir",
         "regresar", "retornar", "ret", "romper", "si", "sino", "osi",
-        "var", "const"
+        "var", "const",
+        // Nuevas palabras reservadas para POO (PLAN_POO.md)
+        "clase", "estructura", "interfaz",
+        "nuevo", "este", "base",
+        "extiende", "implementa",
+        "publico", "privado", "protegido",
+        "abstracto", "estatico", "sobreescribir",
+        "es",
+        // Nuevas palabras reservadas para módulos (PLAN_MODULOS.md)
+        "exportar", "importar", "como",
+        // Nueva palabra reservada para genéricos (PLAN_GENERICOS.md)
+        "donde",
+        // Nuevas palabras reservadas para FFI con C (PLAN_FFI.md)
+        "externo", "enlazar", "inseguro"
     };
 
     return palabrasReservadas.count(palabra) > 0;

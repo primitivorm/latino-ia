@@ -7,10 +7,15 @@
 #define INVOCADOR_C_H
 
 #include <string>
+#include <vector>
 
 struct OpcionesC {
     // Carpeta del runtime (latino.h / latino.c). Vacío = usar LATINO_RUNTIME_DIR.
     std::string runtimeDir;
+    // PLAN_FFI.md (F5): bibliotecas nombradas por "externo enlazar \"lib\"".
+    // En MSVC no se usan (el propio .c ya lleva "#pragma comment(lib,...)");
+    // en GNU/Clang se agregan como "-l<lib>" a la línea de enlace.
+    std::vector<std::string> bibliotecasEnlazar;
 };
 
 // Compila `archivoC` (que hace #include "latino.h") y lo enlaza con el runtime

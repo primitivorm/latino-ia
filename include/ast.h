@@ -26,13 +26,83 @@ enum class TipoAnotado {
     Logico,
     Lista,
     Dic,
-    Nulo
+    Nulo,
+    Objeto  // NUEVO: tipo personalizado (clase/estructura/interfaz)
 };
 
 // Parámetro de función con anotación de tipo opcional.
 struct ParamFuncion {
     std::string nombre;
     TipoAnotado tipo = TipoAnotado::Ninguno;
+    std::string tipoClase;        // nombre de clase si tipo == Objeto
+    std::vector<std::string> tipoArgs;  // PLAN_GENERICOS.md: argumentos entre <> de tipoClase (p.ej. "Pila<numero>")
+};
+
+// --- FFI con C al estilo de Rust (PLAN_FFI.md) -----------------------------
+// Vocabulario de tipos de una firma "externo", distinto de TipoAnotado: los
+// tipos de TipoAnotado describen un LatValor dinámico verificado en runtime;
+// los de TipoFFI describen el tipo C real de un parámetro/retorno nativo.
+// Numero/Logico/Cadena/Nulo se reutilizan (mapeo exacto y sin pérdida contra
+// double/int/const char*/void); Entero*/Natural*/Puntero son exclusivos de
+// FFI (ver tabla de tipos en PLAN_FFI.md).
+enum class TipoFFI {
+    Numero,     // double            (== LAT_NUMERO)
+    Logico,     // int (0/1)         (== LAT_LOGICO)
+    Cadena,     // const char*       (== LAT_CADENA, terminada en nulo)
+    Nulo,       // void, solo como tipo de retorno
+    Entero8,
+    Entero16,
+    Entero32,
+    Entero64,
+    Natural8,
+    Natural16,
+    Natural32,
+    Natural64,
+    Puntero     // void* opaco       (nuevo LAT_PUNTERO en runtime)
+};
+
+// Parámetro de una firma "externo": nombre + tipo FFI (sin valor por defecto).
+struct ParamFFI {
+    std::string nombre;
+    TipoFFI tipo = TipoFFI::Numero;
+    int linea = 0;
+};
+
+// Una firma de función dentro de un bloque "externo" (sin cuerpo):
+//   funcion nombre(param0: TipoFFI, ...): TipoFFI
+struct FuncionExterna {
+    std::string nombre;
+    std::vector<ParamFFI> parametros;
+    TipoFFI tipoRetorno = TipoFFI::Nulo;
+    int linea = 0;
+};
+
+// --- Genéricos (PLAN_GENERICOS.md: clase/estructura/interfaz/funcion<T>) ---
+// Un parámetro de tipo declarado entre <> (p.ej. el "T" de "clase Pila<T>"),
+// con sus restricciones ("bounds") opcionales: nombres de interfaces que el
+// tipo concreto sustituido debe implementar. Puede llenarse tanto desde la
+// sintaxis inline (T: Comparable + Imprimible) como desde una cláusula
+// "donde" al final de la firma.
+struct ParametroGenerico {
+    std::string nombre;
+    std::vector<std::string> bounds;
+    int linea = 0;
+};
+
+// --- Módulos (PLAN_MODULOS.md: exportar / importar) ------------------------
+// Forma de un "importar": nombrado con alias, espacio de nombres completo, o
+// por defecto. Ver "Sintaxis propuesta" en input/PLAN_MODULOS.md.
+enum class TipoImportar {
+    Nombrado,    // importar { a, b como c } desde "ruta"
+    Espacio,     // importar * como ns desde "ruta"
+    PorDefecto   // importar Nombre desde "ruta"
+};
+
+// Un nombre importado/re-exportado, con su alias local opcional.
+// alias == origen cuando no hay "como".
+struct NombreImportado {
+    std::string origen;
+    std::string alias;
 };
 
 // --- Declaraciones adelantadas de todos los nodos concretos ---------------
@@ -52,8 +122,15 @@ struct ListaLiteral;
 struct DiccionarioLiteral;
 struct VarArgs;
 
+// Nuevos nodos POO
+struct NuevoExpr;
+struct EsExpr;
+struct AccesoEste;
+
 struct Programa;
 struct Incluir;
+struct ImportarDecl;
+struct ExportarDesde;
 struct Asignacion;
 struct ExprSentencia;
 struct Si;
@@ -64,6 +141,16 @@ struct Repetir;
 struct Romper;
 struct FuncionDef;
 struct Retornar;
+
+// Declaraciones adelantadas para definiciones de tipos (clase/estructura/interfaz)
+struct ClaseDef;
+struct EstructuraDef;
+struct InterfazDef;
+struct LlamadaBase;
+
+// Declaraciones adelantadas para FFI (PLAN_FFI.md)
+struct ExternoBloque;
+struct InseguroBloque;
 
 // --- Interfaz del Visitante -----------------------------------------------
 struct Visitante {
@@ -86,9 +173,27 @@ struct Visitante {
     virtual void visitar(DiccionarioLiteral&) = 0;
     virtual void visitar(VarArgs&) = 0;
 
+    // Visitantes por defecto para nodos POO (no-op aquí para no romper visitantes existentes)
+    virtual void visitar(ClaseDef&) {}
+    virtual void visitar(EstructuraDef&) {}
+    virtual void visitar(InterfazDef&) {}
+    virtual void visitar(NuevoExpr&) {}
+    virtual void visitar(EsExpr&) {}
+    virtual void visitar(AccesoEste&) {}
+    virtual void visitar(LlamadaBase&) {}
+
     // Sentencias
     virtual void visitar(Programa&) = 0;
     virtual void visitar(Incluir&) {}   // no-op por defecto; los visitantes que no la necesiten no deben sobreescribirla
+    // no-op por defecto: el ResolutorModulos los consume y elimina del árbol
+    // antes de AnalizadorSemantico/GeneradorC/GeneradorLLVM (PLAN_MODULOS.md)
+    virtual void visitar(ImportarDecl&) {}
+    virtual void visitar(ExportarDesde&) {}
+    // Visitantes por defecto para FFI (PLAN_FFI.md): no-op aquí, igual que
+    // ClaseDef/EstructuraDef/InterfazDef, para no romper visitantes existentes
+    // hasta que el análisis semántico/codegen los implementen (F4/F5/F6).
+    virtual void visitar(ExternoBloque&) {}
+    virtual void visitar(InseguroBloque&) {}
     virtual void visitar(Asignacion&) = 0;
     virtual void visitar(ExprSentencia&) = 0;
     virtual void visitar(Si&) = 0;
@@ -114,6 +219,42 @@ struct Sentencia : Nodo {};
 using ExprPtr = std::unique_ptr<Expresion>;
 using SentPtr = std::unique_ptr<Sentencia>;
 using ListaSent = std::vector<SentPtr>;
+
+// Modificadores de acceso para campos y métodos (publico/privado/protegido)
+enum class ModificadorAcceso {
+    Publico,
+    Privado,
+    Protegido
+};
+
+// Declaración de un campo (propiedad) dentro de una clase/estructura
+struct CampoDef {
+    std::string nombre;
+    TipoAnotado tipoAnotado = TipoAnotado::Ninguno;
+    std::string tipoClase;        // nombre de clase si tipoAnotado == Objeto
+    std::vector<std::string> tipoArgs;  // PLAN_GENERICOS.md: argumentos entre <> de tipoClase
+    ModificadorAcceso acceso = ModificadorAcceso::Publico;
+    bool esEstatico = false;
+    ExprPtr valorDefecto;         // valor por defecto (opcional)
+    int linea = 0;
+};
+
+// Declaración de un método dentro de una clase/estructura/interfaz
+struct MetodoDef {
+    std::string nombre;
+    std::vector<ParamFuncion> parametros;
+    TipoAnotado tipoRetorno = TipoAnotado::Ninguno;
+    std::string tipoRetornoClase;  // nombre de clase como tipo retorno
+    std::vector<std::string> tipoRetornoArgs;  // PLAN_GENERICOS.md: argumentos entre <> de tipoRetornoClase
+    std::vector<ParametroGenerico> genericos;  // PLAN_GENERICOS.md: <T, U: Bound> propio del método
+    ModificadorAcceso acceso = ModificadorAcceso::Publico;
+    bool esEstatico = false;
+    bool esAbstracto = false;
+    bool esSobreescritura = false; // marcado con `sobreescribir`
+    bool esConstructor = false;    // nombre == nombre de la clase
+    ListaSent cuerpo;              // vacío si es abstracto o de interfaz
+    int linea = 0;
+};
 
 // Macro de conveniencia para implementar `aceptar` en cada nodo concreto.
 #define LATINO_ACEPTAR \
@@ -198,6 +339,7 @@ struct AccesoMiembro : Expresion {
 struct Llamada : Expresion {
     ExprPtr destino;
     std::vector<ExprPtr> argumentos;
+    std::vector<std::string> tipoArgsExplicitos;  // PLAN_GENERICOS.md: turbofish destino::<T, U>(...)
     LATINO_ACEPTAR
 };
 
@@ -238,6 +380,28 @@ struct Incluir : Sentencia {
     LATINO_ACEPTAR
 };
 
+// importar { a, b como c } desde "ruta"        (tipo == Nombrado)
+// importar * como ns desde "ruta"              (tipo == Espacio, usa aliasEspacio)
+// importar Nombre desde "ruta"                 (tipo == PorDefecto, usa nombreLocal)
+// Ver PLAN_MODULOS.md. El ResolutorModulos resuelve y elimina este nodo del
+// árbol antes del análisis semántico; no requiere visitar() en los backends.
+struct ImportarDecl : Sentencia {
+    std::string ruta;
+    TipoImportar tipo = TipoImportar::Nombrado;
+    std::vector<NombreImportado> nombres;  // usado si tipo == Nombrado
+    std::string aliasEspacio;              // usado si tipo == Espacio
+    std::string nombreLocal;               // usado si tipo == PorDefecto
+    LATINO_ACEPTAR
+};
+
+// exportar { a, b como c } desde "ruta"   (re-export / barril, sin binding local)
+// Ver PLAN_MODULOS.md.
+struct ExportarDesde : Sentencia {
+    std::string ruta;
+    std::vector<NombreImportado> nombres;  // origen en el módulo referenciado -> alias re-exportado
+    LATINO_ACEPTAR
+};
+
 // Asignación (posiblemente múltiple): destinos = valores
 //   a = 1                -> 1 destino, 1 valor
 //   a, b, c = 1, 2, 3    -> 3 destinos, 3 valores
@@ -250,6 +414,8 @@ struct Asignacion : Sentencia {
     std::vector<TipoAnotado> tiposDestino;
     bool esVar = false;
     bool esConst = false;
+    bool exportado = false;  // PLAN_MODULOS.md: prefijo "exportar" en nivel superior
+    bool esDefecto = false;  // "exportar por defecto ..."
     LATINO_ACEPTAR
 };
 
@@ -323,16 +489,117 @@ struct Romper : Sentencia {
 //   funcion suma(a: numero, b: numero): numero
 struct FuncionDef : Sentencia {
     std::string nombre;
+    std::vector<ParametroGenerico> genericos;  // PLAN_GENERICOS.md: <T, U: Bound>
     std::vector<ParamFuncion> parametros;
     TipoAnotado tipoRetorno = TipoAnotado::Ninguno;
+    std::string tipoRetornoClase;  // nombre de clase si tipoRetorno == Objeto
+    std::vector<std::string> tipoRetornoArgs;  // PLAN_GENERICOS.md: argumentos entre <> de tipoRetornoClase
     bool variadico = false;  // true si el último parámetro es "..."
     ListaSent cuerpo;
+    bool exportado = false;  // PLAN_MODULOS.md: prefijo "exportar"
+    bool esDefecto = false;  // "exportar por defecto funcion ..."
+    bool inseguro = false;   // PLAN_FFI.md: "funcion inseguro nombre(...)"
     LATINO_ACEPTAR
 };
 
 // regresar/retornar/ret  [valor]
 struct Retornar : Sentencia {
     ExprPtr valor;  // puede ser nulo (retornar sin valor)
+    LATINO_ACEPTAR
+};
+
+// --- Nodos añadidos para POO ----------------------------------------------
+
+// clase NombreClase [extiende Padre] [implementa I1, I2, ...]
+//     campos...
+//     metodos...
+// fin
+struct ClaseDef : Sentencia {
+    std::string nombre;
+    std::vector<ParametroGenerico> genericos;    // PLAN_GENERICOS.md: <T, U: Bound>
+    std::string padre;                           // "" si no hereda
+    std::vector<std::string> interfaces;         // interfaces implementadas
+    bool esAbstracta = false;
+    std::vector<CampoDef> campos;
+    std::vector<MetodoDef> metodos;
+    bool exportado = false;  // PLAN_MODULOS.md: prefijo "exportar"
+    bool esDefecto = false;  // "exportar por defecto clase ..."
+    LATINO_ACEPTAR
+};
+
+// estructura NombreEstructura
+//     campos...
+//     metodos...
+// fin
+struct EstructuraDef : Sentencia {
+    std::string nombre;
+    std::vector<ParametroGenerico> genericos;  // PLAN_GENERICOS.md: <T, U: Bound>
+    std::vector<CampoDef> campos;
+    std::vector<MetodoDef> metodos;
+    bool exportado = false;  // PLAN_MODULOS.md: prefijo "exportar"
+    bool esDefecto = false;
+    LATINO_ACEPTAR
+};
+
+// interfaz NombreInterfaz
+//     firmas de metodos...
+// fin
+struct InterfazDef : Sentencia {
+    std::string nombre;
+    std::vector<ParametroGenerico> genericos;  // PLAN_GENERICOS.md: <T, U: Bound>
+    std::vector<MetodoDef> metodos;  // todos sin cuerpo
+    bool exportado = false;  // PLAN_MODULOS.md: prefijo "exportar"
+    bool esDefecto = false;
+    LATINO_ACEPTAR
+};
+
+// nuevo NombreClase(arg1, arg2, ...)
+// nuevo NombreClase<TipoArg, ...>(arg1, arg2, ...)  (PLAN_GENERICOS.md)
+struct NuevoExpr : Expresion {
+    std::string clase;
+    std::vector<std::string> tipoArgs;  // PLAN_GENERICOS.md: argumentos entre <> tras el nombre de clase
+    std::vector<ExprPtr> argumentos;
+    LATINO_ACEPTAR
+};
+
+// expr es NombreClase
+struct EsExpr : Expresion {
+    ExprPtr objeto;
+    std::string clase;
+    LATINO_ACEPTAR
+};
+
+// este  (referencia a la instancia actual dentro de un método)
+struct AccesoEste : Expresion {
+    LATINO_ACEPTAR
+};
+
+// base(args...)  (llamada al constructor padre)
+struct LlamadaBase : Sentencia {
+    std::vector<ExprPtr> argumentos;
+    LATINO_ACEPTAR
+};
+
+// --- Nodos añadidos para FFI (PLAN_FFI.md) ---------------------------------
+
+// externo [enlazar "biblioteca"]
+//     funcion nombre(param0: TipoFFI, ...): TipoFFI
+//     ...
+// fin
+// Sin "enlazar" (enlazar == ""), se asume que el símbolo ya es resoluble
+// contra el runtime C que todo ejecutable Latino enlaza siempre.
+struct ExternoBloque : Sentencia {
+    std::string enlazar;  // "" si no se especificó "enlazar \"...\""
+    std::vector<FuncionExterna> funciones;
+    LATINO_ACEPTAR
+};
+
+// inseguro ... fin
+// Marca un bloque de sentencias habilitado para llamar funciones "externo"
+// (chequeo puramente estático, análogo a "unsafe" en Rust — ver Decisión de
+// diseño 5 de PLAN_FFI.md).
+struct InseguroBloque : Sentencia {
+    ListaSent cuerpo;
     LATINO_ACEPTAR
 };
 

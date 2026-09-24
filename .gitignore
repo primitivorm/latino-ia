@@ -1,5 +1,6 @@
 # Archivos y directorios generados por CMake
 /build/
+/build-*/
 /CMakeFiles/
 /CMakeCache.txt
 /cmake_install.cmake
@@ -10,8 +11,16 @@
 /*.dir/
 /*.log
 
+# Artefactos de CTest cuando se ejecuta desde la raíz del repo en vez de
+# dentro de build/ (Testing/Temporary/*.log, CTestCostData.txt).
+/Testing/
+
 # Archivos y directorios generados durante la compilación
 /out/
 /bin/
 /lib/
 /obj/
+
+# Claude
+.claude/
+_bmad/

@@ -1,6 +1,6 @@
 # Fase 13 — Librería mate
 # Criterio de aceptación
-escribir(mate.pi())               #salida: 3.14159
+escribir(mate.pi())               #salida: 3.14159265358979
 escribir(mate.raiz(16))           #salida: 4
 escribir(mate.piso(3.7))          #salida: 3
 escribir(mate.abs(-5))            #salida: 5

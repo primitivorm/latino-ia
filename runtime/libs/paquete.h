@@ -18,5 +18,6 @@ LatValor lat_paquete_cargar(LatValor ruta);
 
 /* Llama a la función 'nombre' dentro del módulo con nargs argumentos variádicos. */
 LatValor lat_paquete_llamar(LatValor modulo, LatValor nombre, int nargs, ...);
+LatValor lat_paquete_llamar_args(LatValor modulo, LatValor nombre, int nargs, LatValor* args);
 
 #endif /* LATINO_PAQUETE_H */

@@ -112,6 +112,22 @@ static void prueba_funcion_variadica() {
           "empaquetado de varargs en la llamada");
 }
 
+static void prueba_poo_gen_metodo() {
+    std::string src =
+        "clase Persona\n"
+        "  funcion saludar()\n"
+        "    escribir(este.nombre)\n"
+        "  fin\n"
+        "fin\n"
+        "p = nuevo Persona()\n"
+        "p.saludar()\n";
+    std::string c = generar(src);
+    CHECK(contiene(c, "lat_obj_set_metodo(_t0, \"saludar\", lat_funcion_nueva(lat_fn_Persona_saludar));"),
+          "registro de método en la instancia");
+    CHECK(contiene(c, "lat_obj_llamar_metodo(v_p, \"saludar\", 0)"),
+          "llamada de método de objeto");
+}
+
 static void prueba_lista_y_diccionario() {
     esperar("lista", "n = [1, 2, 3]\n",
             "lat_lista_de(3, lat_numero(1), lat_numero(2), lat_numero(3))");
@@ -160,6 +176,31 @@ static void prueba_asignacion_multiple() {
     CHECK(contiene(c, "v_a = _t0;") && contiene(c, "v_b = _t1;"), "asignaciones");
 }
 
+// Hallazgo real (auditoría de input/, ver PLAN_BASE.md/PLAN_MODULOS.md): una
+// variable/constante de nivel superior referenciada desde una función
+// definida a nivel superior no compilaba -- se declaraba como LOCAL de
+// main(), invisible para cualquier función. Debe declararse como una
+// variable de nivel de archivo (global de C, con "static") ANTES de las
+// definiciones de función, no como local dentro de main().
+static void prueba_variable_de_nivel_superior_visible_en_funcion() {
+    std::string src =
+        "const PI = 3.14159\n"
+        "funcion area_circulo(radio)\n"
+        "    retornar PI * radio * radio\n"
+        "fin\n"
+        "escribir(area_circulo(3))\n";
+    std::string c = generar(src);
+    CHECK(contiene(c, "static LatValor v_PI;"),
+          "PI debe declararse como variable de nivel de archivo, no local de "
+          "main\n--- generado ---\n" << c);
+    CHECK(!contiene(c, "LatValor v_PI = lat_nulo();"),
+          "no debe quedar ninguna declaración local (con inicializador) para "
+          "PI dentro de main\n--- generado ---\n" << c);
+    CHECK(contiene(c, "lat_multiplicar(lat_multiplicar(v_PI, v_radio), v_radio)"),
+          "la función debe poder leer la variable de nivel superior por su "
+          "nombre real\n--- generado ---\n" << c);
+}
+
 int main() {
     prueba_estructura_basica();
     prueba_aritmetica_precedencia();
@@ -167,12 +208,14 @@ int main() {
     prueba_desde();
     prueba_funcion();
     prueba_funcion_variadica();
+    prueba_poo_gen_metodo();
     prueba_lista_y_diccionario();
     prueba_indices();
     prueba_ternario();
     prueba_repetir();
     prueba_elegir();
     prueba_asignacion_multiple();
+    prueba_variable_de_nivel_superior_visible_en_funcion();
 
     std::cout << "\nComprobaciones: " << g_checks
               << "   Fallos: " << g_fallos << std::endl;

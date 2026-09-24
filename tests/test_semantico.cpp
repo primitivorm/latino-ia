@@ -190,6 +190,324 @@ static void prueba_semantico_var_y_const() {
                "no se puede reasignar la constante 'PI'");
 }
 
+static void prueba_poo_nuevo_clase_ok() {
+  esperarOK("poo_nuevo_ok",
+            "clase Persona\n"
+            "  funcion Persona(nombre)\n"
+            "    este.nombre = nombre\n"
+            "  fin\n"
+            "fin\n"
+            "persona = nuevo Persona(\"Ana\")\n");
+}
+
+static void prueba_poo_este_fuera_de_metodo() {
+  esperarError("poo_este_fuera",
+               "clase A\n"
+               "  funcion A()\n"
+               "  fin\n"
+               "fin\n"
+               "x = este\n",
+               "'este' sólo puede usarse dentro de un método de instancia");
+}
+
+static void prueba_poo_nuevo_interfaz_error() {
+  esperarError("poo_nuevo_interfaz",
+               "interfaz I\n"
+               "  funcion f()\n"
+               "fin\n"
+               "x = nuevo I()\n",
+               "no se puede instanciar la interfaz 'I'");
+}
+
+static void prueba_poo_base_fuera_constructor() {
+  esperarError("poo_base_fuera",
+               "clase Padre\n"
+               "  funcion Padre()\n"
+               "  fin\n"
+               "fin\n"
+               "clase Hijo extiende Padre\n"
+               "  funcion metodo()\n"
+               "    base()\n"
+               "  fin\n"
+               "fin\n",
+               "'base' sólo puede llamarse dentro de un constructor");
+}
+
+static void prueba_poo_nuevo_clase_abstracta_error() {
+  esperarError("poo_nuevo_abstracta",
+               "abstracto clase Figura\n"
+               "  abstracto funcion area(): numero\n"
+               "fin\n"
+               "x = nuevo Figura()\n",
+               "no se puede instanciar la clase abstracta 'Figura'");
+}
+
+// PLAN_POO.md (Reto 6 / 4.10): control de acceso "mejor esfuerzo" en
+// compilación -- privado/protegido/publico sobre campos y métodos, cuando el
+// tipo estático del objeto se puede determinar (nuevo Clase(), parámetro
+// anotado, o última asignación "nombre = nuevo Clase(...)" vista en el mismo
+// ámbito). Ver el hallazgo real de este plan (Fase 32.5): antes de esto,
+// publico/privado/protegido se parseaban y guardaban pero nunca se hacían
+// cumplir.
+static void prueba_poo_acceso_privado_inline_error() {
+  esperarError("poo_acceso_privado_inline",
+               "clase A\n"
+               "  privado x: numero\n"
+               "  funcion A()\n"
+               "    este.x = 1\n"
+               "  fin\n"
+               "fin\n"
+               "y = nuevo A().x\n",
+               "campo privado 'x' no accesible fuera de 'A'");
+}
+
+static void prueba_poo_acceso_privado_variable_error() {
+  esperarError("poo_acceso_privado_variable",
+               "clase A\n"
+               "  privado x: numero\n"
+               "  funcion A()\n"
+               "    este.x = 1\n"
+               "  fin\n"
+               "fin\n"
+               "a = nuevo A()\n"
+               "y = a.x\n",
+               "campo privado 'x' no accesible fuera de 'A'");
+}
+
+static void prueba_poo_acceso_privado_metodo_error() {
+  esperarError("poo_acceso_privado_metodo",
+               "clase A\n"
+               "  privado funcion ayuda(): numero\n"
+               "    retornar 1\n"
+               "  fin\n"
+               "fin\n"
+               "a = nuevo A()\n"
+               "y = a.ayuda()\n",
+               "método privado 'ayuda' no accesible fuera de 'A'");
+}
+
+static void prueba_poo_acceso_privado_dentro_de_la_clase_ok() {
+  esperarOK("poo_acceso_privado_dentro",
+            "clase A\n"
+            "  privado x: numero\n"
+            "  funcion A()\n"
+            "    este.x = 1\n"
+            "  fin\n"
+            "  publico funcion obtener(): numero\n"
+            "    retornar este.x\n"
+            "  fin\n"
+            "fin\n"
+            "a = nuevo A()\n"
+            "escribir(a.obtener())\n");
+}
+
+static void prueba_poo_acceso_protegido_subclase_ok() {
+  esperarOK("poo_acceso_protegido_subclase",
+            "clase A\n"
+            "  protegido x: numero\n"
+            "  funcion A()\n"
+            "    este.x = 1\n"
+            "  fin\n"
+            "fin\n"
+            "clase B extiende A\n"
+            "  publico funcion obtener(): numero\n"
+            "    retornar este.x\n"
+            "  fin\n"
+            "fin\n"
+            "b = nuevo B()\n"
+            "escribir(b.obtener())\n");
+}
+
+static void prueba_poo_acceso_protegido_fuera_de_clase_error() {
+  esperarError("poo_acceso_protegido_fuera",
+               "clase A\n"
+               "  protegido x: numero\n"
+               "  funcion A()\n"
+               "    este.x = 1\n"
+               "  fin\n"
+               "fin\n"
+               "clase C\n"
+               "  publico funcion tocar(a: A): numero\n"
+               "    retornar a.x\n"
+               "  fin\n"
+               "fin\n",
+               "campo protegido 'x' no accesible fuera de 'A' o sus subclases");
+}
+
+static void prueba_poo_acceso_publico_ok() {
+  esperarOK("poo_acceso_publico",
+            "clase A\n"
+            "  publico x: numero\n"
+            "  funcion A()\n"
+            "    este.x = 1\n"
+            "  fin\n"
+            "fin\n"
+            "a = nuevo A()\n"
+            "escribir(a.x)\n");
+}
+
+static void prueba_poo_acceso_dinamico_sin_chequeo_ok() {
+  // Sin anotación de tipo ni asignación literal "nuevo Clase()" visible: el
+  // tipo estático de 'obj' no se puede determinar, así que el chequeo se
+  // degrada sin error (misma filosofía que el resto del tipado gradual) --
+  // el caso real se difiere a runtime (lat_obj_get / lat_obj_llamar_metodo).
+  esperarOK("poo_acceso_dinamico_sin_chequeo",
+            "clase A\n"
+            "  privado x: numero\n"
+            "  funcion A()\n"
+            "    este.x = 1\n"
+            "  fin\n"
+            "fin\n"
+            "funcion identidad(v)\n"
+            "  retornar v\n"
+            "fin\n"
+            "a = identidad(nuevo A())\n"
+            "y = a.x\n");
+}
+
+static void prueba_poo_acceso_reasignacion_limpia_hint_ok() {
+  // "a" se reasigna a algo dinámico (retorno de una función, no un "nuevo"
+  // literal): el hint de clase se borra en vez de seguir apuntando a 'A' --
+  // sin esto, este caso reportaría (incorrectamente) un error.
+  esperarOK("poo_acceso_reasignacion_limpia_hint",
+            "clase A\n"
+            "  privado x: numero\n"
+            "  funcion A()\n"
+            "    este.x = 1\n"
+            "  fin\n"
+            "fin\n"
+            "funcion dinamico()\n"
+            "  retornar nuevo A()\n"
+            "fin\n"
+            "a = nuevo A()\n"
+            "a = dinamico()\n"
+            "y = a.x\n");
+}
+
+static void prueba_poo_acceso_estructura_error() {
+  esperarError("poo_acceso_estructura",
+               "estructura Punto\n"
+               "  privado x: numero\n"
+               "  funcion Punto(x: numero)\n"
+               "    este.x = x\n"
+               "  fin\n"
+               "fin\n"
+               "p = nuevo Punto(1)\n"
+               "y = p.x\n",
+               "campo privado 'x' no accesible fuera de 'Punto'");
+}
+
+// PLAN_FFI.md (F4): tabla funcionesExternas, chequeo de "inseguro", aridad,
+// tipo estático y colisión de nombres.
+
+static void prueba_ffi_llamada_fuera_de_inseguro() {
+  esperarError("ffi_fuera_de_inseguro",
+               "externo\n"
+               "    funcion abs(n: entero32): entero32\n"
+               "fin\n"
+               "r = abs(5)\n",
+               "llamada a función externa 'abs' fuera de un bloque 'inseguro'");
+}
+
+static void prueba_ffi_llamada_en_bloque_inseguro_ok() {
+  esperarOK("ffi_bloque_inseguro_ok",
+            "externo\n"
+            "    funcion abs(n: entero32): entero32\n"
+            "fin\n"
+            "inseguro\n"
+            "    r = abs(5)\n"
+            "    escribir(r)\n"
+            "fin\n");
+}
+
+static void prueba_ffi_funcion_inseguro_ok() {
+  esperarOK("ffi_funcion_inseguro_ok",
+            "externo\n"
+            "    funcion abs(n: entero32): entero32\n"
+            "fin\n"
+            "funcion inseguro usar_abs()\n"
+            "    retornar abs(5)\n"
+            "fin\n"
+            "escribir(usar_abs())\n");
+}
+
+static void prueba_ffi_aridad_incorrecta() {
+  esperarError("ffi_aridad",
+               "externo\n"
+               "    funcion abs(n: entero32): entero32\n"
+               "fin\n"
+               "inseguro\n"
+               "    abs(1, 2)\n"
+               "fin\n",
+               "número de argumentos incorrecto para la función externa 'abs': se esperaban 1, se recibieron 2");
+}
+
+static void prueba_ffi_tipo_incompatible() {
+  esperarError("ffi_tipo_incompatible",
+               "externo\n"
+               "    funcion abs(n: entero32): entero32\n"
+               "fin\n"
+               "inseguro\n"
+               "    abs(\"cinco\")\n"
+               "fin\n",
+               "tipo incompatible: el argumento 1 de la función externa 'abs' espera 'entero32' pero se pasó un valor de tipo 'cadena'");
+}
+
+static void prueba_ffi_nulo_para_puntero_ok() {
+  // "nulo" literal es un puntero nulo válido para un parámetro 'puntero'.
+  esperarOK("ffi_nulo_para_puntero_ok",
+            "externo\n"
+            "    funcion free(p: puntero)\n"
+            "fin\n"
+            "inseguro\n"
+            "    free(nulo)\n"
+            "fin\n");
+}
+
+static void prueba_ffi_numero_para_puntero_error() {
+  esperarError("ffi_numero_para_puntero",
+               "externo\n"
+               "    funcion free(p: puntero)\n"
+               "fin\n"
+               "inseguro\n"
+               "    free(5)\n"
+               "fin\n",
+               "tipo incompatible: el argumento 1 de la función externa 'free' espera 'puntero' pero se pasó un valor de tipo 'numero'");
+}
+
+static void prueba_ffi_colision_funcion_luego_externo() {
+  esperarError("ffi_colision_funcion_luego_externo",
+               "funcion abs(n)\n"
+               "    retornar n\n"
+               "fin\n"
+               "externo\n"
+               "    funcion abs(n: entero32): entero32\n"
+               "fin\n",
+               "'abs' ya está declarada como función Latino");
+}
+
+static void prueba_ffi_colision_externo_luego_funcion() {
+  esperarError("ffi_colision_externo_luego_funcion",
+               "externo\n"
+               "    funcion abs(n: entero32): entero32\n"
+               "fin\n"
+               "funcion abs(n)\n"
+               "    retornar n\n"
+               "fin\n",
+               "'abs' ya está declarada como función externa");
+}
+
+static void prueba_ffi_colision_entre_externas() {
+  esperarError("ffi_colision_entre_externas",
+               "externo\n"
+               "    funcion abs(n: entero32): entero32\n"
+               "fin\n"
+               "externo\n"
+               "    funcion abs(n: entero64): entero64\n"
+               "fin\n",
+               "'abs' ya está declarada como función externa");
+}
+
 int main() {
   prueba_programa_valido();
   prueba_variable_no_declarada();
@@ -208,6 +526,31 @@ int main() {
   prueba_acceso_indice_variable_declarada();
   prueba_acceso_indice_no_declarada();
   prueba_semantico_var_y_const();
+  prueba_poo_nuevo_clase_ok();
+  prueba_poo_este_fuera_de_metodo();
+  prueba_poo_nuevo_interfaz_error();
+  prueba_poo_base_fuera_constructor();
+  prueba_poo_nuevo_clase_abstracta_error();
+  prueba_poo_acceso_privado_inline_error();
+  prueba_poo_acceso_privado_variable_error();
+  prueba_poo_acceso_privado_metodo_error();
+  prueba_poo_acceso_privado_dentro_de_la_clase_ok();
+  prueba_poo_acceso_protegido_subclase_ok();
+  prueba_poo_acceso_protegido_fuera_de_clase_error();
+  prueba_poo_acceso_publico_ok();
+  prueba_poo_acceso_dinamico_sin_chequeo_ok();
+  prueba_poo_acceso_reasignacion_limpia_hint_ok();
+  prueba_poo_acceso_estructura_error();
+  prueba_ffi_llamada_fuera_de_inseguro();
+  prueba_ffi_llamada_en_bloque_inseguro_ok();
+  prueba_ffi_funcion_inseguro_ok();
+  prueba_ffi_aridad_incorrecta();
+  prueba_ffi_tipo_incompatible();
+  prueba_ffi_nulo_para_puntero_ok();
+  prueba_ffi_numero_para_puntero_error();
+  prueba_ffi_colision_funcion_luego_externo();
+  prueba_ffi_colision_externo_luego_funcion();
+  prueba_ffi_colision_entre_externas();
 
   std::cout << "\nComprobaciones: " << g_checks << "   Fallos: " << g_fallos
             << std::endl;

@@ -36,7 +36,8 @@ std::string libsCSources(const std::string& runtimeDir) {
 // Ejecuta el comando MSVC dentro del entorno de Visual Studio escribiendo un
 // .bat temporal (evita problemas de comillas anidadas con std::system).
 int ejecutarMsvc(const std::string& archivoC, const std::string& salidaExe,
-                 const std::string& runtimeDir) {
+                 const std::string& runtimeDir,
+                 const std::vector<std::string>& bibliotecasEnlazar) {
     fs::path tmp = fs::temp_directory_path();
     fs::path objDir = tmp / "latino_obj";
     std::error_code ec;
@@ -46,12 +47,22 @@ int ejecutarMsvc(const std::string& archivoC, const std::string& salidaExe,
     // Barras normales y '/' final: evita que '\"' escape la comilla de cierre.
     std::string objArg = objDir.generic_string() + "/";
     std::string libs   = libsCSources(runtimeDir);
+    // PLAN_FFI.md (F6): a diferencia del backend C (cuyo .c generado ya lleva
+    // "#ifdef _MSC_VER / #pragma comment(lib,...)" embebido, ver
+    // GeneradorC::generar()), un objeto emitido por el backend LLVM no tiene
+    // ningún mecanismo textual equivalente -- así que cada "externo enlazar
+    // \"lib\"" se agrega acá explícitamente como "<lib>.lib" en la línea de
+    // cl.exe. Enlazar la misma import lib dos veces (backend C, que ya la
+    // trae embebida) es inofensivo.
+    std::string enlazarExtra;
+    for (const std::string& lib : bibliotecasEnlazar)
+        enlazarExtra += " " + entrecomillar(lib + ".lib");
     std::string cl =
         "cl /nologo /utf-8 /I " + entrecomillar(runtimeDir) +
         " /I " + entrecomillar(runtimeDir + "/libs") +
         " " + entrecomillar(archivoC) +
         " " + entrecomillar(runtimeDir + "/latino.c") + libs +
-        " /Fe:" + entrecomillar(salidaExe) + " /Fo:" + entrecomillar(objArg);
+        " /Fe:" + entrecomillar(salidaExe) + " /Fo:" + entrecomillar(objArg) + enlazarExtra;
 
     fs::path bat = tmp / "latino_compilar.bat";
     {
@@ -76,14 +87,21 @@ int ejecutarMsvc(const std::string& archivoC, const std::string& salidaExe,
 
 // Compila con un compilador de estilo GNU (gcc/clang/cc).
 int ejecutarGnu(const std::string& cc, const std::string& archivoC,
-                const std::string& salidaExe, const std::string& runtimeDir) {
+                const std::string& salidaExe, const std::string& runtimeDir,
+                const std::vector<std::string>& bibliotecasEnlazar) {
     std::string libs = libsCSources(runtimeDir);
+    // PLAN_FFI.md (F5): "#pragma comment(lib,...)" del .c generado solo lo
+    // entiende MSVC; en GNU/Clang cada "externo enlazar \"lib\"" se agrega
+    // acá como "-l<lib>".
+    std::string enlazarExtra;
+    for (const std::string& lib : bibliotecasEnlazar)
+        enlazarExtra += " -l" + lib;
     std::string comando = entrecomillar(cc) + " -std=c11 -O2 -I " +
                           entrecomillar(runtimeDir) +
                           " -I " + entrecomillar(runtimeDir + "/libs") +
                           " " + entrecomillar(archivoC) +
                           " " + entrecomillar(runtimeDir + "/latino.c") + libs +
-                          " -o " + entrecomillar(salidaExe) + " -lm";
+                          " -o " + entrecomillar(salidaExe) + " -lm" + enlazarExtra;
     return std::system(comando.c_str());
 }
 
@@ -99,11 +117,11 @@ int compilarAEjecutable(const std::string& archivoC, const std::string& salidaEx
     int codigo;
     if (ccEnv != nullptr) {
         // El usuario indicó un compilador propio (gcc/clang) vía CC.
-        codigo = ejecutarGnu(ccEnv, archivoC, salidaExe, runtimeDir);
+        codigo = ejecutarGnu(ccEnv, archivoC, salidaExe, runtimeDir, opciones.bibliotecasEnlazar);
     } else if (std::string(LATINO_CC_ESTILO) == "msvc") {
-        codigo = ejecutarMsvc(archivoC, salidaExe, runtimeDir);
+        codigo = ejecutarMsvc(archivoC, salidaExe, runtimeDir, opciones.bibliotecasEnlazar);
     } else {
-        codigo = ejecutarGnu(LATINO_CC, archivoC, salidaExe, runtimeDir);
+        codigo = ejecutarGnu(LATINO_CC, archivoC, salidaExe, runtimeDir, opciones.bibliotecasEnlazar);
     }
 
     if (codigo != 0)

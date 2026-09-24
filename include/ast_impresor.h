@@ -36,6 +36,8 @@ public:
     // Sentencias
     void visitar(Programa&) override;
     void visitar(Incluir&) override;
+    void visitar(ImportarDecl&) override;
+    void visitar(ExportarDesde&) override;
     void visitar(Asignacion&) override;
     void visitar(ExprSentencia&) override;
     void visitar(Si&) override;
@@ -47,6 +49,19 @@ public:
     void visitar(FuncionDef&) override;
     void visitar(Retornar&) override;
 
+    // POO
+    void visitar(ClaseDef&) override;
+    void visitar(EstructuraDef&) override;
+    void visitar(InterfazDef&) override;
+    void visitar(NuevoExpr&) override;
+    void visitar(EsExpr&) override;
+    void visitar(AccesoEste&) override;
+    void visitar(LlamadaBase&) override;
+
+    // FFI con C (PLAN_FFI.md)
+    void visitar(ExternoBloque&) override;
+    void visitar(InseguroBloque&) override;
+
 private:
     std::ostream& salida;
     int nivel;
@@ -54,6 +69,8 @@ private:
     void linea(const std::string& texto);  // imprime con la sangría actual
     void hijo(Nodo& nodo);                  // visita un hijo con +1 de sangría
     void hijos(ListaSent& lista);
+    void campo(const CampoDef&);
+    void metodo(MetodoDef&);
 };
 
 #endif  // AST_IMPRESOR_H

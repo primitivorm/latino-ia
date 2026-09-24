@@ -287,12 +287,247 @@ static void prueba_todos_los_nodos() {
     CHECK(contiene(t, "Elegir") && contiene(t, "caso:") && contiene(t, "defecto:"), "elegir");
 }
 
+// PLAN_MODULOS.md (M1): construcción de los nodos nuevos ImportarDecl /
+// ExportarDesde y de los campos exportado/esDefecto. Todavía no hay parser
+// ni ResolutorModulos, así que los árboles se arman a mano; se verifican
+// leyendo los campos directamente (ImpresorAST no los imprime: el
+// ResolutorModulos los consume antes de esa etapa).
+static void prueba_importar_exportar() {
+    // importar { area_circulo, Circulo como C } desde "geometria.lat"
+    {
+        ImportarDecl imp;
+        imp.ruta = "geometria.lat";
+        imp.tipo = TipoImportar::Nombrado;
+        imp.nombres.push_back({"area_circulo", "area_circulo"});
+        imp.nombres.push_back({"Circulo", "C"});
+
+        CHECK(imp.ruta == "geometria.lat", "importar nombrado: ruta");
+        CHECK(imp.tipo == TipoImportar::Nombrado, "importar nombrado: tipo");
+        CHECK(imp.nombres.size() == 2, "importar nombrado: cantidad de nombres");
+        CHECK(imp.nombres[0].origen == "area_circulo" && imp.nombres[0].alias == "area_circulo",
+              "importar nombrado: sin alias -> alias == origen");
+        CHECK(imp.nombres[1].origen == "Circulo" && imp.nombres[1].alias == "C",
+              "importar nombrado: con alias 'como'");
+    }
+
+    // importar * como geo desde "geometria.lat"
+    {
+        ImportarDecl imp;
+        imp.ruta = "geometria.lat";
+        imp.tipo = TipoImportar::Espacio;
+        imp.aliasEspacio = "geo";
+
+        CHECK(imp.tipo == TipoImportar::Espacio, "importar espacio: tipo");
+        CHECK(imp.aliasEspacio == "geo", "importar espacio: alias");
+        CHECK(imp.nombres.empty(), "importar espacio: sin lista de nombres");
+    }
+
+    // importar Config desde "config.lat"
+    {
+        ImportarDecl imp;
+        imp.ruta = "config.lat";
+        imp.tipo = TipoImportar::PorDefecto;
+        imp.nombreLocal = "Config";
+
+        CHECK(imp.tipo == TipoImportar::PorDefecto, "importar defecto: tipo");
+        CHECK(imp.nombreLocal == "Config", "importar defecto: nombre local");
+    }
+
+    // exportar { Circulo, area_circulo } desde "geometria.lat"  (re-export)
+    {
+        ExportarDesde exp;
+        exp.ruta = "geometria.lat";
+        exp.nombres.push_back({"Circulo", "Circulo"});
+        exp.nombres.push_back({"area_circulo", "area_circulo"});
+
+        CHECK(exp.ruta == "geometria.lat", "exportar desde: ruta");
+        CHECK(exp.nombres.size() == 2, "exportar desde: cantidad de nombres");
+    }
+
+    // Dispatch del Visitante: ImpresorAST implementa un volcado de una línea
+    // para ambos nodos (útil para depurar --ast antes de la resolución de
+    // módulos; ver PLAN_MODULOS.md, Fase 30 M2).
+    {
+        ImportarDecl imp;
+        imp.ruta = "config.lat";
+        imp.tipo = TipoImportar::PorDefecto;
+        imp.nombreLocal = "Config";
+        ExportarDesde exp;
+        exp.ruta = "geometria.lat";
+        exp.nombres.push_back({"Circulo", "Circulo"});
+        std::string t1 = volcar(imp);
+        std::string t2 = volcar(exp);
+        CHECK(contiene(t1, "Importar Config desde \"config.lat\""),
+              "ImportarDecl: volcado de una linea en ImpresorAST");
+        CHECK(contiene(t2, "ExportarDesde { Circulo } desde \"geometria.lat\""),
+              "ExportarDesde: volcado de una linea en ImpresorAST");
+    }
+
+    // exportar const PI = 3.14159   (campo exportado en Asignacion)
+    {
+        Asignacion a;
+        a.destinos.push_back(id("PI"));
+        a.valores.push_back(num(3.14159, false));
+        a.esConst = true;
+        a.exportado = true;
+        CHECK(a.exportado, "asignacion: campo exportado");
+        CHECK(!a.esDefecto, "asignacion: esDefecto por defecto en falso");
+    }
+
+    // exportar funcion area_circulo(r) ... fin
+    {
+        FuncionDef f;
+        f.nombre = "area_circulo";
+        f.exportado = true;
+        CHECK(f.exportado, "funcion: campo exportado");
+        CHECK(!f.esDefecto, "funcion: esDefecto por defecto en falso");
+    }
+
+    // exportar por defecto funcion saludar(nombre) ... fin
+    {
+        FuncionDef f;
+        f.nombre = "saludar";
+        f.exportado = true;
+        f.esDefecto = true;
+        CHECK(f.exportado && f.esDefecto, "funcion: exportar por defecto");
+    }
+
+    // exportar clase Circulo ... fin
+    {
+        ClaseDef c;
+        c.nombre = "Circulo";
+        c.exportado = true;
+        CHECK(c.exportado, "clase: campo exportado");
+    }
+
+    // exportar estructura Punto ... fin
+    {
+        EstructuraDef e;
+        e.nombre = "Punto";
+        e.exportado = true;
+        CHECK(e.exportado, "estructura: campo exportado");
+    }
+
+    // exportar interfaz Figura ... fin
+    {
+        InterfazDef i;
+        i.nombre = "Figura";
+        i.exportado = true;
+        CHECK(i.exportado, "interfaz: campo exportado");
+    }
+}
+
+// PLAN_FFI.md: externo / enlazar / inseguro.
+static void prueba_ffi() {
+    // externo
+    //     funcion abs(n: entero32): entero32
+    //     funcion strlen(s: cadena): entero64
+    // fin
+    {
+        ExternoBloque ext;
+        CHECK(ext.enlazar.empty(), "externo sin enlazar: campo enlazar vacio");
+
+        FuncionExterna abs_;
+        abs_.nombre = "abs";
+        abs_.parametros.push_back({"n", TipoFFI::Entero32, 0});
+        abs_.tipoRetorno = TipoFFI::Entero32;
+        ext.funciones.push_back(abs_);
+
+        FuncionExterna strlen_;
+        strlen_.nombre = "strlen";
+        strlen_.parametros.push_back({"s", TipoFFI::Cadena, 0});
+        strlen_.tipoRetorno = TipoFFI::Entero64;
+        ext.funciones.push_back(strlen_);
+
+        CHECK(ext.funciones.size() == 2, "externo: cantidad de firmas");
+        CHECK(ext.funciones[0].nombre == "abs", "externo: nombre de la primera firma");
+        CHECK(ext.funciones[0].parametros.size() == 1 &&
+                  ext.funciones[0].parametros[0].tipo == TipoFFI::Entero32,
+              "externo: tipo del parametro de 'abs'");
+        CHECK(ext.funciones[0].tipoRetorno == TipoFFI::Entero32,
+              "externo: tipo de retorno de 'abs'");
+        CHECK(ext.funciones[1].parametros[0].tipo == TipoFFI::Cadena,
+              "externo: tipo del parametro de 'strlen' reutiliza TipoFFI::Cadena");
+    }
+
+    // externo enlazar "user32"
+    //     funcion MessageBoxA(hwnd: puntero, texto: cadena, titulo: cadena, tipo: entero32): entero32
+    // fin
+    {
+        ExternoBloque ext;
+        ext.enlazar = "user32";
+
+        FuncionExterna msgbox;
+        msgbox.nombre = "MessageBoxA";
+        msgbox.parametros.push_back({"hwnd", TipoFFI::Puntero, 0});
+        msgbox.parametros.push_back({"texto", TipoFFI::Cadena, 0});
+        msgbox.parametros.push_back({"titulo", TipoFFI::Cadena, 0});
+        msgbox.parametros.push_back({"tipo", TipoFFI::Entero32, 0});
+        msgbox.tipoRetorno = TipoFFI::Entero32;
+        ext.funciones.push_back(msgbox);
+
+        CHECK(ext.enlazar == "user32", "externo enlazar: nombre de biblioteca");
+        CHECK(ext.funciones[0].parametros[0].tipo == TipoFFI::Puntero,
+              "externo enlazar: primer parametro es puntero opaco");
+    }
+
+    // funcion malloc(tam: entero64): puntero  (retorno sin cuerpo, solo firma)
+    {
+        FuncionExterna malloc_;
+        malloc_.nombre = "malloc";
+        malloc_.parametros.push_back({"tam", TipoFFI::Natural64, 0});
+        malloc_.tipoRetorno = TipoFFI::Puntero;
+        CHECK(malloc_.tipoRetorno == TipoFFI::Puntero, "externo: retorno TipoFFI::Puntero");
+
+        // funcion free(p: puntero)  -- sin tipo de retorno explicito -> Nulo
+        FuncionExterna free_;
+        free_.nombre = "free";
+        free_.parametros.push_back({"p", TipoFFI::Puntero, 0});
+        CHECK(free_.tipoRetorno == TipoFFI::Nulo,
+              "externo: sin ':' de retorno -> TipoFFI::Nulo por defecto");
+    }
+
+    // inseguro
+    //     r = abs(-5)
+    // fin
+    {
+        InseguroBloque bloque;
+        auto asig = std::make_unique<Asignacion>();
+        asig->destinos.push_back(id("r"));
+        auto llamada = std::make_unique<Llamada>();
+        llamada->destino = id("abs");
+        llamada->argumentos.push_back(num(-5));
+        asig->valores.push_back(std::move(llamada));
+        bloque.cuerpo.push_back(std::move(asig));
+
+        CHECK(bloque.cuerpo.size() == 1, "inseguro: cantidad de sentencias del cuerpo");
+
+        // El Visitante no tiene todavia logica real para ExternoBloque/
+        // InseguroBloque (F1: solo AST, sin analisis semantico/codegen) --
+        // aceptar() no debe romper el visitante por defecto (no-op).
+        std::ostringstream os;
+        ImpresorAST imp(os);
+        imp.imprimir(bloque);
+    }
+
+    // funcion inseguro saludar_nativo() ... fin
+    {
+        FuncionDef f;
+        f.nombre = "saludar_nativo";
+        CHECK(!f.inseguro, "funcion: inseguro por defecto en falso");
+        f.inseguro = true;
+        CHECK(f.inseguro, "funcion: modificador 'inseguro'");
+    }
+}
+
 int main() {
     prueba_asignacion_y_llamada();
     prueba_si_sino();
     prueba_funcion();
     prueba_funcion_variadica();
     prueba_todos_los_nodos();
+    prueba_importar_exportar();
+    prueba_ffi();
 
     std::cout << "\nComprobaciones: " << g_checks
               << "   Fallos: " << g_fallos << std::endl;

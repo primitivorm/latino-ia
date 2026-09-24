@@ -1,3 +1,5 @@
+#include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -11,6 +13,16 @@
 #include "invocador_c.h"
 #include "lexer.h"
 #include "parser.h"
+#include "resolutor_modulos.h"
+
+#ifdef LATINO_CON_LLVM
+#include <llvm/IR/LLVMContext.h>
+#include <llvm/IR/Module.h>
+#include <llvm/Support/raw_ostream.h>
+
+#include "compiler_llvm.h"
+#include "invocador_llvm.h"
+#endif
 
 namespace fs = std::filesystem;
 
@@ -85,18 +97,40 @@ static void uso() {
     std::cerr <<
         "Uso: latino <archivo.lat> [opciones]\n"
         "  (por defecto)      compila el programa a un ejecutable\n"
-        "  -o <ruta>          ruta de salida (ejecutable, o el .c con --solo-c)\n"
+        "  -o <ruta>          ruta de salida (ejecutable, o el .c/.ll con --solo-c/--solo-ir)\n"
         "  --solo-c           emite el código C (a -o si se indica, si no a stdout)\n"
+        "  --solo-ir          emite el IR de LLVM textual (--backend llvm; a -o si se\n"
+        "                     indica, si no a stdout), sin compilar\n"
         "  --ast              vuelca el AST (depuración)\n"
-        "  --runtime <dir>    carpeta del runtime (latino.h/latino.c)\n";
+        "  --runtime <dir>    carpeta del runtime (latino.h/latino.c)\n"
+        "  --backend <c|llvm> backend de generación de código (por defecto: llvm\n"
+        "                     si el build lo incluye, si no c; ver Fase L12 de\n"
+        "                     input/PLAN_LLVM.md). 'llvm' requiere un build con\n"
+        "                     LATINO_LLVM_BACKEND\n"
+        "  --jit              ejecuta el programa directamente en memoria (solo\n"
+        "                     con --backend llvm), sin generar ningún .obj/.exe\n"
+        "                     intermedio en disco -- ignora -o\n";
 }
 
 int main(int argc, char** argv) {
     std::string ruta;
     std::string salida;
     std::string runtimeDir;
+#ifdef LATINO_CON_LLVM
+    // Fase L12 (input/PLAN_LLVM.md): paridad de salida confirmada contra los
+    // 27 ejemplos con '#salida:' y las 9 suites de librería/POO/módulos, sin
+    // regresión de tiempo de compilación -- LLVM pasa a ser el backend por
+    // defecto. Si el build no incluye LLVM (LATINO_CON_LLVM no definido), el
+    // único backend disponible sigue siendo 'c' (Decisión 1 del plan).
+    std::string backend = "llvm";
+#else
+    std::string backend = "c";
+#endif
     bool modoAst = false;
     bool soloC = false;
+    bool soloIr = false;
+    bool modoJit = false;
+    bool backendExplicito = false;
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
@@ -104,12 +138,24 @@ int main(int argc, char** argv) {
             modoAst = true;
         } else if (arg == "--solo-c") {
             soloC = true;
+        } else if (arg == "--solo-ir") {
+            soloIr = true;
+        } else if (arg == "--jit") {
+            modoJit = true;
         } else if (arg == "-o") {
             if (i + 1 >= argc) { uso(); return 2; }
             salida = argv[++i];
         } else if (arg == "--runtime") {
             if (i + 1 >= argc) { uso(); return 2; }
             runtimeDir = argv[++i];
+        } else if (arg == "--backend") {
+            if (i + 1 >= argc) { uso(); return 2; }
+            backend = argv[++i];
+            backendExplicito = true;
+            if (backend != "c" && backend != "llvm") {
+                std::cerr << "Backend desconocido: " << backend << " (use 'c' o 'llvm')\n";
+                return 2;
+            }
         } else if (!arg.empty() && arg[0] == '-') {
             std::cerr << "Opción desconocida: " << arg << std::endl;
             uso();
@@ -117,6 +163,13 @@ int main(int argc, char** argv) {
         } else if (ruta.empty()) {
             ruta = arg;
         }
+    }
+
+    // --solo-c es exclusivo del backend C (emite el código C intermedio);
+    // si el usuario no fijó --backend explícitamente, respetarlo implica usar
+    // ese backend en vez del nuevo default 'llvm' de la Fase L12.
+    if (soloC && !backendExplicito) {
+        backend = "c";
     }
 
     if (ruta.empty()) {
@@ -141,6 +194,20 @@ int main(int argc, char** argv) {
     if (!programa)
         return 1;  // error de sintaxis (ya reportado)
 
+    // PLAN_MODULOS.md: resolución de módulos ('exportar'/'importar'). Se
+    // aplica al archivo de entrada ANTES de expandir sus 'incluir': un
+    // archivo alcanzado por 'incluir' nunca se mangla ('exportar' es solo
+    // documental bajo 'incluir', Decisión de diseño 6). Sin 'importar'/
+    // 'exportar ... desde', resuelve un solo módulo (M3); con ellos, resuelve
+    // el grafo de módulos completo (M4), leyendo del disco cada módulo
+    // referenciado.
+    if (ResolutorModulos::participaDeModulos(*programa)) {
+        programa = ResolutorModulos::resolverProyecto(std::move(programa),
+                                                       fs::absolute(ruta).generic_string());
+        if (!programa)
+            return 1;  // error de resolución de módulos (ya reportado)
+    }
+
     // 17.3: Expansión de archivos .lat antes del análisis semántico.
     {
         fs::path dirBase = fs::path(ruta).parent_path();
@@ -160,6 +227,105 @@ int main(int argc, char** argv) {
         ImpresorAST impresor(std::cout);
         impresor.imprimir(*programa);
         return 0;
+    }
+
+    if (backend == "llvm") {
+#ifdef LATINO_CON_LLVM
+        if (soloC) {
+            std::cerr << "--solo-c no es válido con --backend llvm (use --solo-ir)\n";
+            return 2;
+        }
+        if (modoJit && soloIr) {
+            std::cerr << "--jit y --solo-ir no se pueden usar juntos\n";
+            return 2;
+        }
+
+        GeneradorLLVM generadorLlvm;
+        std::unique_ptr<llvm::Module> modulo = generadorLlvm.generar(*programa);
+        if (!modulo) {
+            std::cerr << "Error: el generador LLVM produjo un módulo inválido." << std::endl;
+            return 1;
+        }
+
+        // --jit (Fase L10): ejecuta el módulo directamente en memoria vía
+        // llvm::orc::LLJIT, sin pasar por objeto + enlazador -- ignora -o.
+        if (modoJit) {
+            std::unique_ptr<llvm::LLVMContext> contexto = generadorLlvm.tomarContexto();
+            int codigoJit = ejecutarJit(std::move(modulo), std::move(contexto));
+
+            // Hallazgo real: el programa JIT-eado ejecuta y retorna
+            // correctamente (confirmado paso a paso: el LLJIT se destruye
+            // sin problema dentro de ejecutarJit), pero el proceso
+            // termina en una violación de acceso MÁS TARDE, durante el
+            // desenrollado normal del resto de este main()/la limpieza
+            // global de C++ al salir -- muy probablemente por el orden en
+            // que Windows descarga latino_runtime_estatico.dll (cargada
+            // explícitamente por ruta, ver ejecutarJit) frente al de la
+            // propia salida del proceso. Para cuando llegamos aquí, todo
+            // el trabajo real ya terminó (el programa del usuario ya
+            // ejecutó y ya imprimió su salida), así que se evita el
+            // problema saliendo del proceso de inmediato -- vaciando antes
+            // los búferes de stdio, que _Exit (a diferencia de exit) no
+            // vacía por sí solo -- en vez de dejar que continúe el
+            // desenrollado normal de C++.
+            std::fflush(nullptr);
+            std::_Exit(codigoJit);
+        }
+
+        // --solo-ir: volcar el IR textual (a -o si se indica, si no a
+        // stdout), sin compilar -- análogo a --solo-c para el backend C.
+        if (soloIr) {
+            std::string ir;
+            llvm::raw_string_ostream flujo(ir);
+            modulo->print(flujo, nullptr);
+            if (salida.empty()) {
+                std::cout << ir;
+            } else {
+                std::ofstream f(salida, std::ios::binary);
+                if (!f) {
+                    std::cerr << "No se pudo escribir el archivo: " << salida << std::endl;
+                    return 1;
+                }
+                f << ir;
+                std::cerr << "IR de LLVM generado: " << salida << std::endl;
+            }
+            return 0;
+        }
+
+        if (salida.empty()) {
+            fs::path p(ruta);
+            salida = p.stem().string();
+#ifdef _WIN32
+            salida += ".exe";
+#endif
+        }
+        std::string salidaAbs = fs::absolute(salida).string();
+
+        OpcionesLLVM opcLlvm;
+        opcLlvm.runtimeDir = runtimeDir;
+        opcLlvm.bibliotecasEnlazar.assign(generadorLlvm.bibliotecasEnlazadas().begin(),
+                                          generadorLlvm.bibliotecasEnlazadas().end());
+        int codigo = compilarLLVMAEjecutable(*modulo, salidaAbs, opcLlvm);
+        if (codigo != 0)
+            return 1;
+
+        std::cerr << "Ejecutable generado (backend LLVM): " << salida << std::endl;
+        return 0;
+#else
+        std::cerr << "Este build de latino no incluye el backend LLVM "
+                     "(LATINO_LLVM_BACKEND estaba OFF al configurar CMake). "
+                     "Ver input/PLAN_LLVM.md para instalar LLVM 17.x.\n";
+        return 2;
+#endif
+    }
+
+    if (soloIr) {
+        std::cerr << "--solo-ir solo es válido con --backend llvm\n";
+        return 2;
+    }
+    if (modoJit) {
+        std::cerr << "--jit solo es válido con --backend llvm\n";
+        return 2;
     }
 
     // Generación de código C.
@@ -207,6 +373,8 @@ int main(int argc, char** argv) {
     std::string salidaAbs = fs::absolute(salida).string();
     OpcionesC opc;
     opc.runtimeDir = runtimeDir;
+    opc.bibliotecasEnlazar.assign(generador.bibliotecasEnlazadas().begin(),
+                                  generador.bibliotecasEnlazadas().end());
     int codigo = compilarAEjecutable(archivoC.string(), salidaAbs, opc);
     if (codigo != 0)
         return 1;

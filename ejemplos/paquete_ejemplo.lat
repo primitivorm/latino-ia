@@ -10,5 +10,5 @@ incluir "paquete"
 #   resultado = milib.mi_funcion(42)
 #   escribe resultado
 
-escribe "Librería paquete lista."
-escribe "Usa paquete.cargar(ruta) para cargar una extensión dinámica."
+escribe("Librería paquete lista.")   #salida: Librería paquete lista.
+escribe("Usa paquete.cargar(ruta) para cargar una extensión dinámica.")   #salida: Usa paquete.cargar(ruta) para cargar una extensión dinámica.
