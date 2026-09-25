@@ -53,6 +53,11 @@ private:
     std::string actualPadre;
     bool enConstructor = false;
     std::set<std::string> libsUsadas;  // librerías detectadas durante generación
+    // Nombres declarados "global" a nivel superior (ver recolectarGlobalesExplicitos).
+    // genFuncion/genMetodo los excluyen del hoisting de locales para que una
+    // asignación a ese nombre dentro del cuerpo mute la celda de nivel
+    // superior en vez de sombrearla.
+    std::set<std::string> globalesExplicitos;
 
     void recolectarFunciones(Programa& programa);
     void recolectarExterno(Programa& programa);

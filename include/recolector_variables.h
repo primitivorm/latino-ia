@@ -26,4 +26,16 @@
 void recolectarVariables(const ListaSent& cuerpo, std::set<std::string>& destino,
                           const std::set<std::string>& excluir);
 
+// Agrega a 'destino' el nombre de cada variable declarada "global"
+// (Asignacion::esGlobal) dentro de 'cuerpo', con el mismo criterio de
+// descenso que recolectarVariables (nunca dentro de una FuncionDef
+// anidada). GeneradorC/GeneradorLLVM la usan sobre las sentencias de nivel
+// superior del Programa para obtener el conjunto de nombres "global", y
+// luego lo pasan como 'excluir' a recolectarVariables() al recolectar las
+// locales de cada función/método -- así una asignación a ese nombre dentro
+// del cuerpo no crea una variable local que lo sombree, sino que escribe la
+// celda real de nivel superior (ver GeneradorC::genFuncion/genMetodo y
+// GeneradorLLVM::genFuncion/genMetodo).
+void recolectarGlobalesExplicitos(const ListaSent& cuerpo, std::set<std::string>& destino);
+
 #endif  // RECOLECTOR_VARIABLES_H

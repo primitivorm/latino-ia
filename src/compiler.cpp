@@ -727,6 +727,7 @@ void GeneradorC::genFuncion(FuncionDef* f) {
 
     std::set<std::string> excluir;
     for (const auto& p : f->parametros) excluir.insert(p.nombre);
+    excluir.insert(globalesExplicitos.begin(), globalesExplicitos.end());
 
     std::set<std::string> vars;
     recolectarVariables(f->cuerpo, vars, excluir);
@@ -781,6 +782,7 @@ void GeneradorC::genMetodo(const std::string& claseNombre, MetodoDef* metodo,
     std::set<std::string> excluir;
     if (instancia) excluir.insert("este");
     for (const auto& p : metodo->parametros) excluir.insert(p.nombre);
+    excluir.insert(globalesExplicitos.begin(), globalesExplicitos.end());
 
     std::set<std::string> vars;
     recolectarVariables(metodo->cuerpo, vars, excluir);
@@ -905,6 +907,13 @@ void GeneradorC::generarCuerpo(Programa& programa) {
     for (const std::string& v : vars)
         emitir("static LatValor " + varC(v) + ";");
     if (!vars.empty()) emitir("");
+
+    // "global" (ver ast.h, Asignacion::esGlobal): mismo storage "static
+    // LatValor" que cualquier otra variable de nivel superior (ya cubierto
+    // arriba) -- lo único que necesita esta palabra clave es que genFuncion/
+    // genMetodo no vuelvan a declarar una local con el mismo nombre.
+    globalesExplicitos.clear();
+    recolectarGlobalesExplicitos(programa.sentencias, globalesExplicitos);
 
     // Definiciones de las funciones de usuario.
     for (auto& s : programa.sentencias)

@@ -1206,6 +1206,7 @@ void GeneradorLLVM::genFuncion(FuncionDef& f, llvm::Module& modulo) {
     std::set<std::string> excluir;
     for (const auto& p : f.parametros) excluir.insert(p.nombre);
     if (f.variadico) excluir.insert("lat_resto");
+    excluir.insert(globalesExplicitos_.begin(), globalesExplicitos_.end());
 
     std::set<std::string> nombresLocales;
     recolectarVariables(f.cuerpo, nombresLocales, excluir);
@@ -1268,6 +1269,15 @@ void GeneradorLLVM::declararGlobales(Programa& programa, llvm::Module& modulo) {
     globales_.clear();
     std::set<std::string> nombres;
     recolectarVariables(programa.sentencias, nombres, {});
+
+    // "global" (ver compiler_llvm.h, globalesExplicitos_): mismo storage
+    // (GlobalVariable, ya cubierto arriba) que cualquier otra variable de
+    // nivel superior -- lo único que necesita esta palabra clave es que
+    // genFuncion/genMetodo no vuelvan a declarar un alloca local con el
+    // mismo nombre.
+    globalesExplicitos_.clear();
+    recolectarGlobalesExplicitos(programa.sentencias, globalesExplicitos_);
+
     llvm::StructType* tipoLatValor = abi_->tipoLatValor();
     for (const std::string& nombre : nombres) {
         auto* gv = new llvm::GlobalVariable(
@@ -1538,6 +1548,7 @@ void GeneradorLLVM::genMetodo(const std::string& claseNombre, MetodoDef& metodo,
     std::set<std::string> excluir;
     if (instancia) excluir.insert("este");
     for (const auto& p : metodo.parametros) excluir.insert(p.nombre);
+    excluir.insert(globalesExplicitos_.begin(), globalesExplicitos_.end());
 
     std::set<std::string> nombresLocales;
     recolectarVariables(metodo.cuerpo, nombresLocales, excluir);

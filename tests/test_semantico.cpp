@@ -190,6 +190,32 @@ static void prueba_semantico_var_y_const() {
                "no se puede reasignar la constante 'PI'");
 }
 
+static void prueba_semantico_global() {
+  esperarOK("global_nivel_superior_ok", "global contador = 0\n"
+                                        "escribir(contador)\n");
+
+  esperarOK("global_leida_y_escrita_dentro_de_funcion_ok",
+            "global contador = 0\n"
+            "funcion incrementar()\n"
+            "    contador = contador + 1\n"
+            "fin\n"
+            "incrementar()\n");
+
+  esperarError("global_dentro_de_funcion_error",
+               "funcion mal()\n"
+               "    global x = 1\n"
+               "fin\n",
+               "'global' solo puede usarse a nivel superior del módulo");
+
+  esperarError("global_dentro_de_metodo_error",
+               "clase Contador\n"
+               "    funcion metodo()\n"
+               "        global x = 1\n"
+               "    fin\n"
+               "fin\n",
+               "'global' solo puede usarse a nivel superior del módulo");
+}
+
 static void prueba_poo_nuevo_clase_ok() {
   esperarOK("poo_nuevo_ok",
             "clase Persona\n"
@@ -526,6 +552,7 @@ int main() {
   prueba_acceso_indice_variable_declarada();
   prueba_acceso_indice_no_declarada();
   prueba_semantico_var_y_const();
+  prueba_semantico_global();
   prueba_poo_nuevo_clase_ok();
   prueba_poo_este_fuera_de_metodo();
   prueba_poo_nuevo_interfaz_error();

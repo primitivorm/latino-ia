@@ -1945,6 +1945,37 @@ static void prueba_local_con_mismo_nombre_que_global_no_colisiona(GeneradorLLVM&
     verificarModulo("local_shadow_global", modulo);
 }
 
+// "global": a diferencia de la prueba anterior (variable de nivel superior
+// SIN la palabra clave, que se sombrea), una asignación dentro del cuerpo a
+// un nombre declarado "global" (Asignacion::esGlobal) NO debe declarar
+// ningún alloca local -- debe mutar la GlobalVariable real (ver el
+// comentario de globalesExplicitos_ en compiler_llvm.h y
+// declararGlobales()/genFuncion en compiler_llvm.cpp).
+static void prueba_global_mutable_no_crea_alloca_local(GeneradorLLVM& gen) {
+    llvm::Module modulo("global_mutable_no_crea_alloca", gen.contexto());
+
+    Programa programa;
+    auto declaracion = asignacionSimple("contador", litNumero(0.0));
+    static_cast<Asignacion*>(declaracion.get())->esGlobal = true;
+    programa.sentencias.push_back(std::move(declaracion));
+    gen.declararGlobales(programa, modulo);
+
+    FuncionDef f;
+    f.nombre = "incrementar";
+    f.cuerpo.push_back(asignacionSimple(
+        "contador", binaria("+", identificador("contador"), litNumero(1.0))));
+    gen.genFuncion(f, modulo);
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(!contiene(ir, "%v_contador = alloca"),
+          "una variable 'global' no debe declarar ningun alloca local dentro "
+          "de la funcion que la muta\n" << ir);
+    CHECK(contiene(ir, "store %struct.LatValor %") && contiene(ir, "@v_contador"),
+          "la asignacion dentro de la funcion debe escribir la celda global "
+          "real (@v_contador)\n" << ir);
+    verificarModulo("global_mutable_no_crea_alloca", modulo);
+}
+
 int main() {
     CHECK(std::string(LATINO_RUNTIME_ABI_LL) != "",
           "config.h debe traer una ruta a runtime_abi.ll cuando LATINO_LLVM_BACKEND esta ON");
@@ -2028,6 +2059,7 @@ int main() {
 
     prueba_global_visible_en_funcion(gen);
     prueba_local_con_mismo_nombre_que_global_no_colisiona(gen);
+    prueba_global_mutable_no_crea_alloca_local(gen);
 
     std::cout << "\nComprobaciones: " << g_checks << "   Fallos: " << g_fallos << std::endl;
     if (g_fallos == 0)
