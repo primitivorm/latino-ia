@@ -1110,6 +1110,14 @@ void AnalizadorSemantico::visitar(Programa& n) {
 }
 
 void AnalizadorSemantico::visitar(Asignacion& n) {
+    // "global" solo es válida a nivel superior del módulo -- dentro de una
+    // función/método se sombrearía igual que "var"/"const", contradiciendo
+    // el propósito de la palabra clave (ver el flag Asignacion::esGlobal).
+    if (n.esGlobal && profundidadFuncion > 0)
+        agregarError(n.linea,
+                     "'global' solo puede usarse a nivel superior del módulo, "
+                     "no dentro de una función o método");
+
     // Primero los valores (lecturas), luego se declaran los destinos.
     for (auto& v : n.valores)
         if (v) v->aceptar(*this);

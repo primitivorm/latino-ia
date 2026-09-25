@@ -469,6 +469,14 @@ private:
     // la global dentro de esa función/método, nunca la muta.
     std::unordered_map<std::string, llvm::Value*> globales_;
 
+    // Nombres declarados "global" a nivel superior (Asignacion::esGlobal,
+    // ver recolectarGlobalesExplicitos) -- genFuncion/genMetodo los excluyen
+    // del hoisting de locales (recolectarVariables) para que una asignación
+    // a ese nombre dentro del cuerpo mute la GlobalVariable real en vez de
+    // sombrearla con un alloca local, a diferencia de cualquier otra
+    // variable de nivel superior (ver el comentario de globales_ arriba).
+    std::set<std::string> globalesExplicitos_;
+
     // (Fase L6) Celda de retorno (el parámetro sret) de la función que
     // genFuncion esté traduciendo en este momento; nullptr fuera de la
     // traducción de una función -- ver genSentencia(Retornar).

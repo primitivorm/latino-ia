@@ -45,6 +45,33 @@ Mensaje = "¡Hasta la vista baby!"
 1. Empezar por un número.
 2. Empezar por un símbolo, ni tampoco que sea una palabra reservada.
 
+<a name="global"></a>
+### Variables globales: `global`
+
+Una variable declarada con `global` a nivel superior del archivo es visible
+desde cualquier función o método, tanto para leerla como para modificarla
+-- una asignación a ese nombre dentro de una función muta la variable real,
+en vez de crear una copia local como ocurriría con una variable de nivel
+superior sin `global` (o con `var`/`const`).
+
+```python
+global _VERSION_ = "1.0"
+poner(_VERSION_)   # 1.0
+
+global contador = 0
+
+funcion incrementar()
+    contador = contador + 1
+fin
+
+incrementar()
+incrementar()
+poner(contador)    # 2
+```
+
+`global` solo es válida a nivel superior del módulo: usarla dentro de una
+función o método es un error de compilación.
+
 <a name="const"></a>
 ## III. Constantes:
 Cuando se declara una constante, también se debe asignar el valor forzosamente.

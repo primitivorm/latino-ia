@@ -201,6 +201,27 @@ static void prueba_variable_de_nivel_superior_visible_en_funcion() {
           "nombre real\n--- generado ---\n" << c);
 }
 
+// "global": a diferencia de una variable de nivel superior sin la palabra
+// clave (prueba anterior), una asignación DENTRO de la función a un nombre
+// declarado "global" no debe generar ninguna declaración local -- eso
+// forzaría un sombreado que ocultaría la variable real (ver ast.h,
+// Asignacion::esGlobal, y GeneradorC::genFuncion).
+static void prueba_global_mutable_dentro_de_funcion() {
+    std::string src =
+        "global contador = 0\n"
+        "funcion incrementar()\n"
+        "    contador = contador + 1\n"
+        "fin\n"
+        "incrementar()\n";
+    std::string c = generar(src);
+    CHECK(contiene(c, "static LatValor v_contador;"),
+          "contador debe declararse como variable de nivel de archivo\n"
+          "--- generado ---\n" << c);
+    CHECK(!contiene(c, "LatValor v_contador = lat_nulo();"),
+          "no debe declararse ninguna local (sombra) para 'contador' dentro "
+          "de incrementar()\n--- generado ---\n" << c);
+}
+
 int main() {
     prueba_estructura_basica();
     prueba_aritmetica_precedencia();
@@ -216,6 +237,7 @@ int main() {
     prueba_elegir();
     prueba_asignacion_multiple();
     prueba_variable_de_nivel_superior_visible_en_funcion();
+    prueba_global_mutable_dentro_de_funcion();
 
     std::cout << "\nComprobaciones: " << g_checks
               << "   Fallos: " << g_fallos << std::endl;

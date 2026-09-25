@@ -1,0 +1,13 @@
+global _VERSION_ = "1.0"
+poner(_VERSION_)   #salida: 1.0
+
+global contador = 0
+
+funcion incrementar()
+    contador = contador + 1
+fin
+
+incrementar()
+incrementar()
+incrementar()
+poner(contador)   #salida: 3

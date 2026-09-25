@@ -416,6 +416,12 @@ struct Asignacion : Sentencia {
     bool esConst = false;
     bool exportado = false;  // PLAN_MODULOS.md: prefijo "exportar" en nivel superior
     bool esDefecto = false;  // "exportar por defecto ..."
+    // "global": solo válida a nivel superior del módulo (fuera de cualquier
+    // función/método). A diferencia de var/const, una variable "global" no
+    // se sombrea al asignarle dentro de una función/método -- la asignación
+    // muta la celda real de nivel superior (ver excluir()/recolectarVariables
+    // en compiler.cpp/compiler_llvm.cpp).
+    bool esGlobal = false;
     LATINO_ACEPTAR
 };
 

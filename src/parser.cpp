@@ -267,6 +267,7 @@ SentPtr Parser::parseSentencia() {
         if (p == "incluir") return parseIncluir();
         if (p == "var")     return parseVar();
         if (p == "const")   return parseConst();
+        if (p == "global")  return parseGlobal();
         if (p == "exportar") return parseExportar();
         if (p == "importar") return parseImportar();
         if (p == "externo")  return parseExterno();
@@ -609,6 +610,39 @@ SentPtr Parser::parseVar() {
         }
     }
     error("se esperaba una declaración de variable o asignación válida después de 'var'");
+}
+
+// global nombre = valor    (ver PLAN_MODULOS.md, "no existe 'global' ... no se
+// implementó nunca" -- esta es la implementación real). Solo válida a nivel
+// superior del módulo; AnalizadorSemantico rechaza su uso dentro de una
+// función/método (ver profundidadFuncion en analizador_semantico.cpp).
+SentPtr Parser::parseGlobal() {
+    avanzar();  // consume "global"
+    auto s = parseAsignacionOExpr();
+    if (auto* a = dynamic_cast<Asignacion*>(s.get())) {
+        a->esGlobal = true;
+        consumirFinDeSentencia();
+        return s;
+    } else if (auto* es = dynamic_cast<ExprSentencia*>(s.get())) {
+        if (auto* id = dynamic_cast<Identificador*>(es->expr.get())) {
+            auto a = std::make_unique<Asignacion>();
+            a->linea = es->linea;
+
+            auto destId = std::make_unique<Identificador>();
+            destId->linea = id->linea;
+            destId->nombre = id->nombre;
+            a->destinos.push_back(std::move(destId));
+
+            auto nullVal = std::make_unique<LitNulo>();
+            nullVal->linea = id->linea;
+            a->valores.push_back(std::move(nullVal));
+
+            a->esGlobal = true;
+            consumirFinDeSentencia();
+            return a;
+        }
+    }
+    error("se esperaba una declaración de variable o asignación válida después de 'global'");
 }
 
 SentPtr Parser::parseConst() {

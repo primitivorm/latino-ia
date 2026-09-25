@@ -105,6 +105,7 @@ private:
     SentPtr parseIncluir();
     SentPtr parseVar();
     SentPtr parseConst();
+    SentPtr parseGlobal();
 
     // Módulos (PLAN_MODULOS.md): exportar / importar
     SentPtr parseExportar();
