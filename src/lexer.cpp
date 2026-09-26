@@ -215,13 +215,13 @@ bool Lexer::esPalabraReservada(const std::string& palabra) const {
         // Existentes
         "caso", "cierto", "verdadero", "defecto", "otro", "desde", "elegir", "falso", "fin",
         "funcion", "fun", "global", "hasta", "incluir", "mientras", "nulo", "para", "repetir",
-        "regresar", "retornar", "ret", "romper", "si", "sino", "osi",
-        "var", "const",
+        "regresar", "retornar", "ret", "retorno", "romper", "si", "sino", "osi",
+        "var", "variable", "const", "constante",
         // Nuevas palabras reservadas para POO (PLAN_POO.md)
         "clase", "estructura", "interfaz",
         "nuevo", "este", "base",
         "extiende", "implementa",
-        "publico", "privado", "protegido",
+        "publico", "privado", "protegido", "pub", "priv", "prot",
         "abstracto", "estatico", "sobreescribir",
         "es",
         // Nuevas palabras reservadas para módulos (PLAN_MODULOS.md)

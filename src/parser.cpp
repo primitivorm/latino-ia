@@ -263,10 +263,10 @@ SentPtr Parser::parseSentencia() {
         if (p == "mientras") return parseMientras();
         if (p == "repetir")  return parseRepetir();
         if (p == "funcion" || p == "fun")                 return parseFuncion();
-        if (p == "regresar" || p == "retornar" || p == "ret") return parseRetornar();
+        if (p == "regresar" || p == "retornar" || p == "ret" || p == "retorno") return parseRetornar();
         if (p == "incluir") return parseIncluir();
-        if (p == "var")     return parseVar();
-        if (p == "const")   return parseConst();
+        if (p == "var" || p == "variable")   return parseVar();
+        if (p == "const" || p == "constante") return parseConst();
         if (p == "global")  return parseGlobal();
         if (p == "exportar") return parseExportar();
         if (p == "importar") return parseImportar();
@@ -817,14 +817,14 @@ SentPtr Parser::parseExportar() {
         i->exportado = true;
         return s;
     }
-    if (esReservada("var")) {
+    if (esReservada("var") || esReservada("variable")) {
         if (esDefecto) error("'exportar por defecto' no admite 'var'");
         SentPtr s = parseVar();
         auto* a = static_cast<Asignacion*>(s.get());
         a->exportado = true;
         return s;
     }
-    if (esReservada("const")) {
+    if (esReservada("const") || esReservada("constante")) {
         if (esDefecto) error("'exportar por defecto' no admite 'const'");
         SentPtr s = parseConst();
         auto* a = static_cast<Asignacion*>(s.get());
@@ -1482,9 +1482,9 @@ SentPtr Parser::parseClase(bool esAbstracta) {
         bool esEstatico = false;
         bool esAbstractoMiembro = false;
 
-        if (esReservada("publico")) { acceso = ModificadorAcceso::Publico; avanzar(); }
-        else if (esReservada("privado")) { acceso = ModificadorAcceso::Privado; avanzar(); }
-        else if (esReservada("protegido")) { acceso = ModificadorAcceso::Protegido; avanzar(); }
+        if (esReservada("publico") || esReservada("pub")) { acceso = ModificadorAcceso::Publico; avanzar(); }
+        else if (esReservada("privado") || esReservada("priv")) { acceso = ModificadorAcceso::Privado; avanzar(); }
+        else if (esReservada("protegido") || esReservada("prot")) { acceso = ModificadorAcceso::Protegido; avanzar(); }
 
         if (esReservada("estatico")) { esEstatico = true; avanzar(); }
         if (esReservada("abstracto")) { esAbstractoMiembro = true; avanzar(); }
@@ -1534,8 +1534,8 @@ SentPtr Parser::parseEstructura() {
         // No admite 'protegido' ni 'abstracto' por diseño
         ModificadorAcceso acceso = ModificadorAcceso::Publico;
         bool esEstatico = false;
-        if (esReservada("publico")) { acceso = ModificadorAcceso::Publico; avanzar(); }
-        else if (esReservada("privado")) { acceso = ModificadorAcceso::Privado; avanzar(); }
+        if (esReservada("publico") || esReservada("pub")) { acceso = ModificadorAcceso::Publico; avanzar(); }
+        else if (esReservada("privado") || esReservada("priv")) { acceso = ModificadorAcceso::Privado; avanzar(); }
         if (esReservada("estatico")) { esEstatico = true; avanzar(); }
 
         if (esReservada("funcion") || esReservada("fun")) {
