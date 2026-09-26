@@ -140,7 +140,6 @@ private:
     ExprPtr parseTernario();
     ExprPtr parseO();
     ExprPtr parseY();
-    ExprPtr parseIgualdad();
     ExprPtr parseRelacional();
     ExprPtr parseConcatenacion();
     ExprPtr parseAditivo();

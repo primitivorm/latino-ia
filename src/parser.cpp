@@ -1002,24 +1002,17 @@ ExprPtr Parser::parseO() {
 }
 
 ExprPtr Parser::parseY() {
-    ExprPtr e = parseIgualdad();
-    while (esOperador("&&")) { avanzar(); e = mkBinaria("&&", std::move(e), parseIgualdad()); }
-    return e;
-}
-
-ExprPtr Parser::parseIgualdad() {
     ExprPtr e = parseRelacional();
-    while (esOperador("==") || esOperador("!=") || esOperador("~=")) {
-        std::string op = actual.lexeme;
-        avanzar();
-        e = mkBinaria(op, std::move(e), parseRelacional());
-    }
+    while (esOperador("&&")) { avanzar(); e = mkBinaria("&&", std::move(e), parseRelacional()); }
     return e;
 }
 
+// Relacionales e igualdad comparten un solo nivel de precedencia (asociativo
+// por la izquierda), tal como C/Python/Lua: <, >, <=, >=, ~=, == y !=.
 ExprPtr Parser::parseRelacional() {
     ExprPtr e = parseConcatenacion();
-    while (esOperador("<") || esOperador(">") || esOperador("<=") || esOperador(">=")) {
+    while (esOperador("<") || esOperador(">") || esOperador("<=") || esOperador(">=") ||
+           esOperador("==") || esOperador("!=") || esOperador("~=")) {
         std::string op = actual.lexeme;
         avanzar();
         e = mkBinaria(op, std::move(e), parseConcatenacion());
@@ -1039,9 +1032,13 @@ ExprPtr Parser::parseRelacional() {
     return e;
 }
 
+// Asociativa por la derecha: a..b..c == a..(b..c).
 ExprPtr Parser::parseConcatenacion() {
     ExprPtr e = parseAditivo();
-    while (esOperador("..")) { avanzar(); e = mkBinaria("..", std::move(e), parseAditivo()); }
+    if (esOperador("..")) {
+        avanzar();
+        e = mkBinaria("..", std::move(e), parseConcatenacion());
+    }
     return e;
 }
 
