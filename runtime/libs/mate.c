@@ -217,3 +217,141 @@ LatValor lat_mate_fibonacci(LatValor nv) {
     for (long long i = 2; i <= n; i++) { double t = a + b; a = b; b = t; }
     return lat_numero(b);
 }
+
+/* =========================================================================
+ * Paridad con math de Python
+ * ====================================================================== */
+
+/* --- Constantes adicionales --- */
+LatValor lat_mate_infinito(void) { return lat_numero(HUGE_VAL); }
+LatValor lat_mate_nan(void)       { return lat_numero(NAN); }
+
+/* --- Aritmética y comparación de flotantes --- */
+
+LatValor lat_mate_copiar_signo(LatValor av, LatValor bv) {
+    return lat_numero(copysign(a_numero(av), a_numero(bv)));
+}
+
+LatValor lat_mate_residuo(LatValor av, LatValor bv) {
+    return lat_numero(fmod(a_numero(av), a_numero(bv)));
+}
+
+/* suma_precisa(lista) → suma de flotantes con compensación de error
+ * (algoritmo de Neumaier, igual estrategia que math.fsum de Python). */
+LatValor lat_mate_suma_precisa(LatValor listav) {
+    if (listav.tipo != LAT_LISTA) return lat_numero(0.0);
+    LatLista *l = listav.como.lista;
+    double suma = 0.0, comp = 0.0;
+    for (size_t i = 0; i < l->longitud; i++) {
+        double x = a_numero(l->datos[i]);
+        double t = suma + x;
+        if (fabs(suma) >= fabs(x)) comp += (suma - t) + x;
+        else                       comp += (x - t) + suma;
+        suma = t;
+    }
+    return lat_numero(suma + comp);
+}
+
+/* son_cercanos(a, b) → igual a math.isclose(a, b) con los valores por
+ * defecto de Python: rel_tol=1e-9, abs_tol=0.0 */
+LatValor lat_mate_son_cercanos(LatValor av, LatValor bv) {
+    double a = a_numero(av), b = a_numero(bv);
+    double rel_tol = 1e-9, abs_tol = 0.0;
+    double diff = fabs(a - b);
+    return lat_logico(diff <= fabs(rel_tol * (fabs(a) > fabs(b) ? fabs(a) : fabs(b)))
+                       || diff <= abs_tol);
+}
+
+LatValor lat_mate_es_finito(LatValor xv)   { return lat_logico(isfinite(a_numero(xv))); }
+LatValor lat_mate_es_infinito(LatValor xv) { return lat_logico(isinf(a_numero(xv))); }
+LatValor lat_mate_es_nan(LatValor xv)      { return lat_logico(isnan(a_numero(xv))); }
+
+/* raiz_entera(x) → floor(sqrt(x)) exacto para enteros no negativos */
+LatValor lat_mate_raiz_entera(LatValor xv) {
+    long long x = (long long)a_numero(xv);
+    if (x < 0) return lat_numero(0.0);
+    long long r = (long long)sqrt((double)x);
+    while (r * r > x) r--;
+    while ((r + 1) * (r + 1) <= x) r++;
+    return lat_numero((double)r);
+}
+
+/* permutaciones(n, k) → n! / (n - k)! */
+LatValor lat_mate_permutaciones(LatValor nv, LatValor kv) {
+    long long n = (long long)a_numero(nv);
+    long long k = (long long)a_numero(kv);
+    if (k < 0 || k > n) return lat_numero(0.0);
+    double r = 1.0;
+    for (long long i = 0; i < k; i++) r *= (double)(n - i);
+    return lat_numero(r);
+}
+
+/* combinaciones(n, k) → n! / (k! * (n - k)!) */
+LatValor lat_mate_combinaciones(LatValor nv, LatValor kv) {
+    long long n = (long long)a_numero(nv);
+    long long k = (long long)a_numero(kv);
+    if (k < 0 || k > n) return lat_numero(0.0);
+    if (k > n - k) k = n - k;
+    double r = 1.0;
+    for (long long i = 0; i < k; i++) r = r * (double)(n - i) / (double)(i + 1);
+    return lat_numero(round(r));
+}
+
+LatValor lat_mate_siguiente(LatValor xv, LatValor yv) {
+    return lat_numero(nextafter(a_numero(xv), a_numero(yv)));
+}
+
+/* ulp(x) → tamaño del último bit de precisión de x (Unit in the Last Place) */
+LatValor lat_mate_ulp(LatValor xv) {
+    double x = fabs(a_numero(xv));
+    if (isnan(x)) return lat_numero(x);
+    if (isinf(x)) return lat_numero(x);
+    return lat_numero(nextafter(x, HUGE_VAL) - x);
+}
+
+/* --- Exponencial y logaritmo --- */
+
+LatValor lat_mate_expm1(LatValor xv) { return lat_numero(expm1(a_numero(xv))); }
+
+/* log_base(x, base) → logaritmo de x en la base indicada */
+LatValor lat_mate_log_base(LatValor xv, LatValor basev) {
+    return lat_numero(log(a_numero(xv)) / log(a_numero(basev)));
+}
+
+LatValor lat_mate_log2(LatValor xv)  { return lat_numero(log2(a_numero(xv))); }
+LatValor lat_mate_log1p(LatValor xv) { return lat_numero(log1p(a_numero(xv))); }
+
+/* --- Trigonometría y conversión de ángulos --- */
+
+LatValor lat_mate_radianes(LatValor gradosv) {
+    return lat_numero(a_numero(gradosv) * M_PI / 180.0);
+}
+
+LatValor lat_mate_grados(LatValor radianesv) {
+    return lat_numero(a_numero(radianesv) * 180.0 / M_PI);
+}
+
+LatValor lat_mate_hipotenusa(LatValor av, LatValor bv) {
+    return lat_numero(hypot(a_numero(av), a_numero(bv)));
+}
+
+/* distancia(p, q) → distancia euclidiana entre dos puntos (listas de igual
+ * longitud), igual a math.dist de Python. */
+LatValor lat_mate_distancia(LatValor pv, LatValor qv) {
+    if (pv.tipo != LAT_LISTA || qv.tipo != LAT_LISTA) return lat_numero(0.0);
+    LatLista *p = pv.como.lista, *q = qv.como.lista;
+    size_t n = (p->longitud < q->longitud) ? p->longitud : q->longitud;
+    double suma = 0.0;
+    for (size_t i = 0; i < n; i++) {
+        double d = a_numero(p->datos[i]) - a_numero(q->datos[i]);
+        suma += d * d;
+    }
+    return lat_numero(sqrt(suma));
+}
+
+/* --- Funciones especiales --- */
+
+LatValor lat_mate_erf(LatValor xv)    { return lat_numero(erf(a_numero(xv))); }
+LatValor lat_mate_erfc(LatValor xv)   { return lat_numero(erfc(a_numero(xv))); }
+LatValor lat_mate_gamma(LatValor xv)  { return lat_numero(tgamma(a_numero(xv))); }
+LatValor lat_mate_lgamma(LatValor xv) { return lat_numero(lgamma(a_numero(xv))); }

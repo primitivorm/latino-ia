@@ -248,6 +248,138 @@ static const harness::CasoTest CASOS[] = {
     { "mat_fibonacci_diez",
       INC "escribir(mate.fibonacci(10))",
       "55" },
+
+    // =========================================================================
+    // Paridad con math de Python
+    // =========================================================================
+
+    // mate.infinito / mate.nan
+    { "mat_infinito",
+      INC "escribir(mate.infinito())",
+      "inf" },
+
+    { "mat_nan",
+      INC "escribir(mate.nan())",
+      "nan" },
+
+    // mate.copiar_signo
+    { "mat_copiar_signo",
+      INC "escribir(mate.copiar_signo(5, -2))",
+      "-5" },
+
+    // mate.residuo
+    { "mat_residuo",
+      INC "escribir(mate.residuo(20, 3))",
+      "2" },
+
+    // mate.suma_precisa
+    { "mat_suma_precisa",
+      INC "escribir(mate.suma_precisa([1, 2, 3, 4]))",
+      "10" },
+
+    // mate.son_cercanos
+    { "mat_son_cercanos_si",
+      INC "escribir(mate.son_cercanos(1.0, 1.0))",
+      "cierto" },
+
+    { "mat_son_cercanos_no",
+      INC "escribir(mate.son_cercanos(1.000001, 1.0))",
+      "falso" },
+
+    // mate.es_finito / mate.es_infinito / mate.es_nan
+    { "mat_es_finito",
+      INC "escribir(mate.es_finito(100))",
+      "cierto" },
+
+    { "mat_es_infinito",
+      INC "escribir(mate.es_infinito(mate.infinito()))",
+      "cierto" },
+
+    { "mat_es_nan",
+      INC "escribir(mate.es_nan(mate.nan()))",
+      "cierto" },
+
+    // mate.raiz_entera
+    { "mat_raiz_entera",
+      INC "escribir(mate.raiz_entera(15))",
+      "3" },
+
+    // mate.permutaciones / mate.combinaciones
+    { "mat_permutaciones",
+      INC "escribir(mate.permutaciones(5, 3))",
+      "60" },
+
+    { "mat_combinaciones",
+      INC "escribir(mate.combinaciones(5, 3))",
+      "10" },
+
+    // mate.siguiente
+    { "mat_siguiente",
+      INC "escribir(mate.siguiente(1.0, 1.0))",
+      "1" },
+
+    // mate.ulp (solo se ejercita: el valor exacto depende del formato de
+    // %.15g del runtime, ver CLAUDE.md)
+    { "mat_ulp_positivo",
+      INC "escribir(mate.ulp(1.0) > 0)",
+      "cierto" },
+
+    // mate.expm1
+    { "mat_expm1",
+      INC "escribir(mate.expm1(0))",
+      "0" },
+
+    // mate.log_base
+    { "mat_log_base",
+      INC "escribir(mate.log_base(100, 10))",
+      "2" },
+
+    // mate.log2
+    { "mat_log2",
+      INC "escribir(mate.log2(8))",
+      "3" },
+
+    // mate.log1p
+    { "mat_log1p",
+      INC "escribir(mate.log1p(0))",
+      "0" },
+
+    // mate.radianes / mate.grados
+    { "mat_radianes",
+      INC "escribir(mate.radianes(180))",
+      "3.14159265358979" },
+
+    { "mat_grados",
+      INC "escribir(mate.grados(mate.pi()))",
+      "180" },
+
+    // mate.hipotenusa
+    { "mat_hipotenusa",
+      INC "escribir(mate.hipotenusa(3, 4))",
+      "5" },
+
+    // mate.distancia
+    { "mat_distancia",
+      INC "escribir(mate.distancia([1, 2], [4, 6]))",
+      "5" },
+
+    // mate.erf / mate.erfc
+    { "mat_erf_cero",
+      INC "escribir(mate.erf(0))",
+      "0" },
+
+    { "mat_erfc_cero",
+      INC "escribir(mate.erfc(0))",
+      "1" },
+
+    // mate.gamma / mate.lgamma
+    { "mat_gamma",
+      INC "escribir(mate.gamma(5))",
+      "24" },
+
+    { "mat_lgamma",
+      INC "escribir(mate.lgamma(1))",
+      "0" },
 };
 
 #undef INC
