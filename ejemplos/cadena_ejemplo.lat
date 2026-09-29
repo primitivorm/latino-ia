@@ -1,72 +1,79 @@
 # Ejemplo de la librería cadena — Fase 10
+# Ampliado con paridad al módulo "string" de Python.
 
-s = "Hola Mundo"
+incluir "cadena"
 
-# longitud
-escribir(cadena.longitud(s))
+escribir("--- Constantes de 'string' ---")
+escribir("Letras ASCII: " .. cadena.ascii_letras())
+escribir("Minusculas: " .. cadena.ascii_minusculas())
+escribir("Mayusculas: " .. cadena.ascii_mayusculas())
+escribir("Digitos: " .. cadena.digitos())
+escribir("Digitos Hexadecimales: " .. cadena.digitos_hex())
+escribir("Digitos Octales: " .. cadena.digitos_oct())
+escribir("Puntuacion: " .. cadena.puntuacion())
+escribir("Imprimibles: " .. cadena.imprimibles())
+escribir("Espacios en blanco: " .. cadena.espacios_blancos())
 
-# mayusculas / minusculas
-escribir(cadena.mayusculas(s))
-escribir(cadena.minusculas(s))
+escribir("")
+escribir("--- Utilidades de 'string' ---")
+texto_sucio = "hola mundo desde python"
+escribir("capwords: " .. cadena.palabras_capital(texto_sucio))
 
-# contiene / inicia_con / termina_con
-escribir(cadena.contiene(s, "Mundo"))
-escribir(cadena.inicia_con(s, "Hola"))
-escribir(cadena.termina_con(s, "Mundo"))
+plantilla = "Hola $nombre, bienvenido a $lugar."
+valores = {"nombre": "Carlos", "lugar": "Madrid"}
+escribir("Template: " .. cadena.plantilla_sustituir(plantilla, valores))
 
-# encontrar
-escribir(cadena.encontrar(s, "Mundo"))
+valores_parciales = {"nombre": "Carlos"}
+escribir("Safe Substitute: " .. cadena.plantilla_sustituir_seguro(plantilla, valores_parciales))
 
-# separar
-partes = cadena.separar(s, " ")
-escribir(partes[0])
-escribir(partes[1])
+escribir("Formatter custom: " .. cadena.formatear("Valor: {}, {}", [10, 20]))
 
-# subcadena
-escribir(cadena.subcadena(s, 5, 10))
+escribir("")
+escribir("--- Metodos nativos de str ---")
+s = "  Hola Mundo 123  "
 
-# reemplazar
-escribir(cadena.reemplazar(s, "Mundo", "Latino"))
+escribir("lower(): " .. cadena.minusculas(s))
+escribir("upper(): " .. cadena.mayusculas(s))
+escribir("strip(): " .. cadena.recortar(s))
+escribir("replace(): " .. cadena.reemplazar(s, "123", "Python"))
 
-# recortar
-escribir(cadena.recortar("  hola  "))
+partes = cadena.separar(cadena.recortar(s), " ")
+escribir("split(): [" .. partes[0] .. ", " .. partes[1] .. ", " .. partes[2] .. "]")
 
-# invertir
-escribir(cadena.invertir("abc"))
+escribir("find(): " .. cadena.encontrar(s, "Mundo"))
+escribir("count(): " .. cadena.contar(s, "o"))
+escribir("startswith(): " .. cadena.inicia_con(cadena.recortar(s), "Hola"))
+escribir("isdigit(): " .. cadena.es_numerico("12345"))
 
-# comparar
-escribir(cadena.comparar("abc", "abc"))
-escribir(cadena.comparar("abc", "def"))
-
-# es_alfa / es_numerico / esta_vacia
-escribir(cadena.es_alfa("hola"))
-escribir(cadena.es_numerico("3.14"))
-escribir(cadena.esta_vacia(""))
-
-# formato
-escribir(cadena.formato("Pi = %.2f", 3.14159))
-
-# regex
-escribir(cadena.regex("abc 123 def", "[0-9]+"))
+lista_palabras = ["Python", "es", "genial"]
+escribir("join(): " .. lista.separador(lista_palabras, " "))
 
 #salida:
-#10
-#HOLA MUNDO
-#hola mundo
-#cierto
-#cierto
-#cierto
-#5
-#Hola
-#Mundo
-#Mundo
-#Hola Latino
-#hola
-#cba
-#0
-#-1
-#cierto
-#cierto
-#cierto
-#Pi = 3.14
-#123
+#--- Constantes de 'string' ---
+#Letras ASCII: abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ
+#Minusculas: abcdefghijklmnopqrstuvwxyz
+#Mayusculas: ABCDEFGHIJKLMNOPQRSTUVWXYZ
+#Digitos: 0123456789
+#Digitos Hexadecimales: 0123456789abcdefABCDEF
+#Digitos Octales: 01234567
+#Puntuacion: !"#$%&'()*+,-./:;<=>?@[\]^_`{|}~
+#Imprimibles: 0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!"#$%&'()*+,-./:;<=>?@[\]^_`{|}~
+#Espacios en blanco:
+#
+#--- Utilidades de 'string' ---
+#capwords: Hola Mundo Desde Python
+#Template: Hola Carlos, bienvenido a Madrid.
+#Safe Substitute: Hola Carlos, bienvenido a $lugar.
+#Formatter custom: Valor: 10, 20
+#
+#--- Metodos nativos de str ---
+#lower():   hola mundo 123
+#upper():   HOLA MUNDO 123
+#strip(): Hola Mundo 123
+#replace():   Hola Mundo Python
+#split(): [Hola, Mundo, 123]
+#find(): 7
+#count(): 2
+#startswith(): cierto
+#isdigit(): cierto
+#join(): Python es genial

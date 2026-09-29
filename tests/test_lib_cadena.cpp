@@ -268,6 +268,83 @@ static const harness::CasoTest CASOS[] = {
     { "cad_es_espacio_no",
       INC "escribir(cadena.es_espacio(\"  a  \"))",
       "falso" },
+
+    // ---- Paridad con el módulo string de Python ----
+
+    // Constantes
+    { "cad_ascii_minusculas",
+      INC "escribir(cadena.ascii_minusculas())",
+      "abcdefghijklmnopqrstuvwxyz" },
+
+    { "cad_ascii_mayusculas",
+      INC "escribir(cadena.ascii_mayusculas())",
+      "ABCDEFGHIJKLMNOPQRSTUVWXYZ" },
+
+    { "cad_ascii_letras",
+      INC "escribir(cadena.ascii_letras())",
+      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ" },
+
+    { "cad_digitos",
+      INC "escribir(cadena.digitos())",
+      "0123456789" },
+
+    { "cad_digitos_hex",
+      INC "escribir(cadena.digitos_hex())",
+      "0123456789abcdefABCDEF" },
+
+    { "cad_digitos_oct",
+      INC "escribir(cadena.digitos_oct())",
+      "01234567" },
+
+    { "cad_puntuacion",
+      INC "escribir(cadena.longitud(cadena.puntuacion()))",
+      "32" },
+
+    // cadena.palabras_capital (capwords)
+    { "cad_palabras_capital_basico",
+      INC "escribir(cadena.palabras_capital(\"hola mundo desde latino\"))",
+      "Hola Mundo Desde Latino" },
+
+    { "cad_palabras_capital_espacios_extra",
+      INC "escribir(cadena.palabras_capital(\"  hola   MUNDO  \"))",
+      "Hola Mundo" },
+
+    // cadena.plantilla_sustituir / _seguro
+    { "cad_plantilla_sustituir_basico",
+      INC "plantilla = \"Hola $nombre, bienvenido a $lugar.\"\n"
+          "valores = {\"nombre\": \"Carlos\", \"lugar\": \"Madrid\"}\n"
+          "escribir(cadena.plantilla_sustituir(plantilla, valores))",
+      "Hola Carlos, bienvenido a Madrid." },
+
+    { "cad_plantilla_sustituir_llaves",
+      INC "plantilla = \"${nombre}${nombre}\"\n"
+          "valores = {\"nombre\": \"ab\"}\n"
+          "escribir(cadena.plantilla_sustituir(plantilla, valores))",
+      "abab" },
+
+    { "cad_plantilla_sustituir_escape",
+      INC "valores = {\"x\": \"y\"}\n"
+          "escribir(cadena.plantilla_sustituir(\"100$$\", valores))",
+      "100$" },
+
+    { "cad_plantilla_sustituir_seguro_faltante",
+      INC "plantilla = \"Hola $nombre, bienvenido a $lugar.\"\n"
+          "valores = {\"nombre\": \"Carlos\"}\n"
+          "escribir(cadena.plantilla_sustituir_seguro(plantilla, valores))",
+      "Hola Carlos, bienvenido a $lugar." },
+
+    // cadena.formatear (str.format con lista en vez de variádicos)
+    { "cad_formatear_posicional",
+      INC "escribir(cadena.formatear(\"Valor: {}, {}\", [10, 20]))",
+      "Valor: 10, 20" },
+
+    { "cad_formatear_indice_explicito",
+      INC "escribir(cadena.formatear(\"{1} - {0}\", [\"a\", \"b\"]))",
+      "b - a" },
+
+    { "cad_formatear_llaves_escapadas",
+      INC "escribir(cadena.formatear(\"{{{}}}\", [5]))",
+      "{5}" },
 };
 
 #undef INC
