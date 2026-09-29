@@ -69,4 +69,30 @@ LatValor lat_cadena_recortar_der(LatValor s);                     /* elimina esp
 /* Fase 23 — Inspección adicional */
 LatValor lat_cadena_es_espacio(LatValor s);                       /* cierto si todos son espacios en blanco     */
 
+/* --- Paridad con el módulo string de Python --- */
+
+/* Constantes (sin argumentos), mismo patrón que mate.pi()/mate.tau() */
+LatValor lat_cadena_ascii_minusculas(void);   /* "abcde...xyz"              */
+LatValor lat_cadena_ascii_mayusculas(void);   /* "ABCDE...XYZ"              */
+LatValor lat_cadena_ascii_letras(void);       /* ascii_minusculas + mayusculas */
+LatValor lat_cadena_digitos(void);            /* "0123456789"               */
+LatValor lat_cadena_digitos_hex(void);        /* "0123456789abcdefABCDEF"   */
+LatValor lat_cadena_digitos_oct(void);        /* "01234567"                 */
+LatValor lat_cadena_puntuacion(void);         /* signos de puntuación ASCII */
+LatValor lat_cadena_imprimibles(void);        /* digitos+letras+puntuacion+espacios_blancos */
+LatValor lat_cadena_espacios_blancos(void);   /* " \t\n\r\x0b\x0c"          */
+
+/* string.capwords(): mayúscula inicial en cada palabra, espacios normalizados */
+LatValor lat_cadena_palabras_capital(LatValor s);
+
+/* string.Template: sustituye $nombre / ${nombre} usando un dic de valores.
+ * "sustituir" termina el programa (lat_error) si falta una clave; "_seguro"
+ * deja el placeholder tal cual, igual que safe_substitute() de Python. */
+LatValor lat_cadena_plantilla_sustituir(LatValor plantilla, LatValor valores);
+LatValor lat_cadena_plantilla_sustituir_seguro(LatValor plantilla, LatValor valores);
+
+/* string.Formatter/str.format(): sustituye "{}" (posicional) y "{n}" (índice
+ * explícito) con los elementos de una lista; "{{"/"}}" son llave literal. */
+LatValor lat_cadena_formatear(LatValor plantilla, LatValor valores);
+
 #endif /* LATINO_CADENA_H */

@@ -3,6 +3,7 @@
 #define _CRT_SECURE_NO_WARNINGS
 
 #include "cadena.h"
+#include "dic.h"
 
 #include <ctype.h>
 #include <stdarg.h>
@@ -738,4 +739,227 @@ LatValor lat_cadena_es_espacio(LatValor sv) {
         s++;
     }
     return lat_logico(1);
+}
+
+/* =========================================================================
+ * Paridad con el módulo string de Python
+ * ====================================================================== */
+
+/* -------------------------------------------------------------------------
+ * Constantes — mismo patrón que mate.pi()/mate.tau() (funciones sin args)
+ * ---------------------------------------------------------------------- */
+LatValor lat_cadena_ascii_minusculas(void) {
+    return lat_cadena("abcdefghijklmnopqrstuvwxyz");
+}
+
+LatValor lat_cadena_ascii_mayusculas(void) {
+    return lat_cadena("ABCDEFGHIJKLMNOPQRSTUVWXYZ");
+}
+
+LatValor lat_cadena_ascii_letras(void) {
+    return lat_cadena("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ");
+}
+
+LatValor lat_cadena_digitos(void) {
+    return lat_cadena("0123456789");
+}
+
+LatValor lat_cadena_digitos_hex(void) {
+    return lat_cadena("0123456789abcdefABCDEF");
+}
+
+LatValor lat_cadena_digitos_oct(void) {
+    return lat_cadena("01234567");
+}
+
+LatValor lat_cadena_puntuacion(void) {
+    return lat_cadena("!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~");
+}
+
+LatValor lat_cadena_espacios_blancos(void) {
+    return lat_cadena(" \t\n\r\x0b\x0c");
+}
+
+LatValor lat_cadena_imprimibles(void) {
+    /* mismo orden que string.printable de Python: digitos + ascii_letras +
+     * puntuacion + espacios_blancos */
+    return lat_cadena(
+        "0123456789"
+        "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
+        "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~"
+        " \t\n\r\x0b\x0c");
+}
+
+/* -------------------------------------------------------------------------
+ * cadena.palabras_capital(s) — string.capwords(): separa por espacios en
+ * blanco (colapsando corridas), pone en mayúscula la primera letra de cada
+ * palabra y el resto en minúscula, y vuelve a unir con un solo espacio.
+ * ---------------------------------------------------------------------- */
+LatValor lat_cadena_palabras_capital(LatValor sv) {
+    const char *s = valor_cadena(sv);
+    size_t len = strlen(s);
+    char *r = (char *)malloc(len + 1);
+    if (!r) return lat_nulo();
+    size_t out = 0, i = 0;
+    int primera_palabra = 1;
+    while (i < len) {
+        while (i < len && isspace((unsigned char)s[i])) i++;
+        if (i >= len) break;
+        if (!primera_palabra) r[out++] = ' ';
+        primera_palabra = 0;
+        int inicio_palabra = 1;
+        while (i < len && !isspace((unsigned char)s[i])) {
+            r[out++] = inicio_palabra ? (char)toupper((unsigned char)s[i])
+                                       : (char)tolower((unsigned char)s[i]);
+            inicio_palabra = 0;
+            i++;
+        }
+    }
+    r[out] = '\0';
+    LatValor v = lat_cadena(r);
+    free(r);
+    return v;
+}
+
+/* -------------------------------------------------------------------------
+ * cadena.plantilla_sustituir(plantilla, valores) / _seguro
+ * — string.Template().substitute()/safe_substitute(): sustituye $nombre /
+ * ${nombre} con las entradas del dic `valores`; $$ es un '$' literal.
+ * ---------------------------------------------------------------------- */
+static int plantilla_inicio_id(char c) { return isalpha((unsigned char)c) || c == '_'; }
+static int plantilla_es_id(char c)     { return isalnum((unsigned char)c) || c == '_'; }
+
+static char *plantilla_sustituir_interno(const char *plantilla, LatValor valores, int seguro) {
+    size_t cap = strlen(plantilla) + 1, len = 0;
+    char *r = (char *)malloc(cap);
+    if (!r) return NULL;
+#define PL_APPEND_N(str, n)                                                    \
+    do {                                                                        \
+        size_t _n = (n);                                                        \
+        while (len + _n + 1 > cap) { cap *= 2; r = (char *)realloc(r, cap); }    \
+        memcpy(r + len, (str), _n);                                             \
+        len += _n;                                                              \
+    } while (0)
+#define PL_APPEND(str) PL_APPEND_N(str, strlen(str))
+
+    const char *p = plantilla;
+    while (*p) {
+        if (*p == '$' && p[1] == '$') {
+            PL_APPEND_N("$", 1);
+            p += 2;
+            continue;
+        }
+        if (*p == '$' && (p[1] == '{' || plantilla_inicio_id(p[1]))) {
+            int llaves = (p[1] == '{');
+            const char *q = p + (llaves ? 2 : 1);
+            const char *inicio = q;
+            while (*q && plantilla_es_id(*q)) q++;
+            const char *fin = q;
+            if (llaves) {
+                if (*q == '}') q++;
+                else { PL_APPEND_N(p, 1); p++; continue; } /* "${" sin cierre: literal */
+            }
+            size_t nlen = (size_t)(fin - inicio);
+            if (nlen == 0) { PL_APPEND_N(p, 1); p++; continue; }
+
+            char *nombre = (char *)malloc(nlen + 1);
+            if (!nombre) { free(r); return NULL; }
+            memcpy(nombre, inicio, nlen);
+            nombre[nlen] = '\0';
+            LatValor clave = lat_cadena(nombre);
+
+            if (lat_es_verdadero(lat_dic_contiene(valores, clave))) {
+                char *sval = lat_a_cadena(lat_obtener_indice(valores, clave));
+                PL_APPEND(sval);
+                free(sval);
+            } else if (seguro) {
+                PL_APPEND_N(p, (size_t)(q - p));
+            } else {
+                char msg[256];
+                snprintf(msg, sizeof(msg),
+                         "cadena.plantilla_sustituir: falta la clave '%s'", nombre);
+                free(nombre);
+                free(r);
+                lat_error(lat_cadena(msg)); /* termina el programa: no retorna */
+            }
+            free(nombre);
+            p = q;
+            continue;
+        }
+        PL_APPEND_N(p, 1);
+        p++;
+    }
+    r[len] = '\0';
+    return r;
+#undef PL_APPEND
+#undef PL_APPEND_N
+}
+
+LatValor lat_cadena_plantilla_sustituir(LatValor plantillav, LatValor valoresv) {
+    char *r = plantilla_sustituir_interno(valor_cadena(plantillav), valoresv, 0);
+    if (!r) return lat_nulo();
+    LatValor v = lat_cadena(r);
+    free(r);
+    return v;
+}
+
+LatValor lat_cadena_plantilla_sustituir_seguro(LatValor plantillav, LatValor valoresv) {
+    char *r = plantilla_sustituir_interno(valor_cadena(plantillav), valoresv, 1);
+    if (!r) return lat_nulo();
+    LatValor v = lat_cadena(r);
+    free(r);
+    return v;
+}
+
+/* -------------------------------------------------------------------------
+ * cadena.formatear(plantilla, valores) — string.Formatter().format()/
+ * str.format(): sustituye "{}" (posicional automático) y "{n}" (índice
+ * explícito) con los elementos de la lista `valores`; "{{"/"}}" son llave
+ * literal. A diferencia de Python, no recibe variádicos sino una lista
+ * (mismo patrón que mate.suma_precisa/dic.actualizar).
+ * ---------------------------------------------------------------------- */
+LatValor lat_cadena_formatear(LatValor plantillav, LatValor valoresv) {
+    const char *plantilla = valor_cadena(plantillav);
+    LatLista *lst = (valoresv.tipo == LAT_LISTA) ? valoresv.como.lista : NULL;
+    size_t n = lst ? lst->longitud : 0;
+
+    size_t cap = strlen(plantilla) + 1, len = 0;
+    char *r = (char *)malloc(cap);
+    if (!r) return lat_nulo();
+#define FM_APPEND_N(str, k)                                                    \
+    do {                                                                        \
+        size_t _n = (k);                                                        \
+        while (len + _n + 1 > cap) { cap *= 2; r = (char *)realloc(r, cap); }    \
+        memcpy(r + len, (str), _n);                                             \
+        len += _n;                                                              \
+    } while (0)
+#define FM_APPEND(str) FM_APPEND_N(str, strlen(str))
+
+    size_t auto_idx = 0;
+    const char *p = plantilla;
+    while (*p) {
+        if (*p == '{' && p[1] == '{') { FM_APPEND_N("{", 1); p += 2; continue; }
+        if (*p == '}' && p[1] == '}') { FM_APPEND_N("}", 1); p += 2; continue; }
+        if (*p == '{') {
+            const char *q = p + 1;
+            while (*q && *q != '}') q++;
+            size_t idx = (q > p + 1) ? (size_t)strtoul(p + 1, NULL, 10) : auto_idx++;
+            if (*q == '}') q++;
+            if (idx < n) {
+                char *sval = lat_a_cadena(lst->datos[idx]);
+                FM_APPEND(sval);
+                free(sval);
+            }
+            p = q;
+            continue;
+        }
+        FM_APPEND_N(p, 1);
+        p++;
+    }
+    r[len] = '\0';
+    LatValor v = lat_cadena(r);
+    free(r);
+    return v;
+#undef FM_APPEND
+#undef FM_APPEND_N
 }
