@@ -69,4 +69,42 @@ LatValor lat_mate_mcm(LatValor a, LatValor b);
 LatValor lat_mate_es_primo(LatValor n);
 LatValor lat_mate_fibonacci(LatValor n);
 
+/* --- Paridad con math de Python --- */
+
+/* Constantes adicionales */
+LatValor lat_mate_infinito(void);
+LatValor lat_mate_nan(void);
+
+/* Aritmética y comparación de flotantes */
+LatValor lat_mate_copiar_signo(LatValor a, LatValor b);   /* copysign */
+LatValor lat_mate_residuo(LatValor a, LatValor b);        /* fmod */
+LatValor lat_mate_suma_precisa(LatValor lista);           /* fsum */
+LatValor lat_mate_son_cercanos(LatValor a, LatValor b);   /* isclose */
+LatValor lat_mate_es_finito(LatValor x);                  /* isfinite */
+LatValor lat_mate_es_infinito(LatValor x);                /* isinf */
+LatValor lat_mate_es_nan(LatValor x);                     /* isnan */
+LatValor lat_mate_raiz_entera(LatValor x);                /* isqrt */
+LatValor lat_mate_permutaciones(LatValor n, LatValor k);  /* perm */
+LatValor lat_mate_combinaciones(LatValor n, LatValor k);  /* comb */
+LatValor lat_mate_siguiente(LatValor x, LatValor y);      /* nextafter */
+LatValor lat_mate_ulp(LatValor x);                        /* ulp */
+
+/* Exponencial y logaritmo */
+LatValor lat_mate_expm1(LatValor x);
+LatValor lat_mate_log_base(LatValor x, LatValor base);    /* log(x, base) */
+LatValor lat_mate_log2(LatValor x);
+LatValor lat_mate_log1p(LatValor x);
+
+/* Trigonometría y conversión de ángulos */
+LatValor lat_mate_radianes(LatValor grados);
+LatValor lat_mate_grados(LatValor radianes);
+LatValor lat_mate_hipotenusa(LatValor a, LatValor b);     /* hypot */
+LatValor lat_mate_distancia(LatValor p, LatValor q);      /* dist */
+
+/* Funciones especiales */
+LatValor lat_mate_erf(LatValor x);
+LatValor lat_mate_erfc(LatValor x);
+LatValor lat_mate_gamma(LatValor x);
+LatValor lat_mate_lgamma(LatValor x);
+
 #endif /* LATINO_MATE_H */

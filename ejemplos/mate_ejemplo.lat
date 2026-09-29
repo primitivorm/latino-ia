@@ -1,37 +1,149 @@
 # Fase 13 — Librería mate
-# Criterio de aceptación
-escribir(mate.pi())               #salida: 3.14159265358979
-escribir(mate.raiz(16))           #salida: 4
-escribir(mate.piso(3.7))          #salida: 3
-escribir(mate.abs(-5))            #salida: 5
-# Redondeo
-escribir(mate.techo(3.2))         #salida: 4
-escribir(mate.redondear(3.5))     #salida: 4
-escribir(mate.truncar(3.9))       #salida: 3
-# Potencia / raíz cúbica
-escribir(mate.pot(2, 10))         #salida: 1024
-escribir(mate.raizc(27))          #salida: 3
-# Utilidades
-escribir(mate.max(3, 7))          #salida: 7
-escribir(mate.min(3, 7))          #salida: 3
-escribir(mate.porc(25, 200))      #salida: 12.5
-escribir(mate.base(255, 16))      #salida: ff
-# Exp / logaritmo
-escribir(mate.exp(0))             #salida: 1
-escribir(mate.log10(100))         #salida: 2
-# Pares (devuelven lista de 2)
-escribir(mate.frexp(8))           #salida: [0.5, 4]
-escribir(mate.parte(3.75))        #salida: [3, 0.75]
-escribir(mate.ldexp(0.5, 4))      #salida: 8
-# Ejercitar el resto sin verificar salida
-tau = mate.tau()
-eu  = mate.e()
-sn  = mate.sen(0)
-cn  = mate.cos(0)
-tn  = mate.tan(0)
-sh  = mate.senh(0)
-ch  = mate.cosh(0)
-th  = mate.tanh(0)
-at2 = mate.atan2(0, 1)
-rnd = mate.aleatorio()
-alt = mate.alt()
+# Ejemplo ampliado: paridad con el módulo "math" de Python.
+incluir "mate"
+
+escribir("--- 1. Constantes ---")
+escribir("mate.pi() (Pi): " .. mate.pi())
+escribir("mate.e() (Numero de Euler): " .. mate.e())
+escribir("mate.tau() (Tau = 2*Pi): " .. mate.tau())
+escribir("mate.infinito() (Infinito positivo): " .. mate.infinito())
+escribir("mate.nan() (No es un numero / Not a Number): " .. mate.nan())
+escribir("")
+
+escribir("--- 2. Funciones Aritmeticas y de Redondeo ---")
+escribir("mate.techo(4.2) -> Redondeo hacia arriba: " .. mate.techo(4.2))
+escribir("mate.piso(4.8) -> Redondeo hacia abajo: " .. mate.piso(4.8))
+escribir("mate.truncar(4.9) -> Elimina la parte decimal: " .. mate.truncar(4.9))
+escribir("mate.copiar_signo(5, -2) -> Copia el signo del segundo al primero: " .. mate.copiar_signo(5, -2))
+escribir("mate.abs(-7.5) -> Valor absoluto (flotante): " .. mate.abs(-7.5))
+escribir("mate.factorial(5) -> Factorial (5!): " .. mate.factorial(5))
+escribir("mate.residuo(20, 3) -> Residuo de la division (flotante): " .. mate.residuo(20, 3))
+escribir("mate.frexp(10) -> Mantisa y exponente de un numero: " .. mate.frexp(10))
+escribir("mate.ldexp(0.625, 4) -> Inversa de frexp (m * 2^e): " .. mate.ldexp(0.625, 4))
+escribir("mate.parte(4.75) -> Separa parte entera y decimal: " .. mate.parte(4.75))
+escribir("mate.suma_precisa([0.1, 0.1, 0.1]) -> Suma precisa de flotantes: " .. mate.suma_precisa([0.1, 0.1, 0.1]))
+escribir("mate.mcd(24, 36) -> Maximo Comun Divisor: " .. mate.mcd(24, 36))
+escribir("mate.mcm(12, 18) -> Minimo Comun Multiplo: " .. mate.mcm(12, 18))
+escribir("mate.son_cercanos(1.000001, 1.0) -> Compara si dos valores son cercanos: " .. mate.son_cercanos(1.000001, 1.0))
+escribir("mate.es_finito(100) -> Es un numero finito?: " .. mate.es_finito(100))
+escribir("mate.es_infinito(mate.infinito()) -> Es infinito?: " .. mate.es_infinito(mate.infinito()))
+escribir("mate.es_nan(mate.nan()) -> Es NaN?: " .. mate.es_nan(mate.nan()))
+escribir("mate.raiz_entera(15) -> Raiz cuadrada entera (hacia abajo): " .. mate.raiz_entera(15))
+escribir("mate.permutaciones(5, 3) -> Permutaciones de 5 elementos tomados de 3 en 3: " .. mate.permutaciones(5, 3))
+escribir("mate.combinaciones(5, 3) -> Combinaciones de 5 elementos tomados de 3 en 3: " .. mate.combinaciones(5, 3))
+escribir("mate.siguiente(1.0, 2.0) -> Siguiente flotante despues de x hacia y: " .. mate.siguiente(1.0, 2.0))
+escribir("mate.ulp(1.0) -> Valor del bit menos significativo: " .. mate.ulp(1.0))
+escribir("")
+
+escribir("--- 3. Funciones de Potencias y Logaritmos ---")
+escribir("mate.pot(2, 3) -> Potencia (2^3): " .. mate.pot(2, 3))
+escribir("mate.raiz(25) -> Raiz cuadrada: " .. mate.raiz(25))
+escribir("mate.raizc(27) -> Raiz cubica: " .. mate.raizc(27))
+escribir("mate.exp(2) -> Exponencial natural (e^2): " .. mate.exp(2))
+escribir("mate.expm1(2) -> Equivalente a (e^2 - 1) con mas precision: " .. mate.expm1(2))
+escribir("mate.log(10) -> Logaritmo natural (base e): " .. mate.log(10))
+escribir("mate.log_base(100, 10) -> Logaritmo con base personalizada (base 10): " .. mate.log_base(100, 10))
+escribir("mate.log10(100) -> Logaritmo en base 10: " .. mate.log10(100))
+escribir("mate.log2(8) -> Logaritmo en base 2: " .. mate.log2(8))
+escribir("mate.log1p(0.000000000000001) -> Logaritmo natural de (1 + x) preciso para x cercana a 0: " .. mate.log1p(0.000000000000001))
+escribir("")
+
+escribir("--- 4. Funciones Trigonometricas y de Conversion ---")
+angulo_radianes = mate.radianes(180)
+angulo_grados = mate.grados(mate.pi())
+escribir("mate.radianes(180) -> Convierte grados a radianes: " .. angulo_radianes)
+escribir("mate.grados(mate.pi()) -> Convierte radianes a grados: " .. angulo_grados)
+
+escribir("mate.sen(mate.pi() / 2) -> Seno: " .. mate.sen(mate.pi() / 2))
+escribir("mate.cos(mate.pi()) -> Coseno: " .. mate.cos(mate.pi()))
+escribir("mate.tan(mate.pi() / 4) -> Tangente: " .. mate.tan(mate.pi() / 4))
+
+escribir("mate.asen(1) -> Arcoseno: " .. mate.asen(1))
+escribir("mate.acos(-1) -> Arcocoseno: " .. mate.acos(-1))
+escribir("mate.atan(1) -> Arcotangente: " .. mate.atan(1))
+escribir("mate.atan2(4, 4) -> Arcotangente de y/x: " .. mate.atan2(4, 4))
+
+escribir("mate.hipotenusa(3, 4) -> Hipotenusa: " .. mate.hipotenusa(3, 4))
+escribir("mate.distancia([1, 2], [4, 6]) -> Distancia euclidiana entre dos puntos: " .. mate.distancia([1, 2], [4, 6]))
+escribir("")
+
+escribir("--- 5. Funciones Hiperbolicas ---")
+escribir("mate.senh(1) -> Seno hiperbolico: " .. mate.senh(1))
+escribir("mate.cosh(1) -> Coseno hiperbolico: " .. mate.cosh(1))
+escribir("mate.tanh(1) -> Tangente hiperbolica: " .. mate.tanh(1))
+escribir("mate.asenh(1) -> Arcoseno hiperbolico: " .. mate.asenh(1))
+escribir("mate.acosh(2) -> Arcocoseno hiperbolico: " .. mate.acosh(2))
+escribir("mate.atanh(0.5) -> Arcotangente hiperbolica: " .. mate.atanh(0.5))
+escribir("")
+
+escribir("--- 6. Funciones Especiales ---")
+escribir("mate.erf(0.5) -> Funcion de error de Gauss: " .. mate.erf(0.5))
+escribir("mate.erfc(0.5) -> Funcion de error complementaria: " .. mate.erfc(0.5))
+escribir("mate.gamma(5) -> Funcion Gamma: " .. mate.gamma(5))
+escribir("mate.lgamma(5) -> Logaritmo natural del valor absoluto de Gamma: " .. mate.lgamma(5))
+
+#salida:
+# --- 1. Constantes ---
+# mate.pi() (Pi): 3.14159265358979
+# mate.e() (Numero de Euler): 2.71828182845905
+# mate.tau() (Tau = 2*Pi): 6.28318530717959
+# mate.infinito() (Infinito positivo): inf
+# mate.nan() (No es un numero / Not a Number): nan
+# --- 2. Funciones Aritmeticas y de Redondeo ---
+# mate.techo(4.2) -> Redondeo hacia arriba: 5
+# mate.piso(4.8) -> Redondeo hacia abajo: 4
+# mate.truncar(4.9) -> Elimina la parte decimal: 4
+# mate.copiar_signo(5, -2) -> Copia el signo del segundo al primero: -5
+# mate.abs(-7.5) -> Valor absoluto (flotante): 7.5
+# mate.factorial(5) -> Factorial (5!): 120
+# mate.residuo(20, 3) -> Residuo de la division (flotante): 2
+# mate.frexp(10) -> Mantisa y exponente de un numero: [0.625, 4]
+# mate.ldexp(0.625, 4) -> Inversa de frexp (m * 2^e): 10
+# mate.parte(4.75) -> Separa parte entera y decimal: [4, 0.75]
+# mate.suma_precisa([0.1, 0.1, 0.1]) -> Suma precisa de flotantes: 0.3
+# mate.mcd(24, 36) -> Maximo Comun Divisor: 12
+# mate.mcm(12, 18) -> Minimo Comun Multiplo: 36
+# mate.son_cercanos(1.000001, 1.0) -> Compara si dos valores son cercanos: falso
+# mate.es_finito(100) -> Es un numero finito?: cierto
+# mate.es_infinito(mate.infinito()) -> Es infinito?: cierto
+# mate.es_nan(mate.nan()) -> Es NaN?: cierto
+# mate.raiz_entera(15) -> Raiz cuadrada entera (hacia abajo): 3
+# mate.permutaciones(5, 3) -> Permutaciones de 5 elementos tomados de 3 en 3: 60
+# mate.combinaciones(5, 3) -> Combinaciones de 5 elementos tomados de 3 en 3: 10
+# mate.siguiente(1.0, 2.0) -> Siguiente flotante despues de x hacia y: 1
+# mate.ulp(1.0) -> Valor del bit menos significativo: 2.22044604925031e-16
+# --- 3. Funciones de Potencias y Logaritmos ---
+# mate.pot(2, 3) -> Potencia (2^3): 8
+# mate.raiz(25) -> Raiz cuadrada: 5
+# mate.raizc(27) -> Raiz cubica: 3
+# mate.exp(2) -> Exponencial natural (e^2): 7.38905609893065
+# mate.expm1(2) -> Equivalente a (e^2 - 1) con mas precision: 6.38905609893065
+# mate.log(10) -> Logaritmo natural (base e): 2.30258509299405
+# mate.log_base(100, 10) -> Logaritmo con base personalizada (base 10): 2
+# mate.log10(100) -> Logaritmo en base 10: 2
+# mate.log2(8) -> Logaritmo en base 2: 3
+# mate.log1p(0.000000000000001) -> Logaritmo natural de (1 + x) preciso para x cercana a 0: 1e-15
+# --- 4. Funciones Trigonometricas y de Conversion ---
+# mate.radianes(180) -> Convierte grados a radianes: 3.14159265358979
+# mate.grados(mate.pi()) -> Convierte radianes a grados: 180
+# mate.sen(mate.pi() / 2) -> Seno: 1
+# mate.cos(mate.pi()) -> Coseno: -1
+# mate.tan(mate.pi() / 4) -> Tangente: 1
+# mate.asen(1) -> Arcoseno: 1.5707963267949
+# mate.acos(-1) -> Arcocoseno: 3.14159265358979
+# mate.atan(1) -> Arcotangente: 0.785398163397448
+# mate.atan2(4, 4) -> Arcotangente de y/x: 0.785398163397448
+# mate.hipotenusa(3, 4) -> Hipotenusa: 5
+# mate.distancia([1, 2], [4, 6]) -> Distancia euclidiana entre dos puntos: 5
+# --- 5. Funciones Hiperbolicas ---
+# mate.senh(1) -> Seno hiperbolico: 1.1752011936438
+# mate.cosh(1) -> Coseno hiperbolico: 1.54308063481524
+# mate.tanh(1) -> Tangente hiperbolica: 0.761594155955765
+# mate.asenh(1) -> Arcoseno hiperbolico: 0.881373587019543
+# mate.acosh(2) -> Arcocoseno hiperbolico: 1.31695789692482
+# mate.atanh(0.5) -> Arcotangente hiperbolica: 0.549306144334055
+# --- 6. Funciones Especiales ---
+# mate.erf(0.5) -> Funcion de error de Gauss: 0.520499877813047
+# mate.erfc(0.5) -> Funcion de error complementaria: 0.479500122186953
+# mate.gamma(5) -> Funcion Gamma: 24
+# mate.lgamma(5) -> Logaritmo natural del valor absoluto de Gamma: 3.17805383034795
