@@ -1,0 +1,15 @@
+# Cadenas multilínea: un salto de línea real sin escapar dentro de la
+# cadena no la termina; el literal sigue hasta la comilla de cierre.
+
+opciones = "Selecciona tu opción:
+\t1) Copiar archivo.
+\t2) Copiar cadena."
+escribir(opciones)
+
+escribir("despues de la cadena multilinea")
+
+#salida:
+#Selecciona tu opción:
+#	1) Copiar archivo.
+#	2) Copiar cadena.
+#despues de la cadena multilinea
