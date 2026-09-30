@@ -140,6 +140,10 @@ static void prueba_indices() {
             "lat_obtener_indice(v_n, lat_negar(lat_numero(1)))");
     esperar("asignar_indice", "n = [1, 2, 3]\nn[0] = 99\n",
             "lat_asignar_indice(v_n, lat_numero(0), lat_numero(99));");
+    esperar("indice_cadena", "s = \"hola\"\nescribir(s[0])\n",
+            "lat_obtener_indice(v_s, lat_numero(0))");
+    esperar("asignar_indice_cadena", "s = \"hola\"\ns[0] = \"H\"\n",
+            "lat_asignar_indice(v_s, lat_numero(0), lat_cadena(\"H\"));");
 }
 
 static void prueba_ternario() {

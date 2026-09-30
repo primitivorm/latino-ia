@@ -1,0 +1,11 @@
+# Indexación de cadenas (SINTAXIS.md sección VIII, "Indexación de cadenas")
+str = "hola mundo"
+poner(str[0])
+#salida: h
+
+str[4] = "-"
+poner(str)
+#salida: hola-mundo
+
+poner(str[-1])
+#salida: o

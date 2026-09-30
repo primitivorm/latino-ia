@@ -381,6 +381,19 @@ Podemos utilizar también números negativos. Si se utiliza un número negativo 
 escribir(numeros[-1])
 #salida: 5
 ```
+
+### Indexación de cadenas
+Una cadena es, internamente, un arreglo de caracteres, así que admite el mismo operador `[]` que las listas, tanto para leer como para modificar un carácter en una posición dada. El índice también puede ser negativo, con el mismo significado que en las listas.
+```python
+str = "hola mundo"
+escribir(str[0])
+#salida: h
+
+str[4] = "-"
+escribir(str)
+#salida: hola-mundo
+```
+El valor asignado debe ser una cadena de un solo carácter. Como las cadenas se comparten por referencia igual que las listas, modificar una cadena por índice también afecta a cualquier otra variable que apunte al mismo valor.
 <a name="dic"></a>
 ## IX. Diccionarios
 Los diccionarios, también llamados matrices asociativas, deben su nombre a que son colecciones que relacionan una clave y un valor, entre llaves y separado el valor de la clave con dos puntos.
