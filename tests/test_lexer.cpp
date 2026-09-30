@@ -139,6 +139,24 @@ static void prueba_cadena_con_escape() {
     });
 }
 
+static void prueba_cadena_multilinea() {
+    // Un salto de línea real sin escapar dentro de la cadena no la termina:
+    // el lexema conserva el '\n' literal, y la cadena sigue hasta la comilla
+    // de cierre (que puede estar varias líneas más abajo).
+    std::string src =
+        "\"linea uno\n"
+        "\\t linea dos\"\n"
+        "y = 2\n";
+    auto t = lex(src);
+    esperarSecuencia("cadena_multilinea", t, {
+        {TokenType::Cadena, "linea uno\n\\t linea dos"},
+        {TokenType::Identificador, "y"}, {TokenType::Operador, "="}, {TokenType::Entero, "2"},
+    });
+    // 'y' debe quedar en la línea 3 (la cadena ocupó las líneas 1 y 2).
+    CHECK(t.size() >= 2 && t[1].line == 3,
+          "cadena_multilinea: 'y' deberia estar en la linea 3 (real=" << t[1].line << ")");
+}
+
 static void prueba_cadena_no_terminada() {
     // Debe reportar un error y devolver FinDeArchivo. Capturamos std::cerr.
     std::ostringstream capturado;
@@ -283,6 +301,7 @@ int main() {
     prueba_numeros();
     prueba_cadenas();
     prueba_cadena_con_escape();
+    prueba_cadena_multilinea();
     prueba_cadena_no_terminada();
     prueba_operadores();
     prueba_delimitadores();

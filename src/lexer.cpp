@@ -116,15 +116,25 @@ Token Lexer::getNextToken() {
     }
 
     // Cadena: admite comillas dobles (") y simples ('). El lexema NO incluye
-    // las comillas. Las secuencias de escape (\n, \", \\, ...) se conservan tal cual.
+    // las comillas. Las secuencias de escape (\n, \", \\, ...) se conservan tal
+    // cual (las decodifica lat_cadena() en runtime, ver runtime/latino.c).
+    // Un salto de línea real sin escapar dentro de la cadena NO la termina:
+    // permite cadenas multilínea (el literal se extiende hasta la comilla de
+    // cierre, que puede estar varias líneas más abajo); solo el fin de
+    // archivo deja la cadena sin terminar.
     if (c == '"' || c == '\'') {
         char quote = c;
         std::string lexeme;
         for (;;) {
             char ch = getNextChar();
-            if (ch == '\0' || ch == '\n') {
+            if (ch == '\0') {
                 reportError("Cadena de caracteres no terminada", startLine);
                 return Token{TokenType::FinDeArchivo, "", startLine};
+            }
+            if (ch == '\n') {
+                currentLine++;
+                lexeme += ch;
+                continue;
             }
             if (ch == '\\') {
                 char esc = getNextChar();
@@ -132,6 +142,7 @@ Token Lexer::getNextToken() {
                     reportError("Cadena de caracteres no terminada", startLine);
                     return Token{TokenType::FinDeArchivo, "", startLine};
                 }
+                if (esc == '\n') currentLine++;
                 lexeme += '\\';
                 lexeme += esc;
                 continue;
