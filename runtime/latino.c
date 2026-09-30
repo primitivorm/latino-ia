@@ -630,6 +630,17 @@ static size_t indice_lista(LatLista* l, LatValor indice) {
     return (size_t)i;
 }
 
+/* Una cadena es un arreglo de caracteres: mismo manejo de índice negativo
+ * y límites que indice_lista, pero contra su longitud en bytes. */
+static size_t indice_cadena(size_t len, LatValor indice) {
+    long i;
+    if (indice.tipo != LAT_NUMERO) abortar("índice de cadena no numérico");
+    i = (long)indice.como.numero;
+    if (i < 0) i += (long)len;
+    if (i < 0 || (size_t)i >= len) abortar("índice de cadena fuera de rango");
+    return (size_t)i;
+}
+
 LatValor lat_obtener_indice(LatValor cont, LatValor indice) {
     if (cont.tipo == LAT_LISTA) {
         return cont.como.lista->datos[indice_lista(cont.como.lista, indice)];
@@ -652,6 +663,11 @@ LatValor lat_obtener_indice(LatValor cont, LatValor indice) {
         LatValor val = lat_obj_get(cont, k);
         free(k);
         return val;
+    }
+    if (cont.tipo == LAT_CADENA) {
+        size_t i = indice_cadena(strlen(cont.como.cadena), indice);
+        char buf[2] = { cont.como.cadena[i], '\0' };
+        return lat_cadena(buf);
     }
     abortar("el valor no admite indexación");
     return lat_nulo();
@@ -679,6 +695,13 @@ void lat_asignar_indice(LatValor cont, LatValor indice, LatValor valor) {
         char* k = lat_a_cadena(indice);
         lat_obj_set(cont, k, valor);
         free(k);
+        return;
+    }
+    if (cont.tipo == LAT_CADENA) {
+        size_t i = indice_cadena(strlen(cont.como.cadena), indice);
+        if (valor.tipo != LAT_CADENA || strlen(valor.como.cadena) != 1)
+            abortar("el valor asignado a un índice de cadena debe ser una cadena de un solo carácter");
+        cont.como.cadena[i] = valor.como.cadena[0];
         return;
     }
     abortar("el valor no admite asignación por índice");
