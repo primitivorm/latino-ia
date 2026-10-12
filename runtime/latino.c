@@ -631,7 +631,9 @@ static size_t indice_lista(LatLista* l, LatValor indice) {
 }
 
 /* Una cadena es un arreglo de caracteres: mismo manejo de índice negativo
- * y límites que indice_lista, pero contra su longitud en bytes. */
+ * y límites que indice_lista, pero contra su longitud en caracteres UTF-8
+ * (no en bytes), para que p.ej. "año"[1] devuelva "ñ" y no un byte suelto
+ * de su secuencia multibyte. */
 static size_t indice_cadena(size_t len, LatValor indice) {
     long i;
     if (indice.tipo != LAT_NUMERO) abortar("índice de cadena no numérico");
@@ -639,6 +641,40 @@ static size_t indice_cadena(size_t len, LatValor indice) {
     if (i < 0) i += (long)len;
     if (i < 0 || (size_t)i >= len) abortar("índice de cadena fuera de rango");
     return (size_t)i;
+}
+
+/* Tamaño en bytes del carácter UTF-8 cuyo primer byte es b. Un byte de
+ * continuación suelto o inválido se trata como un carácter de 1 byte. */
+static size_t utf8_tamano_caracter(unsigned char b) {
+    if ((b & 0x80) == 0x00) return 1;
+    if ((b & 0xE0) == 0xC0) return 2;
+    if ((b & 0xF0) == 0xE0) return 3;
+    if ((b & 0xF8) == 0xF0) return 4;
+    return 1;
+}
+
+/* Cuenta caracteres (no bytes) de una cadena UTF-8 terminada en NUL. */
+static size_t cadena_contar_caracteres(const char* s) {
+    size_t n = 0;
+    const unsigned char* p = (const unsigned char*)s;
+    while (*p) {
+        p += utf8_tamano_caracter(*p);
+        n++;
+    }
+    return n;
+}
+
+/* Ubica el carácter número char_index (ya resuelto/validado) de s: su
+ * offset en bytes desde el inicio y su tamaño en bytes. */
+static void cadena_ubicar_caracter(const char* s, size_t char_index, size_t* offset, size_t* tam) {
+    const unsigned char* p = (const unsigned char*)s;
+    size_t i = 0;
+    while (i < char_index) {
+        p += utf8_tamano_caracter(*p);
+        i++;
+    }
+    *offset = (const char*)p - s;
+    *tam = utf8_tamano_caracter(*p);
 }
 
 LatValor lat_obtener_indice(LatValor cont, LatValor indice) {
@@ -665,8 +701,13 @@ LatValor lat_obtener_indice(LatValor cont, LatValor indice) {
         return val;
     }
     if (cont.tipo == LAT_CADENA) {
-        size_t i = indice_cadena(strlen(cont.como.cadena), indice);
-        char buf[2] = { cont.como.cadena[i], '\0' };
+        size_t n = cadena_contar_caracteres(cont.como.cadena);
+        size_t ci = indice_cadena(n, indice);
+        size_t offset, tam;
+        cadena_ubicar_caracter(cont.como.cadena, ci, &offset, &tam);
+        char buf[5];
+        memcpy(buf, cont.como.cadena + offset, tam);
+        buf[tam] = '\0';
         return lat_cadena(buf);
     }
     abortar("el valor no admite indexación");
@@ -698,10 +739,18 @@ void lat_asignar_indice(LatValor cont, LatValor indice, LatValor valor) {
         return;
     }
     if (cont.tipo == LAT_CADENA) {
-        size_t i = indice_cadena(strlen(cont.como.cadena), indice);
-        if (valor.tipo != LAT_CADENA || strlen(valor.como.cadena) != 1)
+        size_t n = cadena_contar_caracteres(cont.como.cadena);
+        size_t ci = indice_cadena(n, indice);
+        size_t offset, tam;
+        cadena_ubicar_caracter(cont.como.cadena, ci, &offset, &tam);
+        if (valor.tipo != LAT_CADENA || cadena_contar_caracteres(valor.como.cadena) != 1)
             abortar("el valor asignado a un índice de cadena debe ser una cadena de un solo carácter");
-        cont.como.cadena[i] = valor.como.cadena[0];
+        /* El bloque de la cadena tiene tamaño fijo (ver LatCadenaBloque):
+         * no se puede redimensionar in-place, así que el carácter nuevo
+         * debe ocupar exactamente los mismos bytes que el reemplazado. */
+        if (utf8_tamano_caracter((unsigned char)valor.como.cadena[0]) != tam)
+            abortar("el carácter asignado debe ocupar el mismo número de bytes que el carácter reemplazado");
+        memcpy(cont.como.cadena + offset, valor.como.cadena, tam);
         return;
     }
     abortar("el valor no admite asignación por índice");
