@@ -4,6 +4,7 @@
 
 #include "archivo.h"
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -134,13 +135,23 @@ LatValor lat_archivo_ejecutar(LatValor ruta_v) {
 }
 
 /* -------------------------------------------------------------------------
- * 6. archivo.escribir(ruta, texto) — sobreescribe el archivo
+ * 6. archivo.escribir(ruta, texto) — sobreescribe el archivo, creándolo si
+ *    no existe (igual que open(ruta, "w") en Python o io.open(ruta, "w")
+ *    en Lua); si no se puede abrir (p.ej. el directorio no existe o hay un
+ *    problema de permisos), termina el programa con un error descriptivo
+ *    en vez de fallar en silencio.
  * ---------------------------------------------------------------------- */
 LatValor lat_archivo_escribir(LatValor ruta_v, LatValor texto_v) {
     const char *ruta = ruta_de_valor(ruta_v);
-    if (!ruta) return lat_nulo();
+    if (!ruta) lat_error(lat_cadena("archivo.escribir: la ruta debe ser una cadena"));
+
     FILE *f = fopen(ruta, "w");
-    if (!f) return lat_nulo();
+    if (!f) {
+        char msg[512];
+        snprintf(msg, sizeof(msg), "archivo.escribir: no se pudo escribir '%s': %s",
+                 ruta, strerror(errno));
+        lat_error(lat_cadena(msg)); /* termina el programa: no retorna */
+    }
     fputs(texto_de_valor(texto_v), f);
     fclose(f);
     return lat_nulo();
