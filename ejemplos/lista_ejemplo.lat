@@ -16,7 +16,7 @@ escribir(lista.longitud(c))       #salida: 5
 
 escribir(lista.encontrar(c, 4))   #salida: 3
 
-lista.insertar(a, 1, 99)
+lista.insertar(a, 99, 1)
 escribir(a)                       #salida: [1, 99, 2, 3]
 
 lista.eliminar(a, 99)

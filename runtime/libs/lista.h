@@ -17,7 +17,7 @@ LatValor lat_lista_agregar(LatValor l, LatValor v);
 LatValor lat_lista_eliminar(LatValor l, LatValor v);
 LatValor lat_lista_eliminar_indice(LatValor l, LatValor i);
 LatValor lat_lista_extender(LatValor l1, LatValor l2);
-LatValor lat_lista_insertar(LatValor l, LatValor i, LatValor v);
+LatValor lat_lista_insertar(LatValor l, LatValor v, LatValor i);
 LatValor lat_lista_invertir(LatValor l);
 
 /* Creación de nueva lista */
