@@ -214,7 +214,7 @@ Referencia: `Manual-Latino/docs/librerias/lista.rst`
 | 7 | `lista.eliminar_indice(l, i)`     | Elimina el elemento en índice `i`             |
 | 8 | `lista.encontrar(l, v)` / `indice`| Índice de primera ocurrencia (−1 si no)       |
 | 9 | `lista.extender(l1, l2)`          | Agrega todos los elementos de `l2` a `l1`     |
-|10 | `lista.insertar(l, i, v)`         | Inserta `v` en posición `i`                   |
+|10 | `lista.insertar(l, v, i)`         | Inserta `v` en posición `i`                   |
 |11 | `lista.invertir(l)`               | Invierte el orden de los elementos            |
 |12 | `lista.longitud(l)`               | Número de elementos                           |
 |13 | `lista.separador(l, sep)`         | Une elementos como cadena con separador       |

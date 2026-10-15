@@ -74,13 +74,13 @@ static const harness::CasoTest CASOS[] = {
     // lista.insertar
     { "lst_insertar_longitud",
       INC "l = [1, 2, 3]\n"
-          "lista.insertar(l, 1, 99)\n"
+          "lista.insertar(l, 99, 1)\n"
           "escribir(lista.longitud(l))",
       "4" },
 
     { "lst_insertar_valor",
       INC "l = [1, 2, 3]\n"
-          "lista.insertar(l, 1, 99)\n"
+          "lista.insertar(l, 99, 1)\n"
           "escribir(l[1])",
       "99" },
 

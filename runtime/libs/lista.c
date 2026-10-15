@@ -183,9 +183,9 @@ LatValor lat_lista_extender(LatValor l1v, LatValor l2v) {
 }
 
 /* -------------------------------------------------------------------------
- * 10. lista.insertar(l, i, v) — inserta v en posición i
+ * 10. lista.insertar(l, v, i) — inserta v en posición i
  * ---------------------------------------------------------------------- */
-LatValor lat_lista_insertar(LatValor lv, LatValor iv, LatValor v) {
+LatValor lat_lista_insertar(LatValor lv, LatValor v, LatValor iv) {
     LatLista *l = lista_de_valor(lv);
     if (!l) return lat_nulo();
     int idx = (int)(iv.tipo == LAT_NUMERO ? iv.como.numero : 0);
