@@ -1,0 +1,22 @@
+# Funciones anidadas: visibles solo dentro de la función que las declara.
+# La última expresión de una función es su valor de retorno implícito.
+funcion algo(a, b)
+  x = a * b
+  funcion interna(c, d)
+    ret c * c + d * d
+  fin
+  funcion doble(n)
+    n * 2
+  fin
+  doble(interna(x, x * x))
+fin
+
+funcion otra(n)
+  funcion interna(m)
+    ret m + 1
+  fin
+  interna(n)
+fin
+
+poner("x = " .. algo(2, 3))   #salida: x = 2664
+poner("o = " .. otra(1))   #salida: o = 2
