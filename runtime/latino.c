@@ -691,7 +691,12 @@ LatValor lat_obtener_indice(LatValor cont, LatValor indice) {
                 return d->valores[i];
             }
         }
-        free(k);
+        {
+            char msg[512];
+            snprintf(msg, sizeof msg, "No se encontró la llave '%s' en el diccionario.", k);
+            free(k);
+            abortar(msg);
+        }
         return lat_nulo();
     }
     if (cont.tipo == LAT_OBJETO) {
@@ -712,6 +717,24 @@ LatValor lat_obtener_indice(LatValor cont, LatValor indice) {
     }
     abortar("el valor no admite indexación");
     return lat_nulo();
+}
+
+/* Acceso por punto (d.llave): una llave ausente en un diccionario da "". */
+LatValor lat_obtener_miembro(LatValor cont, LatValor indice) {
+    if (cont.tipo == LAT_DICCIONARIO) {
+        char* k = lat_a_cadena(indice);
+        size_t i;
+        LatDic* d = cont.como.dic;
+        for (i = 0; i < d->longitud; i++) {
+            if (strcmp(d->claves[i], k) == 0) {
+                free(k);
+                return d->valores[i];
+            }
+        }
+        free(k);
+        return lat_cadena("");
+    }
+    return lat_obtener_indice(cont, indice);
 }
 
 void lat_asignar_indice(LatValor cont, LatValor indice, LatValor valor) {

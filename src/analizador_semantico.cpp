@@ -229,7 +229,7 @@ bool AnalizadorSemantico::esIncorporada(const std::string& nombre) const {
 
 bool AnalizadorSemantico::esLibreria(const std::string& nombre) const {
     return nombre == "cadena" || nombre == "lista" || nombre == "dic" ||
-           nombre == "mate"   || nombre == "sis"   || nombre == "archivo" ||
+           nombre == "diccionario" || nombre == "mate"   || nombre == "sis"   || nombre == "archivo" ||
            nombre == "paquete";
 }
 

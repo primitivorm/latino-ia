@@ -177,7 +177,8 @@ std::string GeneradorC::genExpr(Expresion* e) {
                genExpr(n->indice.get()) + ")";
     }
     if (auto* n = dynamic_cast<AccesoMiembro*>(e)) {
-        return "lat_obtener_indice(" + genExpr(n->objeto.get()) +
+        // Acceso por punto: una llave ausente da "" (a diferencia de d["x"]).
+        return "lat_obtener_miembro(" + genExpr(n->objeto.get()) +
                ", lat_cadena(\"" + escaparCadena(n->miembro) + "\"))";
     }
     if (auto* n = dynamic_cast<Llamada*>(e)) {
@@ -367,15 +368,16 @@ std::string GeneradorC::genLlamada(Llamada* ll) {
     if (auto* am = dynamic_cast<AccesoMiembro*>(ll->destino.get())) {
         if (auto* obj = dynamic_cast<Identificador*>(am->objeto.get())) {
             static const char* LIBS[] = {
-                "cadena", "lista", "dic", "mate", "sis", "archivo", "paquete", nullptr
+                "cadena", "lista", "dic", "diccionario", "mate", "sis", "archivo", "paquete", nullptr
             };
             bool esLib = false;
             for (int i = 0; LIBS[i]; i++)
                 if (obj->nombre == LIBS[i]) { esLib = true; break; }
 
             if (esLib) {
-                libsUsadas.insert(obj->nombre);
-                const std::string& lib = obj->nombre;
+                // "diccionario" es un alias de la librería "dic".
+                const std::string lib = (obj->nombre == "diccionario") ? "dic" : obj->nombre;
+                libsUsadas.insert(lib);
                 const std::string& fn  = am->miembro;
 
                 // cadena.formato es variádica (primer arg = fmt, resto = valores)
@@ -561,7 +563,7 @@ void GeneradorC::genSentencia(Sentencia* s) {
         const std::string& mod = inc->modulo;
         // Solo agregar a libsUsadas si no termina en ".lat"
         if (mod.size() < 4 || mod.substr(mod.size() - 4) != ".lat")
-            libsUsadas.insert(mod);
+            libsUsadas.insert(mod == "diccionario" ? "dic" : mod);
         return;
     }
     if (auto* a = dynamic_cast<Asignacion*>(s)) {

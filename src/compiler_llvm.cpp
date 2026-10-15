@@ -250,7 +250,7 @@ llvm::Value* GeneradorLLVM::genExpr(Expresion& expr, llvm::IRBuilder<>& builder,
         llvm::Value* datos =
             builder.CreateGlobalStringPtr(n->miembro, "miembro_nombre", /*AddressSpace=*/0, &modulo);
         builder.CreateCall(fnCadena, {clave, datos});
-        llvm::Function* fn = abi_->declarar(modulo, "lat_obtener_indice");
+        llvm::Function* fn = abi_->declarar(modulo, "lat_obtener_miembro");
         llvm::Value* celda = builder.CreateAlloca(tipoLatValor, nullptr, "miembro");
         builder.CreateCall(fn, {celda, objeto, clave});
         return celda;
@@ -386,9 +386,10 @@ llvm::Value* GeneradorLLVM::genExpr(Expresion& expr, llvm::IRBuilder<>& builder,
             // (Fase L7) Llamada de librería: cadena.xxx(args), lista.xxx(args), ...
             if (auto* obj = dynamic_cast<Identificador*>(am->objeto.get())) {
                 static const std::set<std::string> LIBS = {
-                    "cadena", "lista", "dic", "mate", "sis", "archivo", "paquete"};
+                    "cadena", "lista", "dic", "diccionario", "mate", "sis", "archivo", "paquete"};
                 if (LIBS.count(obj->nombre)) {
-                    const std::string& lib = obj->nombre;
+                    // "diccionario" es un alias de la librería "dic".
+                    const std::string lib = (obj->nombre == "diccionario") ? "dic" : obj->nombre;
                     const std::string& fn = am->miembro;
 
                     // cadena.formato es variádica (primer arg = fmt, resto = valores).
