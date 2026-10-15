@@ -154,6 +154,25 @@ static const harness::CasoTest CASOS[] = {
           "dic.actualizar(d, {\"x\": 99})\n"
           "escribir(d[\"x\"])",
       "99" },
+
+    // alias "diccionario" de "dic"
+    { "diccionario_alias_longitud",
+      "d = {\"a\": 1, \"b\": 2}\n"
+      "escribir(diccionario.longitud(d))",
+      "2" },
+
+    // acceso por punto anidado (estilo respuesta JSON de una API)
+    { "dic_punto_anidado",
+      "r = {\"ok\": cierto, \"result\": [{\"message\": {\"text\": \"hola\"}}]}\n"
+      "escribir(r.ok)\n"
+      "escribir(r.result[0].message.text)",
+      "cierto hola" },
+
+    // llave ausente: por punto da cadena vacía
+    { "dic_punto_ausente_cadena_vacia",
+      "r = {\"a\": 1}\n"
+      "escribir(\"[\" .. r.xyz .. \"]\")",
+      "[]" },
 };
 
 #undef INC

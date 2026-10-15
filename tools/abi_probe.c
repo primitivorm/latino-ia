@@ -216,6 +216,7 @@ void lat_abi_referenciar_todo(void) {
     (void)lat_obj_set_clase;
     (void)lat_obj_set_metodo;
     (void)lat_obtener_indice;
+    (void)lat_obtener_miembro;
     (void)lat_paquete_cargar;
     (void)lat_paquete_llamar;
     (void)lat_paquete_llamar_args;

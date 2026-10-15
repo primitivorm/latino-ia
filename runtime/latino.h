@@ -138,6 +138,7 @@ int lat_es_verdadero(LatValor v);
 
 /* --- Indexación / acceso --- */
 LatValor lat_obtener_indice(LatValor cont, LatValor indice);
+LatValor lat_obtener_miembro(LatValor cont, LatValor indice);
 void lat_asignar_indice(LatValor cont, LatValor indice, LatValor valor);
 
 /* --- Conversión a cadena (devuelve memoria en el heap) --- */
