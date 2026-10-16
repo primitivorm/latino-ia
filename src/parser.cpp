@@ -1194,6 +1194,27 @@ ExprPtr Parser::parsePrimario() {
             n->linea = tk.line;
             return n;
         }
+        if (tk.lexeme == "incluir") {
+            // mod = incluir("modulo"): ResolutorModulos::adaptarIncluirComoModulo
+            // lo convierte en un import de namespace.
+            avanzar();
+            esperarDelimitador("(");
+            if (actual.type != TokenType::Cadena)
+                error("se esperaba el nombre del módulo entre comillas dentro de 'incluir(...)'");
+            auto ruta = std::make_unique<LitCadena>();
+            ruta->valor = actual.lexeme;
+            ruta->linea = actual.line;
+            avanzar();
+            esperarDelimitador(")");
+            auto id = std::make_unique<Identificador>();
+            id->nombre = "incluir";
+            id->linea = tk.line;
+            auto llamada = std::make_unique<Llamada>();
+            llamada->linea = tk.line;
+            llamada->destino = std::move(id);
+            llamada->argumentos.push_back(std::move(ruta));
+            return llamada;
+        }
         error("expresión inesperada: palabra reservada '" + tk.lexeme + "'");
     }
 

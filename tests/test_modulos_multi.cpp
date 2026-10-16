@@ -14,6 +14,27 @@
 
 static const harness::CasoTestMulti CASOS[] = {
 
+    // Estilo "mod = incluir(...)": el módulo retorna un diccionario con su
+    // API pública; lo no listado (privada) queda oculto pero sigue siendo
+    // usable internamente.
+    { "modmulti_incluir_como_modulo",
+      "mod = incluir(\"api_mm\")\n"
+      "escribir(mod.sumatoria(2, 3))\n"
+      "escribir(mod.valor)\n",
+      "5 23",
+      { { "api_mm.lat",
+          "valor = 23\n"
+          "funcion privada(x)\n"
+          "  retornar x\n"
+          "fin\n"
+          "funcion sumatoria(a, b)\n"
+          "  retornar privada(a) + b\n"
+          "fin\n"
+          "retornar {\n"
+          "  \"valor\" : valor,\n"
+          "  \"sumatoria\" : sumatoria\n"
+          "}\n" } } },
+
     { "modmulti_import_nombrado",
       "importar { area_circulo } desde \"geometria_mm.lat\"\n"
       "escribir(area_circulo(2))\n",

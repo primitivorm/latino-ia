@@ -195,6 +195,8 @@ int main(int argc, char** argv) {
     if (!programa)
         return 1;  // error de sintaxis (ya reportado)
     ResolutorModulos::elevarFuncionesAnidadas(*programa);
+    if (!ResolutorModulos::adaptarIncluirComoModulo(*programa))
+        return 1;  // 'retornar' de módulo inválido (ya reportado)
 
     // PLAN_MODULOS.md: resolución de módulos ('exportar'/'importar'). Se
     // aplica al archivo de entrada ANTES de expandir sus 'incluir': un
