@@ -460,8 +460,8 @@ static void prueba_l4_acceso_miembro(GeneradorLLVM& gen) {
     std::string ir = irComoTexto(modulo);
     CHECK(contiene(ir, "c\"campo\\00\""), "debe incrustar el nombre del miembro\n" << ir);
     CHECK(contiene(ir, "call void @lat_cadena("), "debe construir la clave como cadena\n" << ir);
-    CHECK(contiene(ir, "call void @lat_obtener_indice("),
-          "objeto.miembro debe llamar a lat_obtener_indice\n" << ir);
+    CHECK(contiene(ir, "call void @lat_obtener_miembro("),
+          "objeto.miembro debe llamar a lat_obtener_miembro\n" << ir);
     verificarModulo("l4_acceso_miembro", modulo);
 }
 

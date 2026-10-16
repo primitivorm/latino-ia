@@ -62,6 +62,19 @@ public:
     // Se invoca tras cada Parser::parse() (main.cpp y carga de módulos).
     static void elevarFuncionesAnidadas(Programa& programa);
 
+    // Estilo "módulo que retorna su API":
+    //   mod = incluir("modulo")       -> en el llamador, se reescribe a
+    //                                    `importar * como mod desde "modulo.lat"`
+    //   retornar { "f": f, "v": v }   -> en el módulo, la última sentencia de
+    //                                    nivel superior marca f y v como
+    //                                    exportadas y se elimina.
+    // Se invoca tras cada Parser::parse() (main.cpp y carga de módulos), antes
+    // de participaDeModulos. Un `retornar` final que no sea un diccionario
+    // literal se deja intacto. Devuelve false (error ya reportado) si el
+    // diccionario no es de la forma "nombre": nombre sobre declaraciones de
+    // nivel superior.
+    static bool adaptarIncluirComoModulo(Programa& programa);
+
     // true si `programa` contiene, entre sus sentencias de nivel superior, al
     // menos una declaración "exportada" o alguna sentencia ImportarDecl/
     // ExportarDesde (ver "Cuándo un archivo entra al sistema de módulos").

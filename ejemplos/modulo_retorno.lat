@@ -1,0 +1,16 @@
+# Módulo al estilo "retorna su API": solo lo que aparece en el
+# diccionario final de 'retornar' queda expuesto a quien lo incluya.
+valor = 23
+
+funcion sumatoria(a, b)
+  retorno (a + b)
+fin
+
+funcion privada(arg)
+  escribir(arg)
+fin
+
+retornar {
+  "valor" : valor,
+  "sumatoria" : sumatoria
+}

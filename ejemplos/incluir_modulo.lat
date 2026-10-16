@@ -1,0 +1,10 @@
+# mod = incluir("modulo"): el módulo se asigna a una variable y se usa
+# con mod.nombre (ver modulo_retorno.lat).
+mod = incluir("modulo_retorno")
+r = mod.sumatoria(2, 3)
+poner(r)
+poner(mod.valor)
+// comentario estilo //
+#salida:
+#5
+#23

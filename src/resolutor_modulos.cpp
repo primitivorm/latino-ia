@@ -644,6 +644,8 @@ private:
             return nullptr;
         }
         ResolutorModulos::elevarFuncionesAnidadas(*programa);
+        if (!ResolutorModulos::adaptarIncluirComoModulo(*programa))
+            return nullptr;
 
         if (!ResolutorModulos::participaDeModulos(*programa)) {
             std::cerr << "Error: '" << rutaImport << "' no usa 'exportar' -- "
@@ -725,6 +727,77 @@ void ResolutorModulos::elevarFuncionesAnidadas(Programa& programa) {
         if (auto* f = dynamic_cast<FuncionDef*>(s.get()))
             elevarDeFuncion(*f, elevadas);
     for (auto& e : elevadas) programa.sentencias.push_back(std::move(e));
+}
+
+bool ResolutorModulos::adaptarIncluirComoModulo(Programa& programa) {
+    bool ok = true;
+
+    // Lado llamador: `mod = incluir("ruta")` -> importar * como mod desde "ruta.lat".
+    for (auto& s : programa.sentencias) {
+        auto* a = dynamic_cast<Asignacion*>(s.get());
+        if (!a || a->destinos.size() != 1 || a->valores.size() != 1) continue;
+        auto* id = dynamic_cast<Identificador*>(a->destinos[0].get());
+        auto* ll = dynamic_cast<Llamada*>(a->valores[0].get());
+        if (!id || !ll) continue;
+        auto* fn = dynamic_cast<Identificador*>(ll->destino.get());
+        if (!fn || fn->nombre != "incluir" || ll->argumentos.size() != 1) continue;
+        auto* lit = dynamic_cast<LitCadena*>(ll->argumentos[0].get());
+        if (!lit) continue;
+
+        auto imp = std::make_unique<ImportarDecl>();
+        imp->linea = a->linea;
+        imp->tipo = TipoImportar::Espacio;
+        imp->aliasEspacio = id->nombre;
+        imp->ruta = lit->valor;
+        if (imp->ruta.size() < 4 || imp->ruta.substr(imp->ruta.size() - 4) != ".lat")
+            imp->ruta += ".lat";
+        s = std::move(imp);
+    }
+
+    // Lado módulo: `retornar { "nombre": nombre, ... }` como última sentencia.
+    auto& sents = programa.sentencias;
+    if (sents.empty()) return ok;
+    auto* ret = dynamic_cast<Retornar*>(sents.back().get());
+    if (!ret) return ok;
+    auto* dic = dynamic_cast<DiccionarioLiteral*>(ret->valor.get());
+    if (!dic) return ok;  // 'retornar' de otro tipo: no es el estilo módulo, se deja intacto
+
+    for (auto& par : dic->pares) {
+        auto* clave = dynamic_cast<LitCadena*>(par.clave.get());
+        auto* valor = dynamic_cast<Identificador*>(par.valor.get());
+        if (!clave || !valor || clave->valor != valor->nombre) {
+            std::cerr << "Error (linea " << ret->linea << "): cada entrada del 'retornar' de un "
+                         "modulo debe ser \"nombre\": nombre (misma clave que el identificador)\n";
+            ok = false;
+            continue;
+        }
+        bool encontrado = false;
+        for (auto& s : sents) {
+            Sentencia* sp = s.get();
+            if (auto* f = dynamic_cast<FuncionDef*>(sp)) {
+                if (f->nombre == valor->nombre) { f->exportado = encontrado = true; }
+            } else if (auto* c = dynamic_cast<ClaseDef*>(sp)) {
+                if (c->nombre == valor->nombre) { c->exportado = encontrado = true; }
+            } else if (auto* e = dynamic_cast<EstructuraDef*>(sp)) {
+                if (e->nombre == valor->nombre) { e->exportado = encontrado = true; }
+            } else if (auto* i = dynamic_cast<InterfazDef*>(sp)) {
+                if (i->nombre == valor->nombre) { i->exportado = encontrado = true; }
+            } else if (auto* a = dynamic_cast<Asignacion*>(sp)) {
+                for (auto& d : a->destinos) {
+                    auto* did = dynamic_cast<Identificador*>(d.get());
+                    if (did && did->nombre == valor->nombre) { a->exportado = encontrado = true; }
+                }
+            }
+        }
+        if (!encontrado) {
+            std::cerr << "Error (linea " << ret->linea << "): '" << valor->nombre
+                      << "' no es una declaracion de nivel superior del modulo\n";
+            ok = false;
+        }
+    }
+
+    sents.pop_back();
+    return ok;
 }
 
 std::string ResolutorModulos::slugDesdeRuta(const std::string& ruta) {
