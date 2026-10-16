@@ -61,6 +61,19 @@ static const harness::CasoTest CASOS[] = {
           "escribir(cadena.longitud(salida) > 0)",
       "cierto" },
 
+    // sis.pipe: cadena con pipeline y lista de comandos encadenados
+    { "sis_pipe_cadena",
+      INC "escribir(sis.pipe(\"echo hola mundo\"))",
+      "hola mundo" },
+
+    { "sis_pipe_lista",
+#ifdef _WIN32
+      INC "escribir(sis.pipe([\"echo hola\", \"findstr hola\"]))",
+#else
+      INC "escribir(sis.pipe([\"echo hola\", \"grep hola\"]))",
+#endif
+      "hola" },
+
     // sis.iraxy: solo verificar que no falla (retorna nulo)
     { "sis_iraxy_retorna_nulo",
       INC "escribir(sis.iraxy(0, 0))",
