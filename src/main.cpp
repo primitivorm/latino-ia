@@ -79,6 +79,7 @@ static bool procesarInclusioneesLat(Programa& programa, const fs::path& dirBase,
             ok = false;
             continue;
         }
+        ResolutorModulos::elevarFuncionesAnidadas(*subProg);
 
         // Procesar recursivamente los includes del archivo incluido.
         if (!procesarInclusioneesLat(*subProg, ruta.parent_path(), visitados))
@@ -193,6 +194,7 @@ int main(int argc, char** argv) {
     std::unique_ptr<Programa> programa = parser.parse();
     if (!programa)
         return 1;  // error de sintaxis (ya reportado)
+    ResolutorModulos::elevarFuncionesAnidadas(*programa);
 
     // PLAN_MODULOS.md: resolución de módulos ('exportar'/'importar'). Se
     // aplica al archivo de entrada ANTES de expandir sus 'incluir': un

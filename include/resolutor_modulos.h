@@ -56,6 +56,12 @@ public:
     // M4 junto con la resolución multi-archivo.
     static std::string slugDesdeRuta(const std::string& ruta);
 
+    // Eleva a nivel superior las funciones declaradas dentro de otra función
+    // (renombradas "__anid_<externa>__<nombre>") y reescribe sus llamadas.
+    // Sin cierres: la función interna no captura variables de la externa.
+    // Se invoca tras cada Parser::parse() (main.cpp y carga de módulos).
+    static void elevarFuncionesAnidadas(Programa& programa);
+
     // true si `programa` contiene, entre sus sentencias de nivel superior, al
     // menos una declaración "exportada" o alguna sentencia ImportarDecl/
     // ExportarDesde (ver "Cuándo un archivo entra al sistema de módulos").

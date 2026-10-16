@@ -643,6 +643,7 @@ private:
             std::cerr << "Error de sintaxis en el modulo importado: '" << rutaImport << "'\n";
             return nullptr;
         }
+        ResolutorModulos::elevarFuncionesAnidadas(*programa);
 
         if (!ResolutorModulos::participaDeModulos(*programa)) {
             std::cerr << "Error: '" << rutaImport << "' no usa 'exportar' -- "
@@ -670,7 +671,61 @@ private:
     }
 };
 
+// --- Funciones anidadas -----------------------------------------------------
+//
+// Saca de `f.cuerpo` las FuncionDef declaradas directamente en él, las
+// renombra a "__anid_<f>__<nombre>" (así dos funciones distintas pueden tener
+// una interna con el mismo nombre) y reescribe, con el mismo
+// ReescritorReferencias de los módulos (respeta el sombreado por parámetros/
+// locales), cada llamada a ellas dentro de `f` y de sus hermanas. Las anidadas
+// de segundo nivel se elevan recursivamente. No hay captura de variables
+// (cierres): una función interna solo ve sus parámetros y sus propios locales.
+void elevarDeFuncion(FuncionDef& f, std::vector<SentPtr>& destino) {
+    // Retorno implícito: si la última sentencia es una expresión, su valor es
+    // el de la función (como si llevara "retornar").
+    if (!f.cuerpo.empty()) {
+        if (auto* es = dynamic_cast<ExprSentencia*>(f.cuerpo.back().get())) {
+            auto ret = std::make_unique<Retornar>();
+            ret->linea = es->linea;
+            ret->valor = std::move(es->expr);
+            f.cuerpo.back() = std::move(ret);
+        }
+    }
+    std::vector<std::unique_ptr<FuncionDef>> anidadas;
+    ListaSent resto;
+    for (auto& s : f.cuerpo) {
+        if (dynamic_cast<FuncionDef*>(s.get()))
+            anidadas.emplace_back(static_cast<FuncionDef*>(s.release()));
+        else
+            resto.push_back(std::move(s));
+    }
+    f.cuerpo = std::move(resto);
+    if (anidadas.empty()) return;
+
+    std::unordered_map<std::string, std::string> renombres;
+    for (auto& a : anidadas)
+        renombres[a->nombre] = "__anid_" + f.nombre + "__" + a->nombre;
+
+    ReescritorReferencias reescritor(renombres);
+    reescritor.visitar(f);
+    for (auto& a : anidadas) reescritor.visitar(*a);
+
+    for (auto& a : anidadas) {
+        a->nombre = renombres[a->nombre];
+        elevarDeFuncion(*a, destino);
+        destino.push_back(std::move(a));
+    }
+}
+
 }  // namespace
+
+void ResolutorModulos::elevarFuncionesAnidadas(Programa& programa) {
+    std::vector<SentPtr> elevadas;
+    for (auto& s : programa.sentencias)
+        if (auto* f = dynamic_cast<FuncionDef*>(s.get()))
+            elevarDeFuncion(*f, elevadas);
+    for (auto& e : elevadas) programa.sentencias.push_back(std::move(e));
+}
 
 std::string ResolutorModulos::slugDesdeRuta(const std::string& ruta) {
     std::string slug;
