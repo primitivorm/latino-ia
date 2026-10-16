@@ -43,9 +43,8 @@ LatValor lat_sis_dormir(LatValor ms_v) {
 /* -------------------------------------------------------------------------
  * 2. sis.ejecutar(cmd) — ejecuta comando shell y devuelve su stdout
  * ---------------------------------------------------------------------- */
-LatValor lat_sis_ejecutar(LatValor cmd_v) {
-    if (cmd_v.tipo != LAT_CADENA || !cmd_v.como.cadena) return lat_cadena("");
-    FILE *fp = popen(cmd_v.como.cadena, "r");
+static LatValor ejecutar_shell(const char *cmd) {
+    FILE *fp = popen(cmd, "r");
     if (!fp) return lat_cadena("");
 
     char buf[256];
@@ -74,6 +73,38 @@ LatValor lat_sis_ejecutar(LatValor cmd_v) {
 
     LatValor v = lat_cadena(out);
     free(out);
+    return v;
+}
+
+LatValor lat_sis_ejecutar(LatValor cmd_v) {
+    if (cmd_v.tipo != LAT_CADENA || !cmd_v.como.cadena) return lat_cadena("");
+    return ejecutar_shell(cmd_v.como.cadena);
+}
+
+/* -------------------------------------------------------------------------
+ * sis.pipe(cmd) — ejecuta un pipeline estilo shell ("a | b | c") y devuelve
+ * su stdout. También acepta una lista de comandos que se encadenan con "|".
+ * ---------------------------------------------------------------------- */
+LatValor lat_sis_pipe(LatValor cmd_v) {
+    if (cmd_v.tipo == LAT_CADENA) return lat_sis_ejecutar(cmd_v);
+    if (cmd_v.tipo != LAT_LISTA || !cmd_v.como.lista) return lat_cadena("");
+
+    LatLista *l = cmd_v.como.lista;
+    size_t total = 1;
+    for (size_t i = 0; i < l->longitud; i++) {
+        if (l->datos[i].tipo != LAT_CADENA || !l->datos[i].como.cadena)
+            return lat_cadena("");
+        total += strlen(l->datos[i].como.cadena) + 3;
+    }
+    char *cmd = (char *)malloc(total);
+    if (!cmd) return lat_cadena("");
+    cmd[0] = '\0';
+    for (size_t i = 0; i < l->longitud; i++) {
+        if (i > 0) strcat(cmd, " | ");
+        strcat(cmd, l->datos[i].como.cadena);
+    }
+    LatValor v = ejecutar_shell(cmd);
+    free(cmd);
     return v;
 }
 

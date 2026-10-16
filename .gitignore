@@ -10,6 +10,7 @@
 /*.user
 /*.dir/
 /*.log
+**/*.exe
 
 # Artefactos de CTest cuando se ejecuta desde la raíz del repo en vez de
 # dentro de build/ (Testing/Temporary/*.log, CTestCostData.txt).

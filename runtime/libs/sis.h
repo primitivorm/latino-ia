@@ -11,6 +11,7 @@
 
 LatValor lat_sis_dormir(LatValor ms);
 LatValor lat_sis_ejecutar(LatValor cmd);
+LatValor lat_sis_pipe(LatValor cmd);
 LatValor lat_sis_fecha(void);
 LatValor lat_sis_salir(LatValor codigo);
 LatValor lat_sis_cwd(void);
