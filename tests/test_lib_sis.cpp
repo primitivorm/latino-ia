@@ -13,6 +13,11 @@ static const harness::CasoTest CASOS[] = {
       INC "escribir(sis.dormir(1))",
       "nulo" },
 
+    // sis.dormir_seg: acepta segundos decimales, devuelve nulo
+    { "sis_dormir_seg_retorna_nulo",
+      INC "escribir(sis.dormir_seg(0.001))",
+      "nulo" },
+
     // sis.operativo: debe ser "windows", "linux" o "macos"
     { "sis_operativo_valido",
       INC "incluir \"cadena\"\n"

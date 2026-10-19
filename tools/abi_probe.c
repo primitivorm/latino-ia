@@ -253,6 +253,7 @@ void lat_abi_referenciar_todo(void) {
     (void)lat_sis_args;
     (void)lat_sis_cwd;
     (void)lat_sis_dormir;
+    (void)lat_sis_dormir_seg;
     (void)lat_sis_ejecutar;
     (void)lat_sis_pipe;
     (void)lat_sis_env;

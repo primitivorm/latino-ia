@@ -40,6 +40,13 @@ LatValor lat_sis_dormir(LatValor ms_v) {
     return lat_nulo();
 }
 
+/* sis.dormir_seg(s) — pausa s segundos (admite decimales, p.ej. 0.5) */
+LatValor lat_sis_dormir_seg(LatValor s_v) {
+    double s = (s_v.tipo == LAT_NUMERO) ? s_v.como.numero : 0;
+    if (s < 0) s = 0;
+    return lat_sis_dormir(lat_numero(s * 1000.0));
+}
+
 /* -------------------------------------------------------------------------
  * 2. sis.ejecutar(cmd) — ejecuta comando shell y devuelve su stdout
  * ---------------------------------------------------------------------- */
