@@ -148,6 +148,11 @@ static void abortar(const char* mensaje) {
     exit(1);
 }
 
+/* Advertencia: imprime un mensaje en stderr sin terminar el programa */
+static void advertir(const char* mensaje) {
+    fprintf(stderr, "Advertencia: %s\n", mensaje);
+}
+
 /* ------------------------------------------------------------------ */
 /* Constructores                                                      */
 /* ------------------------------------------------------------------ */
@@ -502,6 +507,17 @@ int lat_obj_es_instancia(LatValor objeto, const char* clase) {
 static double num(LatValor v) {
     if (v.tipo == LAT_NUMERO) return v.como.numero;
     if (v.tipo == LAT_LOGICO) return v.como.logico;
+    if (v.tipo == LAT_CADENA) {
+        advertir("Operación aritmética con cadena: se convierte a 0");
+    } else if (v.tipo == LAT_LISTA) {
+        advertir("Operación aritmética con lista: se convierte a 0");
+    } else if (v.tipo == LAT_DICCIONARIO) {
+        advertir("Operación aritmética con diccionario: se convierte a 0");
+    } else if (v.tipo == LAT_OBJETO) {
+        advertir("Operación aritmética con objeto: se convierte a 0");
+    } else if (v.tipo == LAT_NULO) {
+        advertir("Operación aritmética con nulo: se convierte a 0");
+    }
     return 0;
 }
 
