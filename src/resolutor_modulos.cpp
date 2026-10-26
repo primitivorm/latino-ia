@@ -221,6 +221,11 @@ public:
         visitarCuerpoFuncion(n.parametros, n.tipoRetorno, n.tipoRetornoClase, n.cuerpo);
     }
 
+    void visitar(FuncionAnonima& n) override {
+        std::string tipoRetornoClase;  // las anónimas no declaran tipo de retorno
+        visitarCuerpoFuncion(n.parametros, TipoAnotado::Ninguno, tipoRetornoClase, n.cuerpo);
+    }
+
     void visitar(ClaseDef& n) override {
         renombrarBounds(n.genericos);
         renombrarTipo(n.padre);

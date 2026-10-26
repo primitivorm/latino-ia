@@ -128,6 +128,204 @@ void GeneradorC::recolectarTipos(Programa& programa) {
     }
 }
 
+void GeneradorC::recolectarAnonimasLista(const ListaSent& cuerpo) {
+    for (const auto& s : cuerpo)
+        recolectarAnonimasEnSentencia(s.get());
+}
+
+void GeneradorC::recolectarAnonimas(Programa& programa) {
+    for (auto& s : programa.sentencias)
+        recolectarAnonimasEnSentencia(s.get());
+}
+
+void GeneradorC::recolectarAnonimasEnSentencia(Sentencia* s) {
+    if (!s) return;
+    if (auto* a = dynamic_cast<Asignacion*>(s)) {
+        for (auto& v : a->valores) recolectarAnonimasEnExpresion(v.get());
+        for (auto& d : a->destinos) recolectarAnonimasEnExpresion(d.get());
+        return;
+    }
+    if (auto* es = dynamic_cast<ExprSentencia*>(s)) {
+        recolectarAnonimasEnExpresion(es->expr.get());
+        return;
+    }
+    if (auto* si = dynamic_cast<Si*>(s)) {
+        recolectarAnonimasEnExpresion(si->condicion.get());
+        recolectarAnonimasLista(si->entonces);
+        for (auto& r : si->osis) {
+            recolectarAnonimasEnExpresion(r.condicion.get());
+            recolectarAnonimasLista(r.cuerpo);
+        }
+        if (si->tieneSino) recolectarAnonimasLista(si->sino);
+        return;
+    }
+    if (auto* el = dynamic_cast<Elegir*>(s)) {
+        recolectarAnonimasEnExpresion(el->opcion.get());
+        for (auto& c : el->casos) {
+            recolectarAnonimasEnExpresion(c.valor.get());
+            recolectarAnonimasLista(c.cuerpo);
+        }
+        if (el->tieneDefecto) recolectarAnonimasLista(el->defecto);
+        return;
+    }
+    if (auto* de = dynamic_cast<Desde*>(s)) {
+        recolectarAnonimasEnSentencia(de->inicio.get());
+        recolectarAnonimasEnExpresion(de->condicion.get());
+        recolectarAnonimasEnSentencia(de->incremento.get());
+        recolectarAnonimasLista(de->cuerpo);
+        return;
+    }
+    if (auto* mi = dynamic_cast<Mientras*>(s)) {
+        recolectarAnonimasEnExpresion(mi->condicion.get());
+        recolectarAnonimasLista(mi->cuerpo);
+        return;
+    }
+    if (auto* re = dynamic_cast<Repetir*>(s)) {
+        recolectarAnonimasLista(re->cuerpo);
+        recolectarAnonimasEnExpresion(re->condicionHasta.get());
+        return;
+    }
+    if (auto* rt = dynamic_cast<Retornar*>(s)) {
+        recolectarAnonimasEnExpresion(rt->valor.get());
+        return;
+    }
+    if (auto* ib = dynamic_cast<InseguroBloque*>(s)) {
+        recolectarAnonimasLista(ib->cuerpo);
+        return;
+    }
+    if (auto* f = dynamic_cast<FuncionDef*>(s)) {
+        // Una función nombrada puede contener funciones anónimas en su cuerpo.
+        recolectarAnonimasLista(f->cuerpo);
+        return;
+    }
+    if (auto* c = dynamic_cast<ClaseDef*>(s)) {
+        for (const MetodoDef& m : c->metodos) recolectarAnonimasLista(m.cuerpo);
+        return;
+    }
+    if (auto* e = dynamic_cast<EstructuraDef*>(s)) {
+        for (const MetodoDef& m : e->metodos) recolectarAnonimasLista(m.cuerpo);
+        return;
+    }
+    // Incluir, ImportarDecl, ExportarDesde, InterfazDef, LlamadaBase,
+    // Romper: sin expresiones que contengan anónimas en este nivel.
+}
+
+void GeneradorC::recolectarAnonimasEnExpresion(Expresion* e) {
+    if (!e) return;
+    if (auto* f = dynamic_cast<FuncionAnonima*>(e)) {
+        if (indiceAnonimo.count(f)) return;  // ya registrada
+        indiceAnonimo[f] = contadorAnonimo++;
+        anonimas.push_back(f);
+        // Su cuerpo también puede contener anónimas anidadas.
+        recolectarAnonimasLista(f->cuerpo);
+        return;
+    }
+    if (auto* b = dynamic_cast<Binaria*>(e)) {
+        recolectarAnonimasEnExpresion(b->izq.get());
+        recolectarAnonimasEnExpresion(b->der.get());
+        return;
+    }
+    if (auto* u = dynamic_cast<Unaria*>(e)) {
+        recolectarAnonimasEnExpresion(u->operando.get());
+        return;
+    }
+    if (auto* p = dynamic_cast<PostOperador*>(e)) {
+        recolectarAnonimasEnExpresion(p->operando.get());
+        return;
+    }
+    if (auto* t = dynamic_cast<Ternaria*>(e)) {
+        recolectarAnonimasEnExpresion(t->condicion.get());
+        recolectarAnonimasEnExpresion(t->siCierto.get());
+        recolectarAnonimasEnExpresion(t->siFalso.get());
+        return;
+    }
+    if (auto* ai = dynamic_cast<AccesoIndice*>(e)) {
+        recolectarAnonimasEnExpresion(ai->objeto.get());
+        recolectarAnonimasEnExpresion(ai->indice.get());
+        return;
+    }
+    if (auto* am = dynamic_cast<AccesoMiembro*>(e)) {
+        recolectarAnonimasEnExpresion(am->objeto.get());
+        return;
+    }
+    if (auto* ll = dynamic_cast<Llamada*>(e)) {
+        recolectarAnonimasEnExpresion(ll->destino.get());
+        for (auto& a : ll->argumentos) recolectarAnonimasEnExpresion(a.get());
+        return;
+    }
+    if (auto* li = dynamic_cast<ListaLiteral*>(e)) {
+        for (auto& el : li->elementos) recolectarAnonimasEnExpresion(el.get());
+        return;
+    }
+    if (auto* d = dynamic_cast<DiccionarioLiteral*>(e)) {
+        for (auto& par : d->pares) {
+            recolectarAnonimasEnExpresion(par.clave.get());
+            recolectarAnonimasEnExpresion(par.valor.get());
+        }
+        return;
+    }
+    if (auto* ne = dynamic_cast<NuevoExpr*>(e)) {
+        for (auto& a : ne->argumentos) recolectarAnonimasEnExpresion(a.get());
+        return;
+    }
+    if (auto* ee = dynamic_cast<EsExpr*>(e)) {
+        recolectarAnonimasEnExpresion(ee->objeto.get());
+        return;
+    }
+    // LitNumero, LitCadena, LitLogico, LitNulo, Identificador, VarArgs,
+    // AccesoEste: sin subexpresiones.
+}
+
+std::string GeneradorC::anonimoC(FuncionAnonima* f) {
+    auto it = indiceAnonimo.find(f);
+    if (it == indiceAnonimo.end()) return "lat_fn_anon_desconocido";
+    return "lat_fn_anon_" + std::to_string(it->second);
+}
+
+void GeneradorC::genFuncionAnonima(FuncionAnonima* f, const std::string& nombreC) {
+    emitir("static LatValor " + nombreC + "(int nargs, LatValor* args) {");
+    ++indentacion;
+
+    // Cargar parámetros desde el array de argumentos (convención LatFnModulo:
+    // igual que los métodos, ver genMetodo).
+    for (size_t i = 0; i < f->parametros.size(); i++) {
+        std::string expr = "(nargs > " + std::to_string(i) + ") ? args[" +
+                           std::to_string(i) + "] : lat_nulo()";
+        emitir("LatValor " + varC(f->parametros[i].nombre) + " = " + expr + ";");
+    }
+    if (f->variadico) {
+        size_t nfix = f->parametros.size();
+        std::string expr = "(nargs > " + std::to_string(nfix) + ") ? args[" +
+                           std::to_string(nfix) + "] : lat_nulo()";
+        emitir("LatValor lat_resto = " + expr + ";");
+    }
+
+    std::set<std::string> excluir;
+    for (const auto& p : f->parametros) excluir.insert(p.nombre);
+    if (f->variadico) excluir.insert("lat_resto");
+
+    std::set<std::string> vars;
+    recolectarVariables(f->cuerpo, vars, excluir);
+    for (const std::string& v : vars)
+        emitir("LatValor " + varC(v) + " = lat_nulo();");
+
+    // Chequeos de tipo de parámetros anotados.
+    for (const auto& p : f->parametros) {
+        if (p.tipo != TipoAnotado::Ninguno) {
+            const char* ct = tipoALatTipo(p.tipo);
+            emitir("lat_verificar_tipo(" + varC(p.nombre) + ", " + ct +
+                   ", \"" + p.nombre + "\", " + std::to_string(f->linea) + ");");
+        }
+    }
+
+    genBloque(f->cuerpo);
+    emitir("return lat_nulo();");
+
+    --indentacion;
+    emitir("}");
+    emitir("");
+}
+
 // ---------------------------------------------------------------------------
 // Expresiones
 // ---------------------------------------------------------------------------
@@ -303,6 +501,11 @@ std::string GeneradorC::genExpr(Expresion* e) {
         s += ")";
         return s;
     }
+    if (auto* n = dynamic_cast<FuncionAnonima*>(e)) {
+        // Un valor funcion: lat_funcion_nueva(envuelve la definición C
+        // estática emitida a nivel superior por genFuncionAnonima).
+        return "lat_funcion_nueva(" + anonimoC(n) + ")";
+    }
     return "lat_nulo()";
 }
 
@@ -362,7 +565,22 @@ std::string GeneradorC::genLlamada(Llamada* ll) {
         if (itExt != funcionesExternas.end())
             return genLlamadaExterna(nombre, itExt->second, ll);
 
-        return "lat_nulo() /* llamada no soportada: " + nombre + " */";
+        // Identificador que no es una función nombrada/externa/built-in: es un
+        // valor funcion dinámico (variable, elemento de lista/diccionario, ...).
+        // Llamar vía lat_llamar_funcion (paridad con el resto de destinos no
+        // Identificador).
+        {
+            std::string fn = varC(nombre);
+            size_t nargs = ll->argumentos.size();
+            size_t cap = nargs > 0 ? nargs : 1;  // evitar array de tamaño cero
+            std::string argsArr = nuevoTemp();
+            emitir("LatValor " + argsArr + "[" + std::to_string(cap) + "];");
+            for (size_t i = 0; i < nargs; i++)
+                emitir(argsArr + "[" + std::to_string(i) + "] = " +
+                       genExpr(ll->argumentos[i].get()) + ";");
+            return "lat_llamar_funcion(" + fn + ", " + std::to_string(nargs) +
+                   ", " + argsArr + ")";
+        }
     }
     // Llamada de librería: cadena.xxx(args), lista.xxx(args), etc.
     if (auto* am = dynamic_cast<AccesoMiembro*>(ll->destino.get())) {
@@ -469,7 +687,20 @@ std::string GeneradorC::genLlamada(Llamada* ll) {
         }
     }
 
-    return "lat_nulo() /* llamada dinamica no soportada */";
+    // Llamada dinámica: el destino es cualquier expresión que evalúe a un
+    // valor función (variable, elemento de lista, función anónima inline, ...).
+    {
+        std::string fn = genExpr(ll->destino.get());
+        size_t nargs = ll->argumentos.size();
+        size_t cap = nargs > 0 ? nargs : 1;  // evitar array de tamaño cero
+        std::string argsArr = nuevoTemp();
+        emitir("LatValor " + argsArr + "[" + std::to_string(cap) + "];");
+        for (size_t i = 0; i < nargs; i++)
+            emitir(argsArr + "[" + std::to_string(i) + "] = " +
+                   genExpr(ll->argumentos[i].get()) + ";");
+        return "lat_llamar_funcion(" + fn + ", " + std::to_string(nargs) +
+               ", " + argsArr + ")";
+    }
 }
 
 // PLAN_FFI.md (F5): extrae el valor C primitivo de un argumento LatValor,
@@ -922,6 +1153,12 @@ void GeneradorC::generarCuerpo(Programa& programa) {
         if (auto* f = dynamic_cast<FuncionDef*>(s.get()))
             genFuncion(f);
 
+    // Definiciones de funciones anónimas (expresiones fun ... fin). Se emiten
+    // a nivel superior (estáticas) antes de main(), así cualquier sitio que
+    // las referencie ya dispone del símbolo.
+    for (FuncionAnonima* f : anonimas)
+        genFuncionAnonima(f, anonimoC(f));
+
     // Definiciones de métodos de clases y estructuras.
     for (auto& [nombre, c] : clases)
         genClase(c);
@@ -955,6 +1192,7 @@ std::string GeneradorC::generar(Programa& programa) {
     recolectarFunciones(programa);
     recolectarExterno(programa);
     recolectarTipos(programa);
+    recolectarAnonimas(programa);
 
     // Fase 1: generar el cuerpo para detectar qué librerías se usan.
     generarCuerpo(programa);

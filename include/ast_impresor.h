@@ -32,6 +32,7 @@ public:
     void visitar(ListaLiteral&) override;
     void visitar(DiccionarioLiteral&) override;
     void visitar(VarArgs&) override;
+    void visitar(FuncionAnonima&) override;  // función anónima como expresión
 
     // Sentencias
     void visitar(Programa&) override;

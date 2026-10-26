@@ -307,6 +307,22 @@ void ImpresorAST::visitar(FuncionDef& n) {
     hijos(n.cuerpo);
 }
 
+void ImpresorAST::visitar(FuncionAnonima& n) {
+    std::string firma = "FuncionAnonima (";
+    for (size_t i = 0; i < n.parametros.size(); ++i) {
+        if (i) firma += ", ";
+        firma += n.parametros[i].nombre;
+        if (n.parametros[i].tipo != TipoAnotado::Ninguno)
+            firma += ":" + nombreTipoAst(n.parametros[i].tipo);
+    }
+    if (n.variadico)
+        firma += (n.parametros.empty() ? "..." : ", ...");
+    firma += ")";
+    linea(firma);
+    linea("cuerpo:");
+    hijos(n.cuerpo);
+}
+
 void ImpresorAST::visitar(Retornar& n) {
     linea("Retornar");
     if (n.valor) hijo(*n.valor);

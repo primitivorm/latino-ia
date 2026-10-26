@@ -348,6 +348,32 @@ parametro 2: 2
 parametro 3: 3
 3
 ```
+
+### VII.A. Funciones anónimas
+También se puede crear una función sin nombre (función anónima) con `fun` (o `funcion`) seguida de sus parámetros y cuerpo, y usarla como un valor cualquiera: asignarla a una variable, guardarla en una lista o un diccionario, o llamarla directamente.
+```python
+#asignamos una funcion anonima a una variable
+x = fun (a,b)
+    si b == 0
+        b=1
+    fin
+    retorno a / b
+fin
+
+#igual las podemos agregar a una lista
+hola = [ fun (a, b) ret a+b fin, fun (a, b) ret a*b fin ]
+
+#ejecutamos cada funcion
+poner(hola[0](1,2))  #suma
+poner(hola[1](1,2))  #multiplica
+poner(x(1,2))        #divide
+
+#salida:
+# 3
+# 2
+# 0.5
+```
+Una función anónima acepta los mismos elementos que una función nombrada: parámetros (opcionalmente con anotación de tipo), el parámetro variádico `...`, sentencias de control de flujo y `retornar`. Al no tener nombre, su valor es un `funcion` que se invoca con `(argumentos)` sobre la variable o expresión que la contenga.
 <a name="lista"></a>
 ## VIII. Listas
 Una lista es un tipo de colección. Es equivalente a lo que en otros lenguajes se conoce por arreglos o vectores.

@@ -556,6 +556,52 @@ SentPtr Parser::parseFuncion() {
     return nodo;
 }
 
+// fun (p0, p1, ...) ... fin   como EXPRESIÓN (sin nombre).
+// Devuelve un FuncionAnonima cuyo valor es un LatValor de tipo LAT_FUNCION.
+ExprPtr Parser::parseFuncionAnonima() {
+    int l = actual.line;
+    avanzar();  // fun / funcion
+    auto nodo = std::make_unique<FuncionAnonima>();
+    nodo->linea = l;
+
+    esperarDelimitador("(");
+    if (!esDelimitador(")")) {
+        for (;;) {
+            if (esOperador("...")) {
+                nodo->variadico = true;
+                avanzar();
+                break;  // el variádico debe ser el último parámetro
+            }
+            if (actual.type != TokenType::Identificador)
+                error("se esperaba el nombre de un parámetro");
+            ParamFuncion param;
+            param.nombre = actual.lexeme;
+            avanzar();
+            if (esOperador(":")) {
+                avanzar();
+                if (actual.type != TokenType::Identificador)
+                    error("se esperaba un tipo válido después de ':'");
+                param.tipo = mapearNombreTipo(actual.lexeme);
+                if (param.tipo == TipoAnotado::Ninguno)
+                    error("tipo no reconocido '" + actual.lexeme + "'");
+                if (param.tipo == TipoAnotado::Objeto)
+                    param.tipoClase = parseNombreTipoCalificado();
+                else
+                    avanzar();
+                param.tipoArgs = parseArgsTipoGenericos();
+            }
+            nodo->parametros.push_back(std::move(param));
+            if (esDelimitador(",")) { avanzar(); continue; }
+            break;
+        }
+    }
+    esperarDelimitador(")");
+
+    nodo->cuerpo = parseBloque({"fin"});
+    esperarReservada("fin");
+    return nodo;
+}
+
 SentPtr Parser::parseRetornar() {
     int l = actual.line;
     avanzar();  // regresar / retornar / ret
@@ -1215,6 +1261,8 @@ ExprPtr Parser::parsePrimario() {
             llamada->argumentos.push_back(std::move(ruta));
             return llamada;
         }
+        if (tk.lexeme == "fun" || tk.lexeme == "funcion")
+            return parseFuncionAnonima();
         error("expresión inesperada: palabra reservada '" + tk.lexeme + "'");
     }
 

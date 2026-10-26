@@ -149,6 +149,8 @@ private:
     ExprPtr parsePostfijo();
     ExprPtr parsePrimario();
     ExprPtr parseNuevo();
+    // Función anónima como expresión:  fun (p0, p1, ...) ... fin
+    ExprPtr parseFuncionAnonima();
 
     ExprPtr parseLlamada(ExprPtr destino, std::vector<std::string> tipoArgsExplicitos = {});
     ExprPtr parseLista();

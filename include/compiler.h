@@ -59,9 +59,27 @@ private:
     // superior en vez de sombrearla.
     std::set<std::string> globalesExplicitos;
 
+    // Funciones anónimas (expresiones  fun (...) ... fin  ): se numeran en
+    // orden de aparición y sus definiciones C se emiten a nivel superior,
+    // antes de main(), para que cualquier sitio que las referencie (una
+    // asignación, un literal de lista, una llamada dinámica) ya tenga el
+    // símbolo disponible.
+    int contadorAnonimo = 0;
+    std::vector<FuncionAnonima*> anonimas;              // orden de aparición
+    std::unordered_map<FuncionAnonima*, int> indiceAnonimo;  // nodo -> índice
+
     void recolectarFunciones(Programa& programa);
     void recolectarExterno(Programa& programa);
     void recolectarTipos(Programa& programa);
+    void recolectarAnonimas(Programa& programa);
+    void recolectarAnonimasLista(const ListaSent& cuerpo);
+    void recolectarAnonimasEnSentencia(Sentencia* s);
+    void recolectarAnonimasEnExpresion(Expresion* e);
+
+    // Nombre C de la i-ésima función anónima: lat_fn_anon_<i>.
+    std::string anonimoC(FuncionAnonima* f);
+
+    void genFuncionAnonima(FuncionAnonima* f, const std::string& nombreC);
 
     void emitir(const std::string& linea);   // escribe con sangría + salto
     std::string nuevoTemp();
