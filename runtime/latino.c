@@ -479,6 +479,12 @@ LatValor lat_funcion_nueva_llvm(LatFnLLVM fn) {
     return v;
 }
 
+LatValor lat_llamar_funcion(LatValor fn, int nargs, LatValor* args) {
+    if (fn.tipo != LAT_FUNCION || !fn.como.funcion)
+        return lat_nulo();
+    return fn.como.funcion(nargs, args);
+}
+
 void lat_obj_set_clase(LatValor objeto, const char* clase) {
     if (objeto.tipo != LAT_OBJETO || !objeto.como.objeto) return;
     LatObjeto* o = objeto.como.objeto;

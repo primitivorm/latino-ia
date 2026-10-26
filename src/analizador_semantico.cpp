@@ -1238,6 +1238,27 @@ void AnalizadorSemantico::visitar(FuncionDef& n) {
     salirGenericos();
 }
 
+void AnalizadorSemantico::visitar(FuncionAnonima& n) {
+    entrarAmbito();
+
+    std::unordered_set<std::string> vistos;
+    for (const ParamFuncion& p : n.parametros) {
+        if (!vistos.insert(p.nombre).second)
+            agregarError(n.linea, "parámetro duplicado '" + p.nombre + "' en una función anónima");
+        validarTipoObjeto(p.tipo, p.tipoClase, n.linea);
+        declararVariable(p.nombre, p.tipo, n.linea);
+        if (p.tipo == TipoAnotado::Objeto) registrarClaseVariable(p.nombre, p.tipoClase);
+    }
+
+    ++profundidadFuncion;          // 'retorno' es válido dentro del cuerpo
+    if (n.variadico) ++profundidadVariadica;
+    analizarBloque(n.cuerpo);
+    if (n.variadico) --profundidadVariadica;
+    --profundidadFuncion;
+
+    salirAmbito();
+}
+
 // PLAN_FFI.md (F4): "inseguro ... fin" -- análogo a "unsafe { }" en Rust,
 // habilita llamar funciones "externo" dentro de su cuerpo (y de cualquier
 // bloque normal anidado adentro, igual que profundidadFuncion/

@@ -140,6 +140,7 @@ struct Mientras;
 struct Repetir;
 struct Romper;
 struct FuncionDef;
+struct FuncionAnonima;
 struct Retornar;
 
 // Declaraciones adelantadas para definiciones de tipos (clase/estructura/interfaz)
@@ -172,6 +173,7 @@ struct Visitante {
     virtual void visitar(ListaLiteral&) = 0;
     virtual void visitar(DiccionarioLiteral&) = 0;
     virtual void visitar(VarArgs&) = 0;
+    virtual void visitar(FuncionAnonima&) = 0;  // función anónima como expresión
 
     // Visitantes por defecto para nodos POO (no-op aquí para no romper visitantes existentes)
     virtual void visitar(ClaseDef&) {}
@@ -363,6 +365,16 @@ struct DiccionarioLiteral : Expresion {
 
 // El "..." usado dentro de [...] para recolectar los argumentos variables.
 struct VarArgs : Expresion {
+    LATINO_ACEPTAR
+};
+
+// Función anónima como expresión:  fun (p0, p1, ...) ... fin
+// No tiene nombre; su valor es un LatValor de tipo LAT_FUNCION que se puede
+// asignar a una variable, meter en una lista/diccionario o llamar directamente.
+struct FuncionAnonima : Expresion {
+    std::vector<ParamFuncion> parametros;
+    bool variadico = false;
+    ListaSent cuerpo;
     LATINO_ACEPTAR
 };
 

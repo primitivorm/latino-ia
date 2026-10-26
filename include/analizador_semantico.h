@@ -50,6 +50,7 @@ public:
     void visitar(ListaLiteral&) override;
     void visitar(DiccionarioLiteral&) override;
     void visitar(VarArgs&) override;
+    void visitar(FuncionAnonima&) override;  // función anónima como expresión
     void visitar(NuevoExpr&) override;
     void visitar(EsExpr&) override;
     void visitar(AccesoEste&) override;
