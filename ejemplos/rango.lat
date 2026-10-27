@@ -1,0 +1,35 @@
+# Ejemplos de rango entero lazy y conversión explícita a lista.
+incluir "lista"
+
+para i en rango(5):
+    escribir(i)
+fin
+#salida: 0 1 2 3 4
+
+para i en rango(2, 7)
+    escribir(i)
+fin
+#salida: 2 3 4 5 6
+
+para i en rango(1, 10, 2):
+    escribir(i)
+fin
+#salida: 1 3 5 7 9
+
+para i en rango(5, 0, -1):
+    escribir(i)
+fin
+#salida: 5 4 3 2 1
+
+escribir(lista.a_lista(rango(0, 10, 2)))
+#salida: [0, 2, 4, 6, 8]
+escribir(tipo(rango(3)))
+#salida: rango
+
+para i en rango(10):
+    si i == 3
+        romper
+    fin
+    escribir(i)
+fin
+#salida: 0 1 2

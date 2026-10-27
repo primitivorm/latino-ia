@@ -260,6 +260,7 @@ SentPtr Parser::parseSentencia() {
         if (p == "si")       return parseSi();
         if (p == "elegir")   return parseElegir();
         if (p == "desde")    return parseDesde();
+        if (p == "para")     return parsePara();
         if (p == "mientras") return parseMientras();
         if (p == "repetir")  return parseRepetir();
         if (p == "funcion" || p == "fun")                 return parseFuncion();
@@ -453,6 +454,25 @@ SentPtr Parser::parseDesde() {
     esperarDelimitador(";");
     nodo->incremento = parseAsignacionOExpr();
     esperarDelimitador(")");
+    nodo->cuerpo = parseBloque({"fin"});
+    esperarReservada("fin");
+    return nodo;
+}
+
+SentPtr Parser::parsePara() {
+    int l = actual.line;
+    avanzar();  // para
+    if (actual.type != TokenType::Identificador)
+        error("se esperaba el nombre de la variable después de 'para'");
+
+    auto nodo = std::make_unique<Para>();
+    nodo->linea = l;
+    nodo->variable = actual.lexeme;
+    avanzar();
+    esperarReservada("en");
+    nodo->iterable = parseExpresion();
+    if (esOperador(":"))
+        avanzar();
     nodo->cuerpo = parseBloque({"fin"});
     esperarReservada("fin");
     return nodo;

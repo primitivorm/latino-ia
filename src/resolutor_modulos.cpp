@@ -25,7 +25,7 @@ namespace {
 //
 // Latino no tiene ámbito de bloque (ver AnalizadorSemantico::analizarBloque):
 // toda asignación dentro de una función, sin importar cuán anidada esté en
-// si/desde/mientras/repetir/elegir, declara una variable local a la función
+// si/desde/para/mientras/repetir/elegir, declara una variable local a la función
 // completa (no hay 'global' implementado, ver PLAN_MODULOS.md). Por eso esta
 // recolección "levanta" (hoisting) todos los destinos de asignación del
 // cuerpo entero antes de decidir qué identificadores están sombreados,
@@ -52,6 +52,9 @@ void recolectarLocalesDeSentencia(const Sentencia* s, std::unordered_set<std::st
     } else if (auto* d = dynamic_cast<const Desde*>(s)) {
         recolectarLocalesDeSentencia(d->inicio.get(), out);
         recolectarLocales(d->cuerpo, out);
+    } else if (auto* p = dynamic_cast<const Para*>(s)) {
+        out.insert(p->variable);
+        recolectarLocales(p->cuerpo, out);
     } else if (auto* m = dynamic_cast<const Mientras*>(s)) {
         recolectarLocales(m->cuerpo, out);
     } else if (auto* r = dynamic_cast<const Repetir*>(s)) {
@@ -198,6 +201,11 @@ public:
         if (n.inicio) n.inicio->aceptar(*this);
         visitarExpr(n.condicion);
         if (n.incremento) n.incremento->aceptar(*this);
+        visitarBloque(n.cuerpo);
+    }
+    void visitar(Para& n) override {
+        visitarExpr(n.iterable);
+        renombrarUso(n.variable);
         visitarBloque(n.cuerpo);
     }
     void visitar(Mientras& n) override {

@@ -39,6 +39,13 @@ void colectar(Sentencia* s, std::set<std::string>& out, const Filtro& filtro) {
         colectarLista(de->cuerpo, out, filtro);
         return;
     }
+    if (auto* pa = dynamic_cast<Para*>(s)) {
+        Asignacion asignacionImplicita;
+        if (filtro(asignacionImplicita))
+            out.insert(pa->variable);
+        colectarLista(pa->cuerpo, out, filtro);
+        return;
+    }
     if (auto* mi = dynamic_cast<Mientras*>(s)) {
         colectarLista(mi->cuerpo, out, filtro);
         return;

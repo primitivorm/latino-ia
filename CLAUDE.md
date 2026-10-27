@@ -73,6 +73,7 @@ Suites de prueba disponibles:
 
 | Suite | Qué cubre |
 |---|---|
+| `test_runtime_rango` | Valor runtime lazy `rango`, conversión `lista.a_lista` y errores de entrada/materialización |
 | `test_lexer` | Tokenización |
 | `test_parser` | Árbol AST |
 | `test_ast` | Nodos del AST |
@@ -170,6 +171,7 @@ d = {"clave": "valor"}
 # Control de flujo
 si / osi / sino / fin
 desde i = 1 hasta 5 / fin
+para i en rango(5) / fin
 mientras cond / fin
 repetir / hasta cond
 elegir x / caso N: / defecto: / fin
@@ -182,6 +184,7 @@ fin
 # Librerías
 incluir "cadena"
 cadena.mayusculas("hola")   # "HOLA"
+lista.a_lista(rango(5))     # [0, 1, 2, 3, 4]
 
 # Operadores especiales
 ".."   # concatenación de cadenas

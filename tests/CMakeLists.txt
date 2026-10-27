@@ -161,6 +161,49 @@ target_include_directories(test_runtime_ffi PRIVATE
 
 add_test(NAME test_runtime_ffi COMMAND test_runtime_ffi)
 
+# Pruebas del runtime de rango y de su materialización en lista.
+add_executable(test_runtime_rango
+  test_runtime_rango.cpp
+  ${CMAKE_SOURCE_DIR}/runtime/latino.c
+  ${CMAKE_SOURCE_DIR}/runtime/libs/paquete.c
+  ${CMAKE_SOURCE_DIR}/runtime/libs/lista.c
+)
+target_include_directories(test_runtime_rango PRIVATE
+  ${CMAKE_SOURCE_DIR}/runtime
+  ${CMAKE_SOURCE_DIR}/runtime/libs)
+add_test(NAME test_runtime_rango COMMAND test_runtime_rango)
+foreach(CASO aridad_cero aridad_cuatro no_numero fraccionario no_finito paso_cero
+             lista_tipo materializacion_overflow)
+  add_test(NAME test_runtime_rango_error_${CASO}
+           COMMAND test_runtime_rango ${CASO})
+  set_tests_properties(test_runtime_rango_error_${CASO} PROPERTIES WILL_FAIL TRUE)
+endforeach()
+
+# Ejecución E2E de entradas inválidas: exige mensaje explícito y código de
+# salida distinto de cero en cada backend, no solo una prueba directa del runtime.
+add_executable(test_rango_errores_e2e test_rango_errores_e2e.cpp)
+target_include_directories(test_rango_errores_e2e PRIVATE ${CMAKE_SOURCE_DIR}/tests)
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/rango_errores_c")
+add_test(
+  NAME test_rango_errores_e2e
+  COMMAND test_rango_errores_e2e
+          $<TARGET_FILE:latino>
+          "${CMAKE_SOURCE_DIR}/runtime"
+          "${CMAKE_CURRENT_BINARY_DIR}/rango_errores_c"
+          c
+)
+if(LATINO_LLVM_BACKEND)
+  file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/rango_errores_llvm")
+  add_test(
+    NAME test_rango_errores_e2e_llvm
+    COMMAND test_rango_errores_e2e
+            $<TARGET_FILE:latino>
+            "${CMAKE_SOURCE_DIR}/runtime"
+            "${CMAKE_CURRENT_BINARY_DIR}/rango_errores_llvm"
+            llvm
+  )
+endif()
+
 # Pruebas del mecanismo de ABI del backend LLVM (Fase L2 de
 # input/PLAN_LLVM.md). Solo se registran si el build tiene LLVM habilitado;
 # las máquinas sin LLVM instalado siguen corriendo el resto de la suite sin

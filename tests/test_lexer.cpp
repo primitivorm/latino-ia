@@ -89,7 +89,7 @@ static void esperarSecuencia(const std::string& nombre,
 // ---------------------------------------------------------------------------
 
 static void prueba_identificadores_y_reservadas() {
-    auto t = lex("nombre _x Mensaje x1 si sino funcion fun nulo verdadero falso");
+    auto t = lex("nombre _x Mensaje x1 si sino funcion fun nulo verdadero falso en");
     esperarSecuencia("identificadores", t, {
         {TokenType::Identificador, "nombre"},
         {TokenType::Identificador, "_x"},
@@ -102,6 +102,7 @@ static void prueba_identificadores_y_reservadas() {
         {TokenType::PalabraReservada, "nulo"},
         {TokenType::PalabraReservada, "verdadero"},
         {TokenType::PalabraReservada, "falso"},
+        {TokenType::PalabraReservada, "en"},
     });
 }
 

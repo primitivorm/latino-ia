@@ -836,6 +836,41 @@ static void prueba_l5_desde_romper(GeneradorLLVM& gen) {
     verificarModulo("l5_desde_romper", modulo);
 }
 
+static void prueba_l5_para_rango_y_romper(GeneradorLLVM& gen) {
+    llvm::Module modulo("l5_para_rango", gen.contexto());
+    llvm::IRBuilder<> builder(gen.contexto());
+    prepararFuncionDePrueba(gen.contexto(), modulo, builder, "f");
+
+    llvm::Value* celdaI = builder.CreateAlloca(gen.abi().tipoLatValor(), nullptr, "v_i");
+    std::unordered_map<std::string, llvm::Value*> variables{{"i", celdaI}};
+
+    auto rango = std::make_unique<Llamada>();
+    rango->destino = identificador("rango");
+    rango->argumentos.push_back(litNumero(1));
+    rango->argumentos.push_back(litNumero(10));
+    rango->argumentos.push_back(litNumero(2));
+    Para para;
+    para.variable = "i";
+    para.iterable = std::move(rango);
+    para.cuerpo.push_back(std::make_unique<Romper>());
+
+    gen.genSentencia(para, builder, modulo, variables);
+    builder.CreateRetVoid();
+
+    std::string ir = irComoTexto(modulo);
+    CHECK(contiene(ir, "call void @lat_rango("),
+          "rango debe llamarse usando el ABI runtime importado\n" << ir);
+    CHECK(contiene(ir, "para_header:") && contiene(ir, "para_cuerpo:") &&
+              contiene(ir, "para_siguiente:") && contiene(ir, "para_fin:"),
+          "Para debe generar header/cuerpo/latch/salida\n" << ir);
+    CHECK(contiene(ir, "call i32 @lat_rango_contiene(") &&
+              contiene(ir, "call void @lat_rango_siguiente("),
+          "Para debe usar los helpers de iteración lazy del runtime\n" << ir);
+    CHECK(contiene(ir, "br label %para_fin"),
+          "romper en Para debe saltar directamente a la salida\n" << ir);
+    verificarModulo("l5_para_rango", modulo);
+}
+
 static void prueba_l5_repetir(GeneradorLLVM& gen) {
     llvm::Module modulo("l5_repetir", gen.contexto());
     llvm::IRBuilder<> builder(gen.contexto());
@@ -2038,6 +2073,7 @@ int main() {
     prueba_l5_mientras_romper(gen);
     prueba_l5_desde(gen);
     prueba_l5_desde_romper(gen);
+    prueba_l5_para_rango_y_romper(gen);
     prueba_l5_repetir(gen);
     prueba_l5_romper_sin_bucle_no_crashea(gen);
     prueba_l5_si_anidado_en_mientras(gen);

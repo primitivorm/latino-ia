@@ -133,6 +133,7 @@ void lat_abi_referenciar_todo(void) {
     (void)lat_leer;
     (void)lat_limpiar;
     (void)lat_lista_agregar;
+    (void)lat_lista_a_lista;
     (void)lat_lista_comparar;
     (void)lat_lista_concatenar;
     (void)lat_lista_contar;
@@ -250,6 +251,10 @@ void lat_abi_referenciar_todo(void) {
     (void)lat_potencia;
     (void)lat_puntero;
     (void)lat_restar;
+    (void)lat_rango;
+    (void)lat_rango_contiene;
+    (void)lat_rango_inicio;
+    (void)lat_rango_siguiente;
     (void)lat_set_args;
     (void)lat_sis_args;
     (void)lat_sis_cwd;

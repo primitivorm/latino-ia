@@ -63,6 +63,7 @@ public:
     void visitar(Si&) override;
     void visitar(Elegir&) override;
     void visitar(Desde&) override;
+    void visitar(Para&) override;
     void visitar(Mientras&) override;
     void visitar(Repetir&) override;
     void visitar(Romper&) override;

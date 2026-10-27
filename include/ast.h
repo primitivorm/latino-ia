@@ -136,6 +136,7 @@ struct ExprSentencia;
 struct Si;
 struct Elegir;
 struct Desde;
+struct Para;
 struct Mientras;
 struct Repetir;
 struct Romper;
@@ -201,6 +202,7 @@ struct Visitante {
     virtual void visitar(Si&) = 0;
     virtual void visitar(Elegir&) = 0;
     virtual void visitar(Desde&) = 0;
+    virtual void visitar(Para&) = 0;
     virtual void visitar(Mientras&) = 0;
     virtual void visitar(Repetir&) = 0;
     virtual void visitar(Romper&) = 0;
@@ -479,6 +481,14 @@ struct Desde : Sentencia {
     SentPtr inicio;        // p.ej. Asignacion  i = 0
     ExprPtr condicion;     // p.ej. i <= 10
     SentPtr incremento;    // p.ej. ExprSentencia  i++  ó  Asignacion i = i + 10
+    ListaSent cuerpo;
+    LATINO_ACEPTAR
+};
+
+// para variable en rango(...) ... fin
+struct Para : Sentencia {
+    std::string variable;
+    ExprPtr iterable;
     ListaSent cuerpo;
     LATINO_ACEPTAR
 };

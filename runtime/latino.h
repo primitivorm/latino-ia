@@ -24,7 +24,8 @@ typedef enum {
     LAT_OBJETO,
     LAT_FUNCION,
     LAT_MODULO,
-    LAT_PUNTERO  /* PLAN_FFI.md (F3): puntero nativo opaco (void*) */
+    LAT_PUNTERO, /* PLAN_FFI.md (F3): puntero nativo opaco (void*) */
+    LAT_RANGO    /* Rango entero lazy (no materializa sus elementos). */
 } LatTipo;
 
 typedef struct LatValor LatValor;
@@ -32,6 +33,11 @@ typedef struct LatLista LatLista;
 typedef struct LatDic LatDic;
 typedef struct LatObjeto LatObjeto;
 typedef struct LatModulo LatModulo;
+typedef struct {
+    double inicio;
+    double fin;
+    double paso;
+} LatRango;
 
 typedef LatValor (*LatFnModulo)(int nargs, LatValor* args);
 typedef void (*LatFnLLVM)(LatValor* resultado, int nargs, LatValor* args);
@@ -48,6 +54,7 @@ struct LatValor {
         LatFnModulo funcion;
         LatModulo* modulo;
         void* puntero;  /* PLAN_FFI.md (F3): opaco, sin ref-conteo */
+        LatRango rango;
     } como;
 };
 
@@ -91,6 +98,12 @@ LatValor lat_dic_de_args(size_t n, const LatValor* args);
  * el ciclo de vida de la memoria que apunta es responsabilidad del
  * programador, igual que en un "unsafe" de Rust. */
 LatValor lat_puntero(void* p);
+
+/* Rango entero lazy: lat_rango recibe 1-3 LatValor empaquetados en args. */
+LatValor lat_rango(size_t nargs, const LatValor* args);
+LatValor lat_rango_inicio(LatValor rango);
+int lat_rango_contiene(LatValor rango, LatValor actual);
+LatValor lat_rango_siguiente(LatValor rango, LatValor actual);
 
 /* --- Objetos (POO) --- */
 /* Nota: API mínima para soporte POO en el runtime. El compilador usará estas

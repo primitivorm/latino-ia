@@ -243,6 +243,36 @@ fin
 #salida: 0 10 20 30 40
 ```
 
+### para ... en ... (recorrido de rangos)
+
+`para` recorre únicamente valores `rango`; no recorre listas, cadenas ni
+diccionarios. `rango(fin)` comienza en 0, `rango(inicio, fin)` usa paso 1 y
+`rango(inicio, fin, paso)` permite indicar un paso entero. El límite final
+siempre es exclusivo y un paso negativo recorre hacia atrás. El valor
+`rango` es lazy; para crear una lista explícita se usa
+`lista.a_lista(rango(...))`. El paso no puede ser cero y los argumentos deben
+ser números enteros finitos.
+
+```latino
+para i en rango(5):
+    escribir(i)
+fin
+#salida: 0 1 2 3 4
+
+para i en rango(5, 0, -1)
+    escribir(i)
+fin
+#salida: 5 4 3 2 1
+
+escribir(lista.a_lista(rango(0, 10, 2)))
+#salida: [0, 2, 4, 6, 8]
+escribir(tipo(rango(3)))
+#salida: rango
+```
+
+Los dos puntos al final de la cabecera son opcionales. `romper` sale del
+bucle `para` igual que de los demás bucles.
+
 ---
 
 <a name="mientras"></a>
