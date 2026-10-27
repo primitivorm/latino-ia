@@ -98,6 +98,7 @@ private:
     SentPtr parseSi();
     SentPtr parseElegir();
     SentPtr parseDesde();
+    SentPtr parsePara();
     SentPtr parseMientras();
     SentPtr parseRepetir();
     SentPtr parseFuncion();

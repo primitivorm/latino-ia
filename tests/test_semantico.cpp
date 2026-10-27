@@ -98,6 +98,16 @@ static void prueba_romper_dentro_de_bucle_ok() {
                          "fin\n");
 }
 
+static void prueba_para_rango_y_romper_ok() {
+  esperarOK("para_rango",
+            "para i en rango(5)\n"
+            "  si i == 2\n"
+            "    romper\n"
+            "  fin\n"
+            "fin\n"
+            "escribir(i)\n");
+}
+
 static void prueba_retornar_fuera_de_funcion() {
   esperarError("retornar", "retornar 1\n", "'retornar' fuera de una función");
 }
@@ -540,6 +550,7 @@ int main() {
   prueba_constante_reasignada();
   prueba_romper_fuera_de_bucle();
   prueba_romper_dentro_de_bucle_ok();
+  prueba_para_rango_y_romper_ok();
   prueba_retornar_fuera_de_funcion();
   prueba_funcion_no_definida();
   prueba_aridad_incorrecta();

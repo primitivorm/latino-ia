@@ -83,6 +83,18 @@ static void prueba_desde() {
     CHECK(contiene(c, "(v_i = lat_sumar(v_i, lat_numero(1)));"), "incremento");
 }
 
+static void prueba_para_rango() {
+    std::string c = generar(
+        "para i en rango(5)\n"
+        "  escribir(i)\n"
+        "fin\n");
+    CHECK(contiene(c, "lat_rango(1,"), "rango debe mapearse a su constructor runtime");
+    CHECK(contiene(c, "lat_rango_inicio(") && contiene(c, "lat_rango_contiene(") &&
+              contiene(c, "lat_rango_siguiente("),
+          "para debe generar iteración lazy del rango");
+    CHECK(contiene(c, "v_i = "), "la variable de iteración debe recibir cada elemento");
+}
+
 static void prueba_funcion() {
     std::string src =
         "fun sumar(a, b)\n"
@@ -252,6 +264,7 @@ int main() {
     prueba_aritmetica_precedencia();
     prueba_si();
     prueba_desde();
+    prueba_para_rango();
     prueba_funcion();
     prueba_funcion_principal_recibe_argumentos();
     prueba_alias_inicio_sin_argumentos();

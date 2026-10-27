@@ -138,6 +138,11 @@ static const harness::CasoTest CASOS[] = {
           "escribir(lista.longitud(l))",
       "5" },
 
+    // lista.a_lista
+    { "lst_a_lista_rango",
+      INC "escribir(lista.a_lista(rango(1, 8, 2)))",
+      "[1, 3, 5, 7]" },
+
     { "lst_crear_valor",
       INC "l = lista.crear(3, 7)\n"
           "escribir(l[2])",

@@ -7,6 +7,8 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
+#include <stdio.h>
 
 /* -------------------------------------------------------------------------
  * Utilidades internas
@@ -18,6 +20,64 @@ static LatLista *lista_de_valor(LatValor v) {
 
 static int valores_iguales(LatValor a, LatValor b) {
     return lat_es_verdadero(lat_igual(a, b));
+}
+
+static void error_materializar_rango(const char *mensaje) {
+    fprintf(stderr, "Error de ejecución: %s\n", mensaje);
+    exit(1);
+}
+
+LatValor lat_lista_a_lista(LatValor valor) {
+    if (valor.tipo != LAT_RANGO)
+        error_materializar_rango("lista.a_lista espera un valor rango");
+
+    LatRango rango = valor.como.rango;
+    if (!isfinite(rango.inicio) || !isfinite(rango.fin) ||
+        !isfinite(rango.paso) || rango.paso == 0.0 ||
+        trunc(rango.inicio) != rango.inicio ||
+        trunc(rango.fin) != rango.fin ||
+        trunc(rango.paso) != rango.paso)
+        error_materializar_rango("lista.a_lista recibió un rango inválido");
+    long double distancia = rango.paso > 0
+                                ? (long double)rango.fin - rango.inicio
+                                : (long double)rango.inicio - rango.fin;
+    long double cantidad = distancia <= 0
+                               ? 0
+                               : ceill(distancia / fabsl((long double)rango.paso));
+    size_t max_elementos = (size_t)-1 / sizeof(LatValor);
+    if (!isfinite(cantidad) || cantidad > (long double)max_elementos)
+        error_materializar_rango("el rango es demasiado grande para materializarlo como lista");
+
+    size_t n = (size_t)cantidad;
+    LatLista *lista = (LatLista *)malloc(sizeof(LatLista));
+    if (!lista)
+        error_materializar_rango("no hay memoria para materializar el rango");
+    lista->refs = 1;
+    lista->longitud = 0;
+    lista->capacidad = n ? n : 4;
+    if (lista->capacidad > max_elementos) {
+        free(lista);
+        error_materializar_rango("el rango es demasiado grande para materializarlo como lista");
+    }
+    lista->datos = (LatValor *)malloc(sizeof(LatValor) * lista->capacidad);
+    if (!lista->datos) {
+        free(lista);
+        error_materializar_rango("no hay memoria para materializar el rango");
+    }
+
+    LatValor actual = lat_rango_inicio(valor);
+    for (size_t i = 0; i < n; ++i) {
+        if (!lat_rango_contiene(valor, actual))
+            break;
+        lista->datos[i] = actual;
+        lista->longitud = i + 1;
+        if (i + 1 < n)
+            actual = lat_rango_siguiente(valor, actual);
+    }
+    LatValor resultado;
+    resultado.tipo = LAT_LISTA;
+    resultado.como.lista = lista;
+    return resultado;
 }
 
 /* Garantiza que la lista tiene al menos cap_extra espacios libres. */

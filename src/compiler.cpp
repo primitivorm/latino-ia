@@ -175,6 +175,11 @@ void GeneradorC::recolectarAnonimasEnSentencia(Sentencia* s) {
         recolectarAnonimasLista(de->cuerpo);
         return;
     }
+    if (auto* pa = dynamic_cast<Para*>(s)) {
+        recolectarAnonimasEnExpresion(pa->iterable.get());
+        recolectarAnonimasLista(pa->cuerpo);
+        return;
+    }
     if (auto* mi = dynamic_cast<Mientras*>(s)) {
         recolectarAnonimasEnExpresion(mi->condicion.get());
         recolectarAnonimasLista(mi->cuerpo);
@@ -537,6 +542,15 @@ std::string GeneradorC::genLlamada(Llamada* ll) {
         if (nombre == "leer" || nombre == "limpiar") {
             return "lat_" + nombre + "()";
         }
+        if (nombre == "rango") {
+            size_t nargs = ll->argumentos.size();
+            std::string args = nuevoTemp();
+            emitir("LatValor " + args + "[" + std::to_string(nargs ? nargs : 1) + "];");
+            for (size_t i = 0; i < nargs; ++i)
+                emitir(args + "[" + std::to_string(i) + "] = " +
+                       genExpr(ll->argumentos[i].get()) + ";");
+            return "lat_rango(" + std::to_string(nargs) + ", " + args + ")";
+        }
         if (nombre == "imprimirf") {
             std::string s = "lat_imprimirf(" + std::to_string(ll->argumentos.size());
             for (auto& arg : ll->argumentos) {
@@ -890,6 +904,20 @@ void GeneradorC::genSentencia(Sentencia* s) {
         ++indentacion;
         genBloque(de->cuerpo);
         genSentencia(de->incremento.get());
+        --indentacion;
+        emitir("}");
+        return;
+    }
+    if (auto* pa = dynamic_cast<Para*>(s)) {
+        std::string rango = nuevoTemp();
+        std::string actual = nuevoTemp();
+        emitir("LatValor " + rango + " = " + genExpr(pa->iterable.get()) + ";");
+        emitir("LatValor " + actual + " = lat_rango_inicio(" + rango + ");");
+        emitir("while (lat_rango_contiene(" + rango + ", " + actual + ")) {");
+        ++indentacion;
+        emitir(varC(pa->variable) + " = " + actual + ";");
+        genBloque(pa->cuerpo);
+        emitir(actual + " = lat_rango_siguiente(" + rango + ", " + actual + ");");
         --indentacion;
         emitir("}");
         return;

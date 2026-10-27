@@ -123,6 +123,32 @@ static void prueba_desde() {
     CHECK(contiene(t, "Llamada") && contiene(t, "Identificador 'escribir'"), "cuerpo");
 }
 
+static void prueba_para_en_rango() {
+    std::string t = volcar(
+        "para i en rango(5)\n"
+        "  escribir(i)\n"
+        "fin\n"
+        "para j en rango(2)\n"
+        "  romper\n"
+        "fin\n");
+    CHECK(contiene(t, "Para 'i'") && contiene(t, "Para 'j'"),
+          "para debe aparecer en el AST con el identificador de iteración");
+    CHECK(contiene(t, "Llamada") && contiene(t, "Identificador 'rango'"),
+          "para debe conservar el iterable");
+    CHECK(contiene(t, "Romper"), "el cuerpo de para debe conservar romper");
+}
+
+static void prueba_para_dos_puntos_falla() {
+    std::ostringstream cap;
+    std::streambuf* viejo = std::cerr.rdbuf(cap.rdbuf());
+    auto prog = parsear("para i en rango(5):\n  escribir(i)\nfin\n");
+    std::cerr.rdbuf(viejo);
+
+    CHECK(prog == nullptr, "para con ':' tras rango debe fallar el parseo");
+    CHECK(contiene(cap.str(), "Error de sintaxis"),
+          "':' al final de la cabecera debe reportar error de sintaxis");
+}
+
 static void prueba_mientras_y_repetir() {
     std::string t1 = volcar("mientras i < 10\n  i++\nfin\n");
     CHECK(contiene(t1, "Mientras") && contiene(t1, "Binaria '<'"), "mientras");
@@ -362,6 +388,8 @@ int main() {
     prueba_si_osi_sino();
     prueba_ternario();
     prueba_desde();
+    prueba_para_en_rango();
+    prueba_para_dos_puntos_falla();
     prueba_mientras_y_repetir();
     prueba_funcion_y_retorno();
     prueba_funcion_variadica();

@@ -23,6 +23,7 @@ LatValor lat_lista_invertir(LatValor l);
 /* Creación de nueva lista */
 LatValor lat_lista_concatenar(LatValor l1, LatValor l2);
 LatValor lat_lista_crear(LatValor n, LatValor v);
+LatValor lat_lista_a_lista(LatValor rango);
 
 /* Consulta */
 LatValor lat_lista_comparar(LatValor l1, LatValor l2);

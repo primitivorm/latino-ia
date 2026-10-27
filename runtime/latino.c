@@ -220,6 +220,67 @@ LatValor lat_puntero(void* p) {
     return v;
 }
 
+static LatRango rango_de_valor(LatValor valor) {
+    if (valor.tipo != LAT_RANGO)
+        abortar("se esperaba un valor rango");
+    return valor.como.rango;
+}
+
+static void validar_argumento_rango(LatValor valor, size_t indice) {
+    if (valor.tipo != LAT_NUMERO)
+        abortar("los argumentos de rango deben ser números enteros");
+    if (!isfinite(valor.como.numero))
+        abortar("los argumentos de rango deben ser finitos");
+    if (trunc(valor.como.numero) != valor.como.numero)
+        abortar("los argumentos de rango deben ser números enteros");
+    (void)indice;
+}
+
+LatValor lat_rango(size_t nargs, const LatValor* args) {
+    if (nargs < 1 || nargs > 3)
+        abortar("rango espera entre 1 y 3 argumentos");
+    if (!args)
+        abortar("rango recibió argumentos inválidos");
+    for (size_t i = 0; i < nargs; ++i)
+        validar_argumento_rango(args[i], i + 1);
+
+    double inicio = nargs == 1 ? 0.0 : args[0].como.numero;
+    double fin = args[nargs == 1 ? 0 : 1].como.numero;
+    double paso = nargs == 3 ? args[2].como.numero : 1.0;
+    if (paso == 0.0)
+        abortar("el paso de rango no puede ser cero");
+
+    LatValor resultado;
+    resultado.tipo = LAT_RANGO;
+    resultado.como.rango.inicio = inicio;
+    resultado.como.rango.fin = fin;
+    resultado.como.rango.paso = paso;
+    return resultado;
+}
+
+LatValor lat_rango_inicio(LatValor valor) {
+    return lat_numero(rango_de_valor(valor).inicio);
+}
+
+int lat_rango_contiene(LatValor valor, LatValor actual) {
+    LatRango rango = rango_de_valor(valor);
+    if (actual.tipo != LAT_NUMERO)
+        abortar("el iterador de rango debe ser numérico");
+    return rango.paso > 0
+               ? actual.como.numero < rango.fin
+               : actual.como.numero > rango.fin;
+}
+
+LatValor lat_rango_siguiente(LatValor valor, LatValor actual) {
+    LatRango rango = rango_de_valor(valor);
+    if (actual.tipo != LAT_NUMERO)
+        abortar("el iterador de rango debe ser numérico");
+    double siguiente = actual.como.numero + rango.paso;
+    if (siguiente == actual.como.numero)
+        abortar("el paso de rango no puede avanzar con esta magnitud");
+    return lat_numero(siguiente);
+}
+
 static LatLista* lista_nueva(size_t capacidad) {
     LatLista* l = (LatLista*)malloc(sizeof(LatLista));
     l->refs = 1;
@@ -628,6 +689,9 @@ int lat_es_verdadero(LatValor v) {
         case LAT_CADENA:      return v.como.cadena[0] != '\0';
         case LAT_LISTA:       return v.como.lista->longitud > 0;
         case LAT_DICCIONARIO: return v.como.dic->longitud > 0;
+        case LAT_RANGO:       return v.como.rango.paso > 0
+                                     ? v.como.rango.inicio < v.como.rango.fin
+                                     : v.como.rango.inicio > v.como.rango.fin;
         case LAT_OBJETO:      return v.como.objeto != NULL; /* objetos son truthy */
         case LAT_MODULO:      return v.como.modulo != NULL;
         case LAT_PUNTERO:     return v.como.puntero != NULL;
@@ -902,6 +966,8 @@ char* lat_a_cadena(LatValor v) {
             return dup_cadena("<modulo>");
         case LAT_PUNTERO:
             return dup_cadena("<puntero>");
+        case LAT_RANGO:
+            return dup_cadena("<rango>");
     }
     return dup_cadena("");
 }
@@ -981,6 +1047,7 @@ LatValor lat_tipo(LatValor v) {
         case LAT_CADENA:      return lat_cadena("cadena");
         case LAT_LISTA:       return lat_cadena("lista");
         case LAT_DICCIONARIO: return lat_cadena("dic");
+        case LAT_RANGO:       return lat_cadena("rango");
         case LAT_OBJETO:      return lat_cadena(v.como.objeto && v.como.objeto->clase ? v.como.objeto->clase : "objeto");
         case LAT_FUNCION:     return lat_cadena("funcion");
         case LAT_MODULO:      return lat_cadena("modulo");
@@ -1195,6 +1262,7 @@ static const char *_nombre_latipo(LatTipo t) {
         case LAT_OBJETO:      return "objeto";
         case LAT_MODULO:      return "modulo";
         case LAT_PUNTERO:     return "puntero";
+        case LAT_RANGO:       return "rango";
         default:              return "desconocido";
     }
 }

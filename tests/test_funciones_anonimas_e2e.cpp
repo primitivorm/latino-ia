@@ -68,6 +68,13 @@ static const harness::CasoTest CASOS[] = {
       "f = fun() x = 1 fin\n"
       "escribir(tipo(f()))\n",
       "nulo" },
+
+    { "anonima_en_bucle_para",
+      "para i en rango(3)\n"
+      "    f = fun(x) retornar x + 1 fin\n"
+      "    escribir(f(i))\n"
+      "fin\n",
+      "1 2 3" },
 };
 
 int main(int argc, char* argv[]) {

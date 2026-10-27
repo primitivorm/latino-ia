@@ -302,6 +302,21 @@ llvm::Value* GeneradorLLVM::genExpr(Expresion& expr, llvm::IRBuilder<>& builder,
         if (auto* destino = dynamic_cast<Identificador*>(n->destino.get())) {
             const std::string& nombre = destino->nombre;
 
+            if (nombre == "rango") {
+                std::vector<llvm::Value*> valores;
+                for (auto& argumento : n->argumentos) {
+                    llvm::Value* valor = genExpr(*argumento, builder, modulo, variables);
+                    if (!valor) return nullptr;
+                    valores.push_back(valor);
+                }
+                llvm::Value* arreglo = empaquetarLatValores(valores, builder, tipoLatValor);
+                llvm::Function* fn = abi_->declarar(modulo, "lat_rango");
+                if (!fn) return nullptr;
+                llvm::Value* retorno = builder.CreateAlloca(tipoLatValor, nullptr, "rango_ret");
+                builder.CreateCall(fn, {retorno, builder.getInt64(valores.size()), arreglo});
+                return retorno;
+            }
+
             // (Fase L7) Builtins de un solo argumento opcional -- el
             // argumento ausente se completa con lat_nulo(), igual que
             // GeneradorC::genLlamada.
@@ -1065,6 +1080,51 @@ void GeneradorLLVM::genSentencia(Sentencia& s, llvm::IRBuilder<>& builder, llvm:
         builder.SetInsertPoint(bloqueSalida);
         return;
     }
+    if (auto* pa = dynamic_cast<Para*>(&s)) {
+        llvm::Value* rango = genExpr(*pa->iterable, builder, modulo, variables);
+        auto itVariable = variables.find(pa->variable);
+        if (!rango || itVariable == variables.end()) return;
+
+        llvm::Function* fnInicio = abi_->declarar(modulo, "lat_rango_inicio");
+        llvm::Function* fnContiene = abi_->declarar(modulo, "lat_rango_contiene");
+        llvm::Function* fnSiguiente = abi_->declarar(modulo, "lat_rango_siguiente");
+        if (!fnInicio || !fnContiene || !fnSiguiente) return;
+
+        llvm::Value* actual = builder.CreateAlloca(tipoLatValor, nullptr, "para_actual");
+        llvm::Value* siguiente = builder.CreateAlloca(tipoLatValor, nullptr, "para_incremento");
+        builder.CreateCall(fnInicio, {actual, rango});
+
+        llvm::Function* fnActual = builder.GetInsertBlock()->getParent();
+        llvm::BasicBlock* bloqueHeader =
+            llvm::BasicBlock::Create(*contexto_, "para_header", fnActual);
+        llvm::BasicBlock* bloqueCuerpo =
+            llvm::BasicBlock::Create(*contexto_, "para_cuerpo", fnActual);
+        llvm::BasicBlock* bloqueLatch =
+            llvm::BasicBlock::Create(*contexto_, "para_siguiente", fnActual);
+        llvm::BasicBlock* bloqueSalida =
+            llvm::BasicBlock::Create(*contexto_, "para_fin", fnActual);
+
+        builder.CreateBr(bloqueHeader);
+        builder.SetInsertPoint(bloqueHeader);
+        llvm::Value* dentro = builder.CreateCall(fnContiene, {rango, actual}, "para_contiene");
+        builder.CreateCondBr(builder.CreateICmpNE(dentro, builder.getInt32(0)),
+                             bloqueCuerpo, bloqueSalida);
+
+        builder.SetInsertPoint(bloqueCuerpo);
+        builder.CreateStore(builder.CreateLoad(tipoLatValor, actual), itVariable->second);
+        pilaSalidasBucle_.push_back(bloqueSalida);
+        genBloque(pa->cuerpo, builder, modulo, variables);
+        pilaSalidasBucle_.pop_back();
+        if (!bloqueTerminado(builder)) builder.CreateBr(bloqueLatch);
+
+        builder.SetInsertPoint(bloqueLatch);
+        builder.CreateCall(fnSiguiente, {siguiente, rango, actual});
+        builder.CreateStore(builder.CreateLoad(tipoLatValor, siguiente), actual);
+        builder.CreateBr(bloqueHeader);
+
+        builder.SetInsertPoint(bloqueSalida);
+        return;
+    }
     if (auto* re = dynamic_cast<Repetir*>(&s)) {
         llvm::Function* fnActual = builder.GetInsertBlock()->getParent();
         llvm::BasicBlock* bloqueCuerpo =
@@ -1314,6 +1374,9 @@ void GeneradorLLVM::recolectarAnonimasEnSentencia(Sentencia* s) {
         recolectarAnonimasEnExpresion(de->condicion.get());
         recolectarAnonimasEnSentencia(de->incremento.get());
         recolectarAnonimasLista(de->cuerpo);
+    } else if (auto* pa = dynamic_cast<Para*>(s)) {
+        recolectarAnonimasEnExpresion(pa->iterable.get());
+        recolectarAnonimasLista(pa->cuerpo);
     } else if (auto* mi = dynamic_cast<Mientras*>(s)) {
         recolectarAnonimasEnExpresion(mi->condicion.get());
         recolectarAnonimasLista(mi->cuerpo);

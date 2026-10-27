@@ -225,7 +225,7 @@ bool Lexer::esPalabraReservada(const std::string& palabra) const {
     static const std::set<std::string> palabrasReservadas = {
         // Existentes
         "caso", "cierto", "verdadero", "defecto", "otro", "desde", "elegir", "falso", "fin",
-        "funcion", "fun", "global", "hasta", "incluir", "mientras", "nulo", "para", "repetir",
+        "funcion", "fun", "global", "hasta", "incluir", "mientras", "nulo", "para", "en", "repetir",
         "regresar", "retornar", "ret", "retorno", "romper", "si", "sino", "osi",
         "var", "variable", "const", "constante",
         // Nuevas palabras reservadas para POO (PLAN_POO.md)

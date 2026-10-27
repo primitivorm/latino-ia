@@ -235,6 +235,13 @@ void ImpresorAST::visitar(Desde& n) {
     hijos(n.cuerpo);
 }
 
+void ImpresorAST::visitar(Para& n) {
+    linea("Para '" + n.variable + "'");
+    if (n.iterable) hijo(*n.iterable);
+    linea("cuerpo:");
+    hijos(n.cuerpo);
+}
+
 void ImpresorAST::visitar(Mientras& n) {
     linea("Mientras");
     if (n.condicion) hijo(*n.condicion);

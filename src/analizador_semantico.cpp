@@ -224,7 +224,7 @@ bool AnalizadorSemantico::esIncorporada(const std::string& nombre) const {
     return nombre == "escribir" || nombre == "imprimir" || nombre == "escribe" || nombre == "poner" ||
            nombre == "acadena" || nombre == "alogico" || nombre == "anumero" ||
            nombre == "leer" || nombre == "tipo" || nombre == "imprimirf" ||
-           nombre == "limpiar" || nombre == "error";
+           nombre == "limpiar" || nombre == "error" || nombre == "rango";
 }
 
 bool AnalizadorSemantico::esLibreria(const std::string& nombre) const {
@@ -1187,6 +1187,17 @@ void AnalizadorSemantico::visitar(Desde& n) {
     if (n.inicio) n.inicio->aceptar(*this);
     if (n.condicion) n.condicion->aceptar(*this);
     if (n.incremento) n.incremento->aceptar(*this);
+    ++profundidadBucle;
+    analizarBloque(n.cuerpo);
+    --profundidadBucle;
+}
+
+void AnalizadorSemantico::visitar(Para& n) {
+    if (n.iterable) n.iterable->aceptar(*this);
+    if (constantes.count(n.variable))
+        agregarError(n.linea, "no se puede reasignar la constante '" + n.variable + "'");
+    else if (!estaDeclarada(n.variable))
+        declararVariable(n.variable, TipoAnotado::Ninguno, n.linea);
     ++profundidadBucle;
     analizarBloque(n.cuerpo);
     --profundidadBucle;
