@@ -843,7 +843,26 @@ char* lat_a_cadena(LatValor v) {
             for (i = 0; i < l->longitud; i++) {
                 char* e = lat_a_cadena(l->datos[i]);
                 if (i) APPEND(", ");
-                APPEND(e);
+                if (l->datos[i].tipo == LAT_CADENA) {
+                    APPEND("\"");
+                    for (const char* p = e; *p; p++) {
+                        switch (*p) {
+                            case '\\': APPEND("\\\\"); break;
+                            case '"':  APPEND("\\\""); break;
+                            case '\n': APPEND("\\n"); break;
+                            case '\r': APPEND("\\r"); break;
+                            case '\t': APPEND("\\t"); break;
+                            default: {
+                                char caracter[2] = {*p, '\0'};
+                                APPEND(caracter);
+                                break;
+                            }
+                        }
+                    }
+                    APPEND("\"");
+                } else {
+                    APPEND(e);
+                }
                 free(e);
             }
             APPEND("]");

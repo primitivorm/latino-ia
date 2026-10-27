@@ -1,13 +1,26 @@
 #include <cstdio>
 #include <cstdlib>
+#include <cerrno>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <set>
 #include <sstream>
 #include <string>
+#include <system_error>
+#include <vector>
+
+#ifdef _WIN32
+#include <process.h>
+#else
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
 
 #include "analizador_semantico.h"
+#include "ast.h"
 #include "ast_impresor.h"
 #include "compiler.h"
 #include "invocador_c.h"
@@ -25,6 +38,64 @@
 #endif
 
 namespace fs = std::filesystem;
+
+static FuncionDef* buscarFuncionEntrada(Programa& programa) {
+    FuncionDef* inicio = nullptr;
+    for (auto& sentencia : programa.sentencias) {
+        auto* funcion = dynamic_cast<FuncionDef*>(sentencia.get());
+        if (!funcion) continue;
+        if (funcion->nombre == "principal") return funcion;
+        if (funcion->nombre == "inicio") inicio = funcion;
+    }
+    return inicio;
+}
+
+static int ejecutarPrograma(const std::string& ejecutable,
+                           const std::vector<std::string>& argumentos) {
+    std::vector<std::string> valores;
+    valores.reserve(argumentos.size() + 1);
+    valores.push_back(ejecutable);
+    valores.insert(valores.end(), argumentos.begin(), argumentos.end());
+
+    std::vector<char*> argv;
+    argv.reserve(valores.size() + 1);
+    for (std::string& valor : valores)
+        argv.push_back(valor.data());
+    argv.push_back(nullptr);
+
+#ifdef _WIN32
+    intptr_t resultado = _spawnv(_P_WAIT, ejecutable.c_str(), argv.data());
+    if (resultado == -1) {
+        std::cerr << "Error: no se pudo ejecutar " << ejecutable << ": "
+                  << std::error_code(errno, std::generic_category()).message() << std::endl;
+        return 1;
+    }
+    return static_cast<int>(resultado);
+#else
+    pid_t proceso = fork();
+    if (proceso < 0) {
+        std::cerr << "Error: no se pudo iniciar " << ejecutable << ": "
+                  << std::error_code(errno, std::generic_category()).message() << std::endl;
+        return 1;
+    }
+    if (proceso == 0) {
+        execv(ejecutable.c_str(), argv.data());
+        std::perror("Error: no se pudo ejecutar el programa");
+        std::_Exit(127);
+    }
+
+    int estado = 0;
+    while (waitpid(proceso, &estado, 0) < 0) {
+        if (errno == EINTR) continue;
+        std::cerr << "Error: no se pudo esperar al programa: "
+                  << std::error_code(errno, std::generic_category()).message() << std::endl;
+        return 1;
+    }
+    if (WIFEXITED(estado)) return WEXITSTATUS(estado);
+    if (WIFSIGNALED(estado)) return 128 + WTERMSIG(estado);
+    return 1;
+#endif
+}
 
 // ---------------------------------------------------------------------------
 // 17.3: Resolución de inclusiones .lat
@@ -98,6 +169,8 @@ static void uso() {
     std::cerr <<
         "Uso: latino <archivo.lat> [opciones]\n"
         "  (por defecto)      compila el programa a un ejecutable\n"
+        "  [args...]          si define principal/inicio, ejecuta el programa y pasa estos argumentos\n"
+        "  --                 termina las opciones; permite argumentos que empiezan con '-'\n"
         "  -o <ruta>          ruta de salida (ejecutable, o el .c/.ll con --solo-c/--solo-ir)\n"
         "  --solo-c           emite el código C (a -o si se indica, si no a stdout)\n"
         "  --solo-ir          emite el IR de LLVM textual (--backend llvm; a -o si se\n"
@@ -132,10 +205,16 @@ int main(int argc, char** argv) {
     bool soloIr = false;
     bool modoJit = false;
     bool backendExplicito = false;
+    bool capturandoArgumentos = false;
+    std::vector<std::string> argumentosPrograma;
 
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
-        if (arg == "--ast") {
+        if (capturandoArgumentos) {
+            argumentosPrograma.push_back(arg);
+        } else if (arg == "--") {
+            capturandoArgumentos = true;
+        } else if (arg == "--ast") {
             modoAst = true;
         } else if (arg == "--solo-c") {
             soloC = true;
@@ -163,6 +242,8 @@ int main(int argc, char** argv) {
             return 2;
         } else if (ruta.empty()) {
             ruta = arg;
+        } else {
+            argumentosPrograma.push_back(arg);
         }
     }
 
@@ -226,6 +307,25 @@ int main(int argc, char** argv) {
     if (!semantico.analizar(*programa))
         return 1;  // errores semánticos (ya reportados)
 
+    FuncionDef* funcionEntrada = buscarFuncionEntrada(*programa);
+    if (funcionEntrada &&
+        (funcionEntrada->variadico ||
+         (funcionEntrada->parametros.size() != 0 && funcionEntrada->parametros.size() != 2))) {
+        std::cerr << "Error: principal/inicio debe declarar cero parámetros o "
+                     "exactamente (argc, argv).\n";
+        return 1;
+    }
+    if (!argumentosPrograma.empty() && !funcionEntrada) {
+        std::cerr << "Error: los argumentos de ejecución requieren una función "
+                     "'principal' o 'inicio'.\n";
+        return 2;
+    }
+    if (!argumentosPrograma.empty() && (modoAst || soloC || soloIr)) {
+        std::cerr << "Error: los argumentos de ejecución no se pueden usar con "
+                     "--ast, --solo-c o --solo-ir.\n";
+        return 2;
+    }
+
     // Volcado del AST (depuración).
     if (modoAst) {
         ImpresorAST impresor(std::cout);
@@ -255,7 +355,8 @@ int main(int argc, char** argv) {
         // llvm::orc::LLJIT, sin pasar por objeto + enlazador -- ignora -o.
         if (modoJit) {
             std::unique_ptr<llvm::LLVMContext> contexto = generadorLlvm.tomarContexto();
-            int codigoJit = ejecutarJit(std::move(modulo), std::move(contexto));
+            int codigoJit = ejecutarJit(std::move(modulo), std::move(contexto),
+                                        argumentosPrograma);
 
             // Hallazgo real: el programa JIT-eado ejecuta y retorna
             // correctamente (confirmado paso a paso: el LLJIT se destruye
@@ -314,6 +415,8 @@ int main(int argc, char** argv) {
             return 1;
 
         std::cerr << "Ejecutable generado (backend LLVM): " << salida << std::endl;
+        if (funcionEntrada)
+            return ejecutarPrograma(salidaAbs, argumentosPrograma);
         return 0;
 #else
         std::cerr << "Este build de latino no incluye el backend LLVM "
@@ -384,5 +487,7 @@ int main(int argc, char** argv) {
         return 1;
 
     std::cerr << "Ejecutable generado: " << salida << std::endl;
+    if (funcionEntrada)
+        return ejecutarPrograma(salidaAbs, argumentosPrograma);
     return 0;
 }

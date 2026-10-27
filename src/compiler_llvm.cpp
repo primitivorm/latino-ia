@@ -1890,6 +1890,16 @@ void GeneradorLLVM::genInterfaz(InterfazDef& /*i*/) {
 std::unique_ptr<llvm::Module> GeneradorLLVM::generar(Programa& programa) {
     auto modulo = std::make_unique<llvm::Module>("latino_modulo", *contexto_);
 
+    FuncionDef* funcionPrincipal = nullptr;
+    FuncionDef* funcionInicio = nullptr;
+    for (auto& sentencia : programa.sentencias) {
+        if (auto* funcion = dynamic_cast<FuncionDef*>(sentencia.get())) {
+            if (funcion->nombre == "principal") funcionPrincipal = funcion;
+            else if (funcion->nombre == "inicio") funcionInicio = funcion;
+        }
+    }
+    if (!funcionPrincipal) funcionPrincipal = funcionInicio;
+
     recolectarTipos(programa);
     recolectarExterno(programa);  // PLAN_FFI.md (F6)
     declararGlobales(programa, *modulo);  // hallazgo real, ver compiler_llvm.h
@@ -1971,6 +1981,36 @@ std::unique_ptr<llvm::Module> GeneradorLLVM::generar(Programa& programa) {
     std::unordered_map<std::string, llvm::Value*> variables = globales_;
 
     genBloque(programa.sentencias, builder, *modulo, variables);
+    if (!bloqueTerminado(builder) && funcionPrincipal) {
+        auto itFuncion = funciones_.find(funcionPrincipal->nombre);
+        if (itFuncion != funciones_.end()) {
+            std::vector<llvm::Value*> argumentos;
+            if (funcionPrincipal->parametros.size() == 2) {
+                llvm::StructType* tipoLatValor = abi_->tipoLatValor();
+
+                llvm::Function* fnNumero = abi_->declarar(*modulo, "lat_numero");
+                llvm::Value* argcLatino =
+                    builder.CreateAlloca(tipoLatValor, nullptr, "principal_argc");
+                llvm::Value* argcUsuario =
+                    builder.CreateSub(argc, builder.getInt32(1), "argc_usuario");
+                builder.CreateCall(fnNumero, {argcLatino,
+                                              builder.CreateSIToFP(argcUsuario,
+                                                                   builder.getDoubleTy())});
+                argumentos.push_back(argcLatino);
+
+                llvm::Function* fnArgs = abi_->declarar(*modulo, "lat_sis_args");
+                llvm::Value* argvLatino =
+                    builder.CreateAlloca(tipoLatValor, nullptr, "principal_argv");
+                builder.CreateCall(fnArgs, {argvLatino});
+                argumentos.push_back(argvLatino);
+            }
+
+            llvm::Value* retorno =
+                builder.CreateAlloca(abi_->tipoLatValor(), nullptr, "principal_ret");
+            argumentos.insert(argumentos.begin(), retorno);
+            builder.CreateCall(itFuncion->second.fn, argumentos);
+        }
+    }
     if (!bloqueTerminado(builder))
         builder.CreateRet(builder.getInt32(0));
 

@@ -98,6 +98,27 @@ static void prueba_funcion() {
     CHECK(contiene(c, "v_r = lat_fn_sumar(lat_numero(2), lat_numero(3));"), "llamada");
 }
 
+static void prueba_funcion_principal_recibe_argumentos() {
+    std::string c = generar(
+        "funcion principal(argc, argv)\n"
+        "  poner(argc)\n"
+        "  poner(argv)\n"
+        "fin\n");
+    CHECK(contiene(c, "#include \"libs/sis.h\""),
+          "principal debe incluir la interfaz de argumentos de sis");
+    CHECK(contiene(c, "lat_fn_principal(lat_numero(argc - 1), lat_sis_args());"),
+          "main debe pasar argc sin argv[0] y la lista de argumentos");
+}
+
+static void prueba_alias_inicio_sin_argumentos() {
+    std::string c = generar(
+        "funcion inicio()\n"
+        "  poner(\"inicio\")\n"
+        "fin\n");
+    CHECK(contiene(c, "lat_fn_inicio();"),
+          "inicio debe funcionar como alias de principal sin parámetros");
+}
+
 static void prueba_funcion_variadica() {
     std::string src =
         "funcion f(a, ...)\n"
@@ -232,6 +253,8 @@ int main() {
     prueba_si();
     prueba_desde();
     prueba_funcion();
+    prueba_funcion_principal_recibe_argumentos();
+    prueba_alias_inicio_sin_argumentos();
     prueba_funcion_variadica();
     prueba_poo_gen_metodo();
     prueba_lista_y_diccionario();

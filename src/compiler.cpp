@@ -1099,6 +1099,16 @@ void GeneradorC::genInterfaz(InterfazDef* i) {
 //   2. preámbulo (#include) + cuerpo → salida final
 // ---------------------------------------------------------------------------
 void GeneradorC::generarCuerpo(Programa& programa) {
+    FuncionDef* funcionPrincipal = nullptr;
+    FuncionDef* funcionInicio = nullptr;
+    for (auto& s : programa.sentencias) {
+        if (auto* f = dynamic_cast<FuncionDef*>(s.get())) {
+            if (f->nombre == "principal") funcionPrincipal = f;
+            else if (f->nombre == "inicio") funcionInicio = f;
+        }
+    }
+    if (!funcionPrincipal) funcionPrincipal = funcionInicio;
+
     // Prototipos de las funciones de usuario.
     bool hayFunciones = false;
     for (auto& s : programa.sentencias) {
@@ -1187,6 +1197,16 @@ void GeneradorC::generarCuerpo(Programa& programa) {
     for (auto& s : programa.sentencias)
         if (!dynamic_cast<FuncionDef*>(s.get()))
             genSentencia(s.get());  // genSentencia ignora Incluir internamente
+
+    if (funcionPrincipal) {
+        if (funcionPrincipal->parametros.size() == 2) {
+            libsUsadas.insert("sis");
+            emitir(funC(funcionPrincipal->nombre) +
+                   "(lat_numero(argc - 1), lat_sis_args());");
+        } else {
+            emitir(funC(funcionPrincipal->nombre) + "();");
+        }
+    }
 
     emitir("return 0;");
     --indentacion;
