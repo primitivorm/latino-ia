@@ -125,7 +125,7 @@ static void prueba_desde() {
 
 static void prueba_para_en_rango() {
     std::string t = volcar(
-        "para i en rango(5):\n"
+        "para i en rango(5)\n"
         "  escribir(i)\n"
         "fin\n"
         "para j en rango(2)\n"
@@ -136,6 +136,17 @@ static void prueba_para_en_rango() {
     CHECK(contiene(t, "Llamada") && contiene(t, "Identificador 'rango'"),
           "para debe conservar el iterable");
     CHECK(contiene(t, "Romper"), "el cuerpo de para debe conservar romper");
+}
+
+static void prueba_para_dos_puntos_falla() {
+    std::ostringstream cap;
+    std::streambuf* viejo = std::cerr.rdbuf(cap.rdbuf());
+    auto prog = parsear("para i en rango(5):\n  escribir(i)\nfin\n");
+    std::cerr.rdbuf(viejo);
+
+    CHECK(prog == nullptr, "para con ':' tras rango debe fallar el parseo");
+    CHECK(contiene(cap.str(), "Error de sintaxis"),
+          "':' al final de la cabecera debe reportar error de sintaxis");
 }
 
 static void prueba_mientras_y_repetir() {
@@ -378,6 +389,7 @@ int main() {
     prueba_ternario();
     prueba_desde();
     prueba_para_en_rango();
+    prueba_para_dos_puntos_falla();
     prueba_mientras_y_repetir();
     prueba_funcion_y_retorno();
     prueba_funcion_variadica();

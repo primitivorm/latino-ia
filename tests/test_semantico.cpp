@@ -100,7 +100,7 @@ static void prueba_romper_dentro_de_bucle_ok() {
 
 static void prueba_para_rango_y_romper_ok() {
   esperarOK("para_rango",
-            "para i en rango(5):\n"
+            "para i en rango(5)\n"
             "  si i == 2\n"
             "    romper\n"
             "  fin\n"

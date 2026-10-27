@@ -471,8 +471,6 @@ SentPtr Parser::parsePara() {
     avanzar();
     esperarReservada("en");
     nodo->iterable = parseExpresion();
-    if (esOperador(":"))
-        avanzar();
     nodo->cuerpo = parseBloque({"fin"});
     esperarReservada("fin");
     return nodo;

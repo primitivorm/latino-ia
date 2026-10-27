@@ -254,7 +254,7 @@ siempre es exclusivo y un paso negativo recorre hacia atrás. El valor
 ser números enteros finitos.
 
 ```latino
-para i en rango(5):
+para i en rango(5)
     escribir(i)
 fin
 #salida: 0 1 2 3 4
@@ -270,8 +270,8 @@ escribir(tipo(rango(3)))
 #salida: rango
 ```
 
-Los dos puntos al final de la cabecera son opcionales. `romper` sale del
-bucle `para` igual que de los demás bucles.
+La cabecera no lleva dos puntos al final. `romper` sale del bucle `para`
+igual que de los demás bucles.
 
 ---
 

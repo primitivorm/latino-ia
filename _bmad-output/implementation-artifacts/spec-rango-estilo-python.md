@@ -52,7 +52,7 @@ context:
 ## Tasks & Acceptance
 
 **Execution:**
-- [x] `include/ast.h`, `include/parser.h`, `src/parser.cpp`, `src/ast_impresor.cpp`, `include/ast_impresor.h` — modelar y parsear `para <id> en <expr> ... fin`, aceptando `:` final opcional como en los ejemplos, y hacer visible el nodo en `--ast`.
+- [x] `include/ast.h`, `include/parser.h`, `src/parser.cpp`, `src/ast_impresor.cpp`, `include/ast_impresor.h` — modelar y parsear `para <id> en <expr> ... fin`, sin `:` final, y hacer visible el nodo en `--ast`.
 - [x] `include/analizador_semantico.h`, `src/analizador_semantico.cpp`, `src/recolector_variables.cpp` — analizar el iterable y cuerpo como bucle, registrar la variable bajo las reglas actuales y validar `romper`.
 - [x] `runtime/latino.h`, `runtime/latino.c` — implementar un valor lazy `rango`, sus argumentos/validaciones, tipo `"rango"` y ciclo de vida seguro.
 - [x] `runtime/libs/lista.h`, `runtime/libs/lista.c`, `tools/abi_probe.c` — añadir `lista.a_lista` y exponer al ABI LLVM las funciones runtime usadas, con errores explícitos ante entradas inválidas o fallo de materialización.

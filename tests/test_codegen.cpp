@@ -85,7 +85,7 @@ static void prueba_desde() {
 
 static void prueba_para_rango() {
     std::string c = generar(
-        "para i en rango(5):\n"
+        "para i en rango(5)\n"
         "  escribir(i)\n"
         "fin\n");
     CHECK(contiene(c, "lat_rango(1,"), "rango debe mapearse a su constructor runtime");
