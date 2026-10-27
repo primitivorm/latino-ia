@@ -479,6 +479,13 @@ LatValor lat_funcion_nueva_llvm(LatFnLLVM fn) {
     return v;
 }
 
+LatValor lat_llamar_funcion_llvm_args(LatValor fn, int nargs, LatValor* args) {
+    LatValor resultado = lat_nulo();
+    if (fn.tipo != LAT_FUNCION || !fn.como.funcion) return resultado;
+    ((LatFnLLVM)(void*)fn.como.funcion)(&resultado, nargs, args);
+    return resultado;
+}
+
 LatValor lat_llamar_funcion(LatValor fn, int nargs, LatValor* args) {
     if (fn.tipo != LAT_FUNCION || !fn.como.funcion)
         return lat_nulo();
@@ -1219,4 +1226,3 @@ void lat_abi_verificar(size_t tam_esperado, size_t alineacion_esperada,
         exit(1);
     }
 }
-

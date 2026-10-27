@@ -108,6 +108,7 @@ LatValor lat_obj_llamar_metodo_llvm_args(LatValor objeto, const char* nombre, in
                                          const LatValor* args);
 LatValor lat_funcion_nueva(LatFnModulo fn);
 LatValor lat_funcion_nueva_llvm(LatFnLLVM fn);
+LatValor lat_llamar_funcion_llvm_args(LatValor fn, int nargs, LatValor* args);
 /* Invoca un valor de tipo función (LAT_FUNCION). Si 'fn' no es invocable
  * devuelve lat_nulo(). Se usa para llamar funciones anónimas o cualquier
  * valor funcion almacenado en una variable, lista, etc. */

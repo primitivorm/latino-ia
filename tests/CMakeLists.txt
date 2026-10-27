@@ -285,6 +285,7 @@ macro(add_suite20 TARGET)
 endmacro()
 
 add_suite20(test_funciones_base)
+add_suite20(test_funciones_anonimas_e2e)
 add_suite20(test_lib_cadena)
 add_suite20(test_lib_lista)
 add_suite20(test_lib_dic)
@@ -336,4 +337,3 @@ add_suite20(test_modulos_multi)
 add_suite20(test_poo_e2e)
 add_suite20(test_genericos_e2e)
 add_suite20(test_ffi_e2e)
-

@@ -272,7 +272,33 @@ llvm::Value* GeneradorLLVM::genExpr(Expresion& expr, llvm::IRBuilder<>& builder,
         builder.CreateCall(fn, {celda, builder.getInt64(valores.size()), arreglo});
         return celda;
     }
+    if (auto* n = dynamic_cast<FuncionAnonima*>(&expr)) {
+        auto it = funcionesAnonimas_.find(n);
+        if (it == funcionesAnonimas_.end()) return nullptr;
+        llvm::Function* fn = abi_->declarar(modulo, "lat_funcion_nueva_llvm");
+        if (!fn) return nullptr;
+        llvm::Value* celda = builder.CreateAlloca(tipoLatValor, nullptr, "funcion_anonima");
+        builder.CreateCall(fn, {celda, it->second});
+        return celda;
+    }
     if (auto* n = dynamic_cast<Llamada*>(&expr)) {
+        auto llamarFuncionDinamica = [&]() -> llvm::Value* {
+            llvm::Value* funcion = genExpr(*n->destino, builder, modulo, variables);
+            if (!funcion) return nullptr;
+            std::vector<llvm::Value*> valores;
+            for (auto& argumento : n->argumentos) {
+                llvm::Value* valor = genExpr(*argumento, builder, modulo, variables);
+                if (!valor) return nullptr;
+                valores.push_back(valor);
+            }
+            llvm::Value* arreglo = empaquetarLatValores(valores, builder, tipoLatValor);
+            llvm::Function* fn = abi_->declarar(modulo, "lat_llamar_funcion_llvm_args");
+            if (!fn) return nullptr;
+            llvm::Value* retorno = builder.CreateAlloca(tipoLatValor, nullptr, "funcion_llamada_ret");
+            builder.CreateCall(fn, {retorno, funcion, builder.getInt32(static_cast<int>(valores.size())),
+                                    arreglo});
+            return retorno;
+        };
         if (auto* destino = dynamic_cast<Identificador*>(n->destino.get())) {
             const std::string& nombre = destino->nombre;
 
@@ -344,42 +370,43 @@ llvm::Value* GeneradorLLVM::genExpr(Expresion& expr, llvm::IRBuilder<>& builder,
                 auto itExt = funcionesExternas_.find(nombre);
                 if (itExt != funcionesExternas_.end())
                     return genLlamadaExterna(nombre, itExt->second, *n, builder, modulo, variables);
-                return nullptr;
-            }
-            const InfoFuncionUsuario& info = it->second;
+                return llamarFuncionDinamica();
+            } else {
+                const InfoFuncionUsuario& info = it->second;
 
-            llvm::Value* celdaRet = builder.CreateAlloca(tipoLatValor, nullptr, "llamada_ret");
-            std::vector<llvm::Value*> args{celdaRet};
+                llvm::Value* celdaRet = builder.CreateAlloca(tipoLatValor, nullptr, "llamada_ret");
+                std::vector<llvm::Value*> args{celdaRet};
 
-            llvm::Function* fnNulo = abi_->declarar(modulo, "lat_nulo");
-            size_t nargs = n->argumentos.size();
-            for (size_t i = 0; i < info.numParametros; i++) {
-                llvm::Value* arg;
-                if (i < nargs) {
-                    arg = genExpr(*n->argumentos[i], builder, modulo, variables);
-                    if (!arg) return nullptr;
-                } else {
-                    arg = builder.CreateAlloca(tipoLatValor, nullptr, "llamada_arg_nulo");
-                    builder.CreateCall(fnNulo, {arg});
+                llvm::Function* fnNulo = abi_->declarar(modulo, "lat_nulo");
+                size_t nargs = n->argumentos.size();
+                for (size_t i = 0; i < info.numParametros; i++) {
+                    llvm::Value* arg;
+                    if (i < nargs) {
+                        arg = genExpr(*n->argumentos[i], builder, modulo, variables);
+                        if (!arg) return nullptr;
+                    } else {
+                        arg = builder.CreateAlloca(tipoLatValor, nullptr, "llamada_arg_nulo");
+                        builder.CreateCall(fnNulo, {arg});
+                    }
+                    args.push_back(arg);
                 }
-                args.push_back(arg);
-            }
-            if (info.variadico) {
-                llvm::Function* fnListaDe = abi_->declarar(modulo, "lat_lista_de_args");
-                llvm::Value* resto = builder.CreateAlloca(tipoLatValor, nullptr, "llamada_resto");
-                size_t nResto = (nargs > info.numParametros) ? nargs - info.numParametros : 0;
-                std::vector<llvm::Value*> valoresResto;
-                for (size_t i = info.numParametros; i < nargs; i++) {
-                    llvm::Value* v = genExpr(*n->argumentos[i], builder, modulo, variables);
-                    if (!v) return nullptr;
-                    valoresResto.push_back(v);
+                if (info.variadico) {
+                    llvm::Function* fnListaDe = abi_->declarar(modulo, "lat_lista_de_args");
+                    llvm::Value* resto = builder.CreateAlloca(tipoLatValor, nullptr, "llamada_resto");
+                    size_t nResto = (nargs > info.numParametros) ? nargs - info.numParametros : 0;
+                    std::vector<llvm::Value*> valoresResto;
+                    for (size_t i = info.numParametros; i < nargs; i++) {
+                        llvm::Value* v = genExpr(*n->argumentos[i], builder, modulo, variables);
+                        if (!v) return nullptr;
+                        valoresResto.push_back(v);
+                    }
+                    llvm::Value* arregloResto = empaquetarLatValores(valoresResto, builder, tipoLatValor);
+                    builder.CreateCall(fnListaDe, {resto, builder.getInt64(nResto), arregloResto});
+                    args.push_back(resto);
                 }
-                llvm::Value* arregloResto = empaquetarLatValores(valoresResto, builder, tipoLatValor);
-                builder.CreateCall(fnListaDe, {resto, builder.getInt64(nResto), arregloResto});
-                args.push_back(resto);
+                builder.CreateCall(info.fn, args);
+                return celdaRet;
             }
-            builder.CreateCall(info.fn, args);
-            return celdaRet;
         }
 
         if (auto* am = dynamic_cast<AccesoMiembro*>(n->destino.get())) {
@@ -558,7 +585,7 @@ llvm::Value* GeneradorLLVM::genExpr(Expresion& expr, llvm::IRBuilder<>& builder,
             return celda;
         }
 
-        return nullptr;
+        return llamarFuncionDinamica();
     }
     if (auto* n = dynamic_cast<DiccionarioLiteral*>(&expr)) {
         llvm::Function* fn = abi_->declarar(modulo, "lat_dic_de_args");
@@ -1247,6 +1274,242 @@ void GeneradorLLVM::genFuncion(FuncionDef& f, llvm::Module& modulo) {
     celdaRetorno_ = anteriorRetorno;
 }
 
+void GeneradorLLVM::recolectarAnonimasLista(const ListaSent& cuerpo) {
+    for (const auto& sentencia : cuerpo)
+        recolectarAnonimasEnSentencia(sentencia.get());
+}
+
+void GeneradorLLVM::recolectarAnonimas(Programa& programa) {
+    anonimas_.clear();
+    indicesAnonimas_.clear();
+    funcionesAnonimas_.clear();
+    for (const auto& sentencia : programa.sentencias)
+        recolectarAnonimasEnSentencia(sentencia.get());
+}
+
+void GeneradorLLVM::recolectarAnonimasEnSentencia(Sentencia* s) {
+    if (!s) return;
+    if (auto* a = dynamic_cast<Asignacion*>(s)) {
+        for (auto& valor : a->valores) recolectarAnonimasEnExpresion(valor.get());
+        for (auto& destino : a->destinos) recolectarAnonimasEnExpresion(destino.get());
+    } else if (auto* es = dynamic_cast<ExprSentencia*>(s)) {
+        recolectarAnonimasEnExpresion(es->expr.get());
+    } else if (auto* si = dynamic_cast<Si*>(s)) {
+        recolectarAnonimasEnExpresion(si->condicion.get());
+        recolectarAnonimasLista(si->entonces);
+        for (auto& rama : si->osis) {
+            recolectarAnonimasEnExpresion(rama.condicion.get());
+            recolectarAnonimasLista(rama.cuerpo);
+        }
+        if (si->tieneSino) recolectarAnonimasLista(si->sino);
+    } else if (auto* el = dynamic_cast<Elegir*>(s)) {
+        recolectarAnonimasEnExpresion(el->opcion.get());
+        for (auto& caso : el->casos) {
+            recolectarAnonimasEnExpresion(caso.valor.get());
+            recolectarAnonimasLista(caso.cuerpo);
+        }
+        if (el->tieneDefecto) recolectarAnonimasLista(el->defecto);
+    } else if (auto* de = dynamic_cast<Desde*>(s)) {
+        recolectarAnonimasEnSentencia(de->inicio.get());
+        recolectarAnonimasEnExpresion(de->condicion.get());
+        recolectarAnonimasEnSentencia(de->incremento.get());
+        recolectarAnonimasLista(de->cuerpo);
+    } else if (auto* mi = dynamic_cast<Mientras*>(s)) {
+        recolectarAnonimasEnExpresion(mi->condicion.get());
+        recolectarAnonimasLista(mi->cuerpo);
+    } else if (auto* re = dynamic_cast<Repetir*>(s)) {
+        recolectarAnonimasLista(re->cuerpo);
+        recolectarAnonimasEnExpresion(re->condicionHasta.get());
+    } else if (auto* rt = dynamic_cast<Retornar*>(s)) {
+        recolectarAnonimasEnExpresion(rt->valor.get());
+    } else if (auto* inseguro = dynamic_cast<InseguroBloque*>(s)) {
+        recolectarAnonimasLista(inseguro->cuerpo);
+    } else if (auto* f = dynamic_cast<FuncionDef*>(s)) {
+        recolectarAnonimasLista(f->cuerpo);
+    } else if (auto* c = dynamic_cast<ClaseDef*>(s)) {
+        for (const CampoDef& campo : c->campos) recolectarAnonimasEnExpresion(campo.valorDefecto.get());
+        for (const MetodoDef& metodo : c->metodos) recolectarAnonimasLista(metodo.cuerpo);
+    } else if (auto* e = dynamic_cast<EstructuraDef*>(s)) {
+        for (const CampoDef& campo : e->campos) recolectarAnonimasEnExpresion(campo.valorDefecto.get());
+        for (const MetodoDef& metodo : e->metodos) recolectarAnonimasLista(metodo.cuerpo);
+    } else if (auto* base = dynamic_cast<LlamadaBase*>(s)) {
+        for (auto& argumento : base->argumentos) recolectarAnonimasEnExpresion(argumento.get());
+    }
+}
+
+void GeneradorLLVM::recolectarAnonimasEnExpresion(Expresion* e) {
+    if (!e) return;
+    if (auto* anonima = dynamic_cast<FuncionAnonima*>(e)) {
+        if (!indicesAnonimas_.emplace(anonima, anonimas_.size()).second) return;
+        anonimas_.push_back(anonima);
+        recolectarAnonimasLista(anonima->cuerpo);
+    } else if (auto* b = dynamic_cast<Binaria*>(e)) {
+        recolectarAnonimasEnExpresion(b->izq.get());
+        recolectarAnonimasEnExpresion(b->der.get());
+    } else if (auto* u = dynamic_cast<Unaria*>(e)) {
+        recolectarAnonimasEnExpresion(u->operando.get());
+    } else if (auto* p = dynamic_cast<PostOperador*>(e)) {
+        recolectarAnonimasEnExpresion(p->operando.get());
+    } else if (auto* t = dynamic_cast<Ternaria*>(e)) {
+        recolectarAnonimasEnExpresion(t->condicion.get());
+        recolectarAnonimasEnExpresion(t->siCierto.get());
+        recolectarAnonimasEnExpresion(t->siFalso.get());
+    } else if (auto* ai = dynamic_cast<AccesoIndice*>(e)) {
+        recolectarAnonimasEnExpresion(ai->objeto.get());
+        recolectarAnonimasEnExpresion(ai->indice.get());
+    } else if (auto* am = dynamic_cast<AccesoMiembro*>(e)) {
+        recolectarAnonimasEnExpresion(am->objeto.get());
+    } else if (auto* llamada = dynamic_cast<Llamada*>(e)) {
+        recolectarAnonimasEnExpresion(llamada->destino.get());
+        for (auto& argumento : llamada->argumentos) recolectarAnonimasEnExpresion(argumento.get());
+    } else if (auto* lista = dynamic_cast<ListaLiteral*>(e)) {
+        for (auto& elemento : lista->elementos) recolectarAnonimasEnExpresion(elemento.get());
+    } else if (auto* dic = dynamic_cast<DiccionarioLiteral*>(e)) {
+        for (auto& par : dic->pares) {
+            recolectarAnonimasEnExpresion(par.clave.get());
+            recolectarAnonimasEnExpresion(par.valor.get());
+        }
+    } else if (auto* nuevo = dynamic_cast<NuevoExpr*>(e)) {
+        for (auto& argumento : nuevo->argumentos) recolectarAnonimasEnExpresion(argumento.get());
+    } else if (auto* es = dynamic_cast<EsExpr*>(e)) {
+        recolectarAnonimasEnExpresion(es->objeto.get());
+    }
+}
+
+llvm::Function* GeneradorLLVM::declararFuncionAnonima(FuncionAnonima& f, llvm::Module& modulo) {
+    auto existente = funcionesAnonimas_.find(&f);
+    if (existente != funcionesAnonimas_.end()) return existente->second;
+
+    auto indice = indicesAnonimas_.find(&f);
+    if (indice == indicesAnonimas_.end()) return nullptr;
+
+    llvm::PointerType* tipoPuntero = llvm::PointerType::get(*contexto_, 0);
+    llvm::FunctionType* tipoFuncion =
+        llvm::FunctionType::get(llvm::Type::getVoidTy(*contexto_),
+                                {tipoPuntero, llvm::Type::getInt32Ty(*contexto_), tipoPuntero}, false);
+    llvm::Function* fn = llvm::Function::Create(
+        tipoFuncion, llvm::Function::InternalLinkage,
+        "lat_fn_anon_" + std::to_string(indice->second), &modulo);
+    fn->addParamAttr(0, llvm::Attribute::getWithStructRetType(*contexto_, abi_->tipoLatValor()));
+    funcionesAnonimas_[&f] = fn;
+    return fn;
+}
+
+void GeneradorLLVM::genFuncionAnonima(FuncionAnonima& f, llvm::Module& modulo) {
+    llvm::Function* fn = declararFuncionAnonima(f, modulo);
+    if (!fn || !fn->empty()) return;
+
+    llvm::StructType* tipoLatValor = abi_->tipoLatValor();
+    llvm::IRBuilder<> builder(*contexto_);
+    llvm::BasicBlock* entrada = llvm::BasicBlock::Create(*contexto_, "entrada", fn);
+    builder.SetInsertPoint(entrada);
+
+    auto argumento = fn->arg_begin();
+    llvm::Value* celdaRetorno = &*argumento++;
+    llvm::Value* nargs = &*argumento++;
+    llvm::Value* args = &*argumento;
+    std::unordered_map<std::string, llvm::Value*> variables = globales_;
+
+    auto cargarParametro = [&](const std::string& nombre, size_t indice) {
+        llvm::Value* celda = builder.CreateAlloca(tipoLatValor, nullptr, "v_" + nombre);
+        variables[nombre] = celda;
+
+        llvm::BasicBlock* bloquePresente =
+            llvm::BasicBlock::Create(*contexto_, "param_presente", fn);
+        llvm::BasicBlock* bloqueAusente = llvm::BasicBlock::Create(*contexto_, "param_ausente", fn);
+        llvm::BasicBlock* bloqueContinuar = llvm::BasicBlock::Create(*contexto_, "param_fin", fn);
+        llvm::Value* existe = builder.CreateICmpSGT(nargs, builder.getInt32(static_cast<int>(indice)));
+        builder.CreateCondBr(existe, bloquePresente, bloqueAusente);
+
+        builder.SetInsertPoint(bloquePresente);
+        llvm::Value* slot = builder.CreateGEP(tipoLatValor, args, builder.getInt64(indice), "arg_slot");
+        builder.CreateStore(builder.CreateLoad(tipoLatValor, slot), celda);
+        builder.CreateBr(bloqueContinuar);
+
+        builder.SetInsertPoint(bloqueAusente);
+        llvm::Function* fnNulo = abi_->declarar(modulo, "lat_nulo");
+        if (!fnNulo) return;
+        builder.CreateCall(fnNulo, {celda});
+        builder.CreateBr(bloqueContinuar);
+
+        builder.SetInsertPoint(bloqueContinuar);
+    };
+
+    for (size_t i = 0; i < f.parametros.size(); ++i)
+        cargarParametro(f.parametros[i].nombre, i);
+    if (f.variadico) {
+        const size_t nFijos = f.parametros.size();
+        llvm::Value* celdaResto = builder.CreateAlloca(tipoLatValor, nullptr, "v_lat_resto");
+        variables["lat_resto"] = celdaResto;
+
+        llvm::BasicBlock* bloqueResto =
+            llvm::BasicBlock::Create(*contexto_, "varargs_presentes", fn);
+        llvm::BasicBlock* bloqueVacio = llvm::BasicBlock::Create(*contexto_, "varargs_vacios", fn);
+        llvm::BasicBlock* bloqueRestoFin = llvm::BasicBlock::Create(*contexto_, "varargs_fin", fn);
+        llvm::Value* hayResto = builder.CreateICmpSGT(nargs, builder.getInt32(static_cast<int>(nFijos)));
+        builder.CreateCondBr(hayResto, bloqueResto, bloqueVacio);
+
+        llvm::Function* fnListaDe = abi_->declarar(modulo, "lat_lista_de_args");
+        if (!fnListaDe) return;
+        builder.SetInsertPoint(bloqueResto);
+        llvm::Value* cantidadResto =
+            builder.CreateSub(nargs, builder.getInt32(static_cast<int>(nFijos)), "nargs_resto");
+        llvm::Value* datosResto =
+            builder.CreateGEP(tipoLatValor, args, builder.getInt64(nFijos), "args_resto");
+        llvm::Value* lista = builder.CreateAlloca(tipoLatValor, nullptr, "lista_resto");
+        builder.CreateCall(fnListaDe, {lista, builder.CreateZExt(cantidadResto, builder.getInt64Ty()),
+                                       datosResto});
+        builder.CreateStore(builder.CreateLoad(tipoLatValor, lista), celdaResto);
+        builder.CreateBr(bloqueRestoFin);
+
+        builder.SetInsertPoint(bloqueVacio);
+        llvm::Value* listaVacia = builder.CreateAlloca(tipoLatValor, nullptr, "lista_resto_vacia");
+        llvm::PointerType* tipoPuntero = llvm::PointerType::get(*contexto_, 0);
+        builder.CreateCall(fnListaDe, {listaVacia, builder.getInt64(0),
+                                       llvm::ConstantPointerNull::get(tipoPuntero)});
+        builder.CreateStore(builder.CreateLoad(tipoLatValor, listaVacia), celdaResto);
+        builder.CreateBr(bloqueRestoFin);
+        builder.SetInsertPoint(bloqueRestoFin);
+    }
+
+    std::set<std::string> excluir;
+    for (const auto& p : f.parametros) excluir.insert(p.nombre);
+    if (f.variadico) excluir.insert("lat_resto");
+    excluir.insert(globalesExplicitos_.begin(), globalesExplicitos_.end());
+
+    std::set<std::string> nombresLocales;
+    recolectarVariables(f.cuerpo, nombresLocales, excluir);
+    auto locales = declararLocales(nombresLocales, builder, modulo);
+    for (auto& [nombre, celda] : locales) variables[nombre] = celda;
+
+    for (const auto& p : f.parametros) {
+        if (p.tipo == TipoAnotado::Ninguno) continue;
+        llvm::Function* fnVerificar = abi_->declarar(modulo, "lat_verificar_tipo");
+        if (!fnVerificar) return;
+        llvm::Value* celdaParam = variables[p.nombre];
+        llvm::Value* nombreC = builder.CreateGlobalStringPtr(p.nombre, "nombre_param", 0, &modulo);
+        llvm::Value* verificado = builder.CreateAlloca(tipoLatValor, nullptr, "param_verificado");
+        builder.CreateCall(fnVerificar, {verificado, celdaParam,
+                                         builder.getInt32(tipoAnotadoALatTipo(p.tipo)), nombreC,
+                                         builder.getInt32(f.linea)});
+        builder.CreateStore(builder.CreateLoad(tipoLatValor, verificado), celdaParam);
+    }
+
+    llvm::Value* anteriorRetorno = celdaRetorno_;
+    celdaRetorno_ = celdaRetorno;
+    genBloque(f.cuerpo, builder, modulo, variables);
+    if (!bloqueTerminado(builder)) {
+        llvm::Function* fnNulo = abi_->declarar(modulo, "lat_nulo");
+        if (!fnNulo) {
+            celdaRetorno_ = anteriorRetorno;
+            return;
+        }
+        builder.CreateCall(fnNulo, {celdaRetorno});
+        builder.CreateRetVoid();
+    }
+    celdaRetorno_ = anteriorRetorno;
+}
+
 void GeneradorLLVM::recolectarTipos(Programa& programa) {
     clases_.clear();
     estructuras_.clear();
@@ -1630,6 +1893,7 @@ std::unique_ptr<llvm::Module> GeneradorLLVM::generar(Programa& programa) {
     recolectarTipos(programa);
     recolectarExterno(programa);  // PLAN_FFI.md (F6)
     declararGlobales(programa, *modulo);  // hallazgo real, ver compiler_llvm.h
+    recolectarAnonimas(programa);
 
     // Prototipos de las funciones de usuario primero -- permite recursión
     // indirecta (mutua) exactamente igual que el patrón de dos pasadas de
@@ -1642,8 +1906,12 @@ std::unique_ptr<llvm::Module> GeneradorLLVM::generar(Programa& programa) {
             funcionesUsuario.push_back(f);
     for (FuncionDef* f : funcionesUsuario)
         declararFuncion(*f, *modulo);
+    for (FuncionAnonima* f : anonimas_)
+        declararFuncionAnonima(*f, *modulo);
     for (FuncionDef* f : funcionesUsuario)
         genFuncion(*f, *modulo);
+    for (FuncionAnonima* f : anonimas_)
+        genFuncionAnonima(*f, *modulo);
 
     for (auto& [nombre, c] : clases_)
         genClase(*c, *modulo);
