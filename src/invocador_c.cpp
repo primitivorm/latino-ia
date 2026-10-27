@@ -65,6 +65,7 @@ int ejecutarMsvc(const std::string& archivoC, const std::string& salidaExe,
         " /Fe:" + entrecomillar(salidaExe) + " /Fo:" + entrecomillar(objArg) + enlazarExtra;
 
     fs::path bat = tmp / "latino_compilar.bat";
+    fs::path log = tmp / "latino_compilar.log";
     {
         std::ofstream f(bat);
         f << "@echo off\n";
@@ -72,7 +73,7 @@ int ejecutarMsvc(const std::string& archivoC, const std::string& salidaExe,
         if (!vsdevcmd.empty())
             f << "call " << entrecomillar(vsdevcmd)
               << " -arch=x64 -no_logo -startdir=none >nul\n";
-        f << cl << "\n";
+        f << cl << " > " << entrecomillar(log.string()) << " 2>&1\n";
         f << "exit /b %errorlevel%\n";
     }
 
@@ -82,7 +83,13 @@ int ejecutarMsvc(const std::string& archivoC, const std::string& salidaExe,
     }
 
     std::string comando = entrecomillar(bat.string());
-    return std::system(comando.c_str());
+    int codigo = std::system(comando.c_str());
+    std::ifstream salidaCompilador(log);
+    if (codigo != 0 && salidaCompilador)
+        std::cerr << salidaCompilador.rdbuf();
+    salidaCompilador.close();
+    fs::remove(log, ec);
+    return codigo;
 }
 
 // Compila con un compilador de estilo GNU (gcc/clang/cc).

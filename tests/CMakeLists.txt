@@ -199,6 +199,26 @@ target_include_directories(lexer_dump PRIVATE ${CMAKE_SOURCE_DIR}/include)
 add_executable(test_e2e test_e2e.cpp)
 target_include_directories(test_e2e PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
+add_executable(test_principal_e2e test_principal_e2e.cpp)
+add_test(
+  NAME test_principal_e2e
+  COMMAND test_principal_e2e
+          $<TARGET_FILE:latino>
+          "${CMAKE_SOURCE_DIR}/runtime"
+          "${CMAKE_CURRENT_BINARY_DIR}"
+          c
+)
+if(LATINO_LLVM_BACKEND)
+  add_test(
+    NAME test_principal_e2e_llvm
+    COMMAND test_principal_e2e
+            $<TARGET_FILE:latino>
+            "${CMAKE_SOURCE_DIR}/runtime"
+            "${CMAKE_CURRENT_BINARY_DIR}"
+            llvm
+  )
+endif()
+
 # Obtener todos los ejemplos .lat
 file(GLOB EJEMPLOS_LAT "${CMAKE_SOURCE_DIR}/ejemplos/*.lat")
 

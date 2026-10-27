@@ -103,12 +103,21 @@ cmake --build build --config Release
 # Compilar un programa Latino a ejecutable
 latino ejemplos/hola.lat -o hola.exe --runtime runtime
 
+# Ejecutar al compilar cuando el programa define principal(argc, argv)
+latino principal.lat "parametros" "aqui"
+
 # Emitir solo el código C generado (sin compilar)
 latino ejemplos/hola.lat --solo-c
 
 # Volcar el AST (depuración)
 latino ejemplos/hola.lat --ast
 ```
+
+`inicio` es un alias de `principal`. Estas funciones se ejecutan después de
+las sentencias de nivel superior y aceptan cero parámetros o `(argc, argv)`;
+en el segundo caso reciben el número y la lista de argumentos del usuario,
+sin contar el ejecutable. Sin una función de entrada el CLI conserva el
+comportamiento de solo compilar.
 
 ## Lenguaje soportado
 

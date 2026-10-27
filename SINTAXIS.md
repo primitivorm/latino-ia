@@ -374,6 +374,33 @@ poner(x(1,2))        #divide
 # 0.5
 ```
 Una función anónima acepta los mismos elementos que una función nombrada: parámetros (opcionalmente con anotación de tipo), el parámetro variádico `...`, sentencias de control de flujo y `retornar`. Al no tener nombre, su valor es un `funcion` que se invoca con `(argumentos)` sobre la variable o expresión que la contenga.
+
+### VII.B. Punto de entrada del programa
+
+Una función de nivel superior llamada `principal` se ejecuta después de las
+sentencias de nivel superior al compilar y ejecutar el programa. `inicio` es
+un alias. Puede declararse sin parámetros o con `(argc, argv)`; en este
+último caso, `argc` es el número de argumentos del usuario y `argv` es una
+lista de cadenas. El nombre del ejecutable o archivo no se incluye en ninguno
+de los dos.
+
+```latino
+funcion principal(argc, argv)
+    poner("recibiendo " .. argc .. " parametros:")
+    poner(argv)
+fin
+#salida:
+#recibiendo 2 parametros:
+#["parametros", "aqui"]
+```
+
+La función `principal` tiene prioridad si se declaran ambos nombres. Al
+pasar argumentos al CLI, por ejemplo
+`latino principal.lat "parametros" "aqui"`, Latino compila y ejecuta el
+programa; `--` permite pasar valores que comienzan con `-`. Sin argumentos
+adicionales, el CLI mantiene el comportamiento de solo compilar cuando el
+programa no define `principal` ni `inicio`.
+
 <a name="lista"></a>
 ## VIII. Listas
 Una lista es un tipo de colección. Es equivalente a lo que en otros lenguajes se conoce por arreglos o vectores.

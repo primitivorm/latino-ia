@@ -56,6 +56,7 @@ int compilarLLVMAEjecutable(llvm::Module& modulo, const std::string& salidaExe,
 // símbolo `main` del módulo. Devuelve el código de salida de ese `main`, o
 // un valor distinto de cero si el JIT no pudo crearse/resolver el módulo
 // (los mensajes se reportan por stderr).
-int ejecutarJit(std::unique_ptr<llvm::Module> modulo, std::unique_ptr<llvm::LLVMContext> contexto);
+int ejecutarJit(std::unique_ptr<llvm::Module> modulo, std::unique_ptr<llvm::LLVMContext> contexto,
+                const std::vector<std::string>& argumentos = {});
 
 #endif  // INVOCADOR_LLVM_H

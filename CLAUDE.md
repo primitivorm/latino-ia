@@ -85,6 +85,7 @@ Suites de prueba disponibles:
 | `test_genericos` | Parser/semántico/codegen de genéricos: `<T>`, bounds, `donde`, turbofish (Fase 31) |
 | `test_genericos_e2e` | Programas completos con genéricos, incluida interacción con módulos (Fase 31) |
 | `test_e2e` | Programas completos en `ejemplos/` |
+| `test_principal_e2e` | Invocación de `principal(argc, argv)` y el alias `inicio` en C y LLVM |
 | `test_funciones_base` | Funciones built-in (`tipo`, `acadena`, etc.) |
 | `test_incluir` | Sistema de inclusión textual (`incluir "archivo.lat"`) |
 | `test_modulos` | Resolución unitaria de `exportar`/`importar` (Fase 30) |
@@ -144,6 +145,9 @@ El runner de pruebas compila, ejecuta y compara la salida con ese valor.
 ```powershell
 # Compilar a ejecutable
 latino ejemplos/hola.lat -o hola.exe --runtime runtime
+
+# Ejecutar argumentos pasados a principal(argc, argv) o su alias inicio
+latino principal.lat "parametros" "aqui"
 
 # Emitir solo el código C generado
 latino ejemplos/hola.lat --solo-c

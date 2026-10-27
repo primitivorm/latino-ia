@@ -115,7 +115,8 @@ int compilarLLVMAEjecutable(llvm::Module& modulo, const std::string& salidaExe,
     return compilarAEjecutable(rutaObj.string(), salidaExe, opcionesC);
 }
 
-int ejecutarJit(std::unique_ptr<llvm::Module> modulo, std::unique_ptr<llvm::LLVMContext> contexto) {
+int ejecutarJit(std::unique_ptr<llvm::Module> modulo, std::unique_ptr<llvm::LLVMContext> contexto,
+                const std::vector<std::string>& argumentos) {
     inicializarTargetNativoUnaVez();
 
     auto jit = llvm::orc::LLJITBuilder().create();
@@ -170,17 +171,21 @@ int ejecutarJit(std::unique_ptr<llvm::Module> modulo, std::unique_ptr<llvm::LLVM
         return 1;
     }
 
-    // El main generado tiene la firma int main(int argc, char** argv) --
-    // paridad con GeneradorLLVM::generar() (Fase L9). En este modo no hay
-    // argumentos de línea de comandos adicionales que reenviar: latino
-    // --jit archivo.lat no toma más argumentos que el propio archivo.
-    // Almacenamiento estático (no de pila): lat_set_args (llamado dentro de
-    // este main JIT-eado) guarda 'argv' tal cual en la variable global
-    // lat_argv del runtime -- si fuera un arreglo de pila de esta función,
-    // quedaría colgante en cuanto ejecutarJit retornara.
+    // El main generado recibe los argumentos de ejecución igual que el
+    // ejecutable AOT. El almacenamiento estático mantiene vivo argv mientras
+    // lat_set_args conserva su dirección en una global del runtime.
     using FnMain = int (*)(int, char**);
     FnMain fnMain = simboloMain->toPtr<FnMain>();
-    static char nombrePrograma[] = "latino_jit";
-    static char* argvJit[] = {nombrePrograma, nullptr};
-    return fnMain(1, argvJit);
+    static std::vector<std::string> valoresJit;
+    static std::vector<char*> argvJit;
+    valoresJit.clear();
+    valoresJit.reserve(argumentos.size() + 1);
+    valoresJit.emplace_back("latino_jit");
+    valoresJit.insert(valoresJit.end(), argumentos.begin(), argumentos.end());
+    argvJit.clear();
+    argvJit.reserve(valoresJit.size() + 1);
+    for (std::string& valor : valoresJit)
+        argvJit.push_back(valor.data());
+    argvJit.push_back(nullptr);
+    return fnMain(static_cast<int>(valoresJit.size()), argvJit.data());
 }
