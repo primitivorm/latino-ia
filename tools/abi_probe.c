@@ -124,6 +124,7 @@ void lat_abi_referenciar_todo(void) {
     (void)lat_ffi_verificar_tipo;
     (void)lat_funcion_nueva;
     (void)lat_funcion_nueva_llvm;
+    (void)lat_llamar_funcion_llvm_args;
     (void)lat_igual;
     (void)lat_imprimir;
     (void)lat_imprimirf;

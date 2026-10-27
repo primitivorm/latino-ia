@@ -199,15 +199,24 @@ void GeneradorC::recolectarAnonimasEnSentencia(Sentencia* s) {
         return;
     }
     if (auto* c = dynamic_cast<ClaseDef*>(s)) {
+        for (const CampoDef& campo : c->campos)
+            recolectarAnonimasEnExpresion(campo.valorDefecto.get());
         for (const MetodoDef& m : c->metodos) recolectarAnonimasLista(m.cuerpo);
         return;
     }
     if (auto* e = dynamic_cast<EstructuraDef*>(s)) {
+        for (const CampoDef& campo : e->campos)
+            recolectarAnonimasEnExpresion(campo.valorDefecto.get());
         for (const MetodoDef& m : e->metodos) recolectarAnonimasLista(m.cuerpo);
         return;
     }
-    // Incluir, ImportarDecl, ExportarDesde, InterfazDef, LlamadaBase,
-    // Romper: sin expresiones que contengan anónimas en este nivel.
+    if (auto* base = dynamic_cast<LlamadaBase*>(s)) {
+        for (auto& argumento : base->argumentos)
+            recolectarAnonimasEnExpresion(argumento.get());
+        return;
+    }
+    // Incluir, ImportarDecl, ExportarDesde, InterfazDef, Romper:
+    // sin expresiones que contengan anónimas en este nivel.
 }
 
 void GeneradorC::recolectarAnonimasEnExpresion(Expresion* e) {
@@ -295,8 +304,9 @@ void GeneradorC::genFuncionAnonima(FuncionAnonima* f, const std::string& nombreC
     }
     if (f->variadico) {
         size_t nfix = f->parametros.size();
-        std::string expr = "(nargs > " + std::to_string(nfix) + ") ? args[" +
-                           std::to_string(nfix) + "] : lat_nulo()";
+        std::string expr = "lat_lista_de_args((nargs > " + std::to_string(nfix) +
+                           ") ? (size_t)(nargs - " + std::to_string(nfix) + ") : 0, (nargs > " +
+                           std::to_string(nfix) + ") ? &args[" + std::to_string(nfix) + "] : NULL)";
         emitir("LatValor lat_resto = " + expr + ";");
     }
 
@@ -1106,6 +1116,10 @@ void GeneradorC::generarCuerpo(Programa& programa) {
             emitir("static LatValor " + funC(f->nombre) + "(" + tipos + ");");
             hayFunciones = true;
         }
+    }
+    for (FuncionAnonima* f : anonimas) {
+        emitir("static LatValor " + anonimoC(f) + "(int nargs, LatValor* args);");
+        hayFunciones = true;
     }
 
     // Prototipos de métodos de clases y estructuras.

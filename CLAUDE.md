@@ -78,6 +78,7 @@ Suites de prueba disponibles:
 | `test_ast` | Nodos del AST |
 | `test_semantico` | Análisis semántico |
 | `test_codegen` | Generación de código C |
+| `test_funciones_anonimas_e2e` | Funciones anónimas en los backends C y LLVM, incluidas llamadas desde variables/listas y anónimas anidadas |
 | `test_tipado` | Tipado gradual opcional (Fase 27) |
 | `test_poo` | Parser/semántico/codegen de POO: clases, herencia, interfaces (Fase 28) |
 | `test_poo_e2e` | Programas POO completos (Fase 28) |

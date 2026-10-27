@@ -1976,6 +1976,32 @@ static void prueba_global_mutable_no_crea_alloca_local(GeneradorLLVM& gen) {
     verificarModulo("global_mutable_no_crea_alloca", modulo);
 }
 
+static void prueba_funcion_anonima_se_genera_y_se_invoca() {
+    GeneradorLLVM gen;
+    Programa programa;
+
+    auto anonima = std::make_unique<FuncionAnonima>();
+    anonima->parametros.push_back(ParamFuncion{"x"});
+    anonima->cuerpo.push_back(retornar(binaria("+", identificador("x"), litNumero(1))));
+    programa.sentencias.push_back(asignacionSimple("f", std::move(anonima)));
+    std::vector<ExprPtr> argumentos;
+    argumentos.push_back(litNumero(41));
+    programa.sentencias.push_back(exprSentencia(llamada("f", std::move(argumentos))));
+
+    std::unique_ptr<llvm::Module> modulo = gen.generar(programa);
+    CHECK(modulo != nullptr, "el programa con una función anónima debe generar un módulo válido");
+    if (!modulo) return;
+
+    std::string ir = irComoTexto(*modulo);
+    CHECK(contiene(ir, "define internal void @lat_fn_anon_0("),
+          "la función anónima debe generarse con linkage interno\n" << ir);
+    CHECK(contiene(ir, "call void @lat_funcion_nueva_llvm("),
+          "la función anónima debe empaquetarse como un valor función LLVM\n" << ir);
+    CHECK(contiene(ir, "call void @lat_llamar_funcion_llvm_args("),
+          "el valor función debe invocarse mediante la entrada de runtime con ABI LLVM\n" << ir);
+    verificarModulo("funcion_anonima_se_genera_y_se_invoca", *modulo);
+}
+
 int main() {
     CHECK(std::string(LATINO_RUNTIME_ABI_LL) != "",
           "config.h debe traer una ruta a runtime_abi.ll cuando LATINO_LLVM_BACKEND esta ON");
@@ -2060,6 +2086,7 @@ int main() {
     prueba_global_visible_en_funcion(gen);
     prueba_local_con_mismo_nombre_que_global_no_colisiona(gen);
     prueba_global_mutable_no_crea_alloca_local(gen);
+    prueba_funcion_anonima_se_genera_y_se_invoca();
 
     std::cout << "\nComprobaciones: " << g_checks << "   Fallos: " << g_fallos << std::endl;
     if (g_fallos == 0)

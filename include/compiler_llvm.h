@@ -271,6 +271,13 @@ public:
     // una función de linkage interno sin cuerpo es IR inválido.
     llvm::Function* declararFuncion(FuncionDef& f, llvm::Module& modulo);
 
+    void recolectarAnonimas(Programa& programa);
+    void recolectarAnonimasLista(const ListaSent& cuerpo);
+    void recolectarAnonimasEnSentencia(Sentencia* s);
+    void recolectarAnonimasEnExpresion(Expresion* e);
+    llvm::Function* declararFuncionAnonima(FuncionAnonima& f, llvm::Module& modulo);
+    void genFuncionAnonima(FuncionAnonima& f, llvm::Module& modulo);
+
     // (Fase L8) Registra en las tablas internas clases_/estructuras_/
     // interfaces_ cada ClaseDef/EstructuraDef/InterfazDef de nivel superior
     // de 'programa' -- equivalente a GeneradorC::recolectarTipos. Debe
@@ -459,6 +466,10 @@ private:
         bool variadico;
     };
     std::unordered_map<std::string, InfoFuncionUsuario> funciones_;
+
+    std::vector<FuncionAnonima*> anonimas_;
+    std::unordered_map<FuncionAnonima*, size_t> indicesAnonimas_;
+    std::unordered_map<FuncionAnonima*, llvm::Function*> funcionesAnonimas_;
 
     // Nombre de variable de nivel superior -> celda global real (ver
     // declararGlobales arriba). genFuncion/genMetodo/generar() insertan

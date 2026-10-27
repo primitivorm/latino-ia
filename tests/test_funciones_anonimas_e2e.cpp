@@ -1,0 +1,75 @@
+#include "test_harness.h"
+
+static const harness::CasoTest CASOS[] = {
+    { "anonima_variable",
+      "f = fun(x)\n"
+      "    retornar x + 1\n"
+      "fin\n"
+      "escribir(f(41))\n",
+      "42" },
+
+    { "anonima_directa",
+      "escribir((fun(x) retornar x + 1 fin)(41))\n",
+      "42" },
+
+    { "anonima_lista",
+      "funciones = [fun(a, b) retornar a + b fin, fun(a, b) retornar a * b fin]\n"
+      "escribir(funciones[0](1, 2))\n"
+      "escribir(funciones[1](2, 3))\n",
+      "3 6" },
+
+    { "anonima_anidada",
+      "externa = fun(x)\n"
+      "    interna = fun(y) retornar y + 1 fin\n"
+      "    retornar interna(x)\n"
+      "fin\n"
+      "escribir(externa(41))\n",
+      "42" },
+
+    { "anonima_en_funcion",
+      "funcion aplicar(x)\n"
+      "    interna = fun(y) retornar y + 1 fin\n"
+      "    retornar interna(x)\n"
+      "fin\n"
+      "escribir(aplicar(41))\n",
+      "42" },
+
+    { "anonima_en_metodo",
+      "clase Calculadora\n"
+      "    publico funcion aplicar(x)\n"
+      "        interna = fun(y) retornar y + 1 fin\n"
+      "        retornar interna(x)\n"
+      "    fin\n"
+      "fin\n"
+      "calculadora = nuevo Calculadora()\n"
+      "escribir(calculadora.aplicar(41))\n",
+      "42" },
+
+    { "anonima_usa_global",
+      "desplazamiento = 40\n"
+      "f = fun(x) retornar desplazamiento + x fin\n"
+      "escribir(f(2))\n",
+      "42" },
+
+    { "anonima_parametro_ausente",
+      "f = fun(x, y) retornar tipo(y) fin\n"
+      "escribir(f(1))\n",
+      "nulo" },
+
+    { "anonima_variadica",
+      "f = fun(x, ...) retornar [...] fin\n"
+      "resto = f(0, 7, 9)\n"
+      "escribir(resto[0])\n"
+      "escribir(resto[1])\n"
+      "escribir(lista.longitud(f(0)))\n",
+      "7 9 0" },
+
+    { "anonima_retorno_implicito",
+      "f = fun() x = 1 fin\n"
+      "escribir(tipo(f()))\n",
+      "nulo" },
+};
+
+int main(int argc, char* argv[]) {
+    return harness::ejecutar_main(argc, argv, CASOS, std::size(CASOS));
+}
