@@ -25,11 +25,36 @@ numeros = [1, 2, 3, 4, 5]  //esto es una lista ó arreglo.
 sueldos = { "Jesus" : 10000, "Maria" : 20000, "Jose" : 30000 } //esto es un diccionario
 ```
 
+También se puede declarar una variable con anotación de tipo estática, aunque
+Latino mantiene tipado gradual y el valor real sigue siendo dinámico en runtime:
+```python
+nombre: cadena = "Juan Perez"
+edad: numero = 30
+activo: logico = cierto
+p: Pila<numero> = nuevo Pila<numero>()
+```
+
 Es posible asignar más de una variable en una sola línea de código
 ```python
 a, b, c = 1, 2, 3   #a = 1  b = 2  c = 3
 a, b, c = 1, 2      #a = 1  b = 2  c = nulo
 a, b    = 1, 2, 3   #a = 1  b = 2  se descarta el valor 3
+```
+
+### Asignación de tipos y constantes
+```python
+PI = 3.14159        # constante por convención, pero no es una palabra reservada
+G = 9.8
+
+const LOGIN = "admin"      # ojo: 'const' es una forma válida de declarar constantes
+var contador = 0            # forma equivalente a una variable normal
+```
+
+La sintaxis actual de Latino también soporta declarar constantes en mayúsculas
+y `global` a nivel superior del archivo para compartir estado entre funciones:
+```python
+global _VERSION_ = "1.0"
+global contador = 0
 ```
 <a name="puede"></a>
 ### __Un identificador puede:__
@@ -84,13 +109,26 @@ G = 9.8
 
 <a name="datos"></a>
 ## IV. Tipos de datos
-| latino           | tipo de dato en C |
-| ---------------- | :---------------: |
-| lógico           |     **bool**      |
-| numérico         |    **double**     |
-| cadena o literal |    **`char*`**    |
-| lista (arreglo)  |    **struct**     |
-| diccionario      |    **struct**     |
+Latino tiene tipos dinámicos en runtime, pero acepta anotaciones de tipo
+estáticas y nombres de tipos de clase/estructura/interfaz en varias
+posiciones. Los tipos básicos y los usados por FFI/genéricos se manejan así:
+
+| latino | significado |
+| --- | --- |
+| `logico` | valor booleano (`cierto`/`falso`) |
+| `numero` | numérico de punto flotante (`double`) |
+| `cadena` | texto |
+| `lista` | colección ordenada |
+| `dic` / `diccionario` | colección asociativa |
+| `nulo` | valor nulo |
+| `entero8`…`entero64` | enteros con signo en FFI |
+| `natural8`…`natural64` | enteros sin signo en FFI |
+| `puntero` | puntero opaco en FFI |
+| `NombreClase` / `ns.NombreClase` | tipo de objeto definido por el usuario |
+| `lista<T>` / `dic<T>` | formularios genéricos documentados/estáticos |
+
+En C, el runtime usa `LatValor` con tipo dinámico; los tipos de usuario y los
+genéricos se compilan a ese mismo sistema, sin un tipo de runtime separado.
 
 <a name="opds"></a>
 ## V. Operadores:
@@ -98,12 +136,14 @@ A continuación se listan los operadores:
 | Categoría              | Operadores                             |
 | ---------------------- | -------------------------------------- |
 | Aritmético             | `+, -, *, /, % (modulo), ^ (potencia)` |
-| Lógico                 | && (y), &#124;&#124; (o)               |
+| Lógico                 | `&&` (y), `||` (o)                     |
 | Concatenación          | `..`                                   |
-| Incremento, decremento | `++, --` (valido solo en post)         |
+| Incremento, decremento | `++, --` (válido solo en post)        |
 | Relacional             | `==, !=, <, >, <=, >=, ~= (regex)`     |
 | Asignación             | `=`                                    |
 | Acceso a miembro       | `.`                                    |
+| Acceso por índice      | `[]`                                   |
+| Comparación de tipo    | `es`                                   |
 | Operador ternario      | `(condicion) ? opcion1 : opcion2`      |
 
 La precedencia de operadores es la misma que otros lenguajes de programación como C / Python / Lua.
@@ -114,6 +154,14 @@ numero = -5
 mensaje = (numero < 0) ? " es negativo" : " es positivo"
 escribir("El número " .. numero .. mensaje)
 #salida: El número -5 es negativo
+```
+
+La comparación `es` se usa para comprobar si un objeto es instancia de una
+clase o interfaz, con soporte a nombres calificados por namespace (`geo.Circulo`):
+```python
+si perro es Animal
+    escribir("es un animal")
+fin
 ```
 <a name="estrCtrl"></a>
 ## VI. Estructuras de control:
@@ -213,6 +261,10 @@ fin
 ```
 Notese que se tiene que repetir el caso para `B` y `C` por el momento no se permiten casos múltiples como una sola opción.
 
+La forma `elegir` puede usarse con cualquier expresión y el `defecto`/`otro`
+actúa como caso por omisión; no hay `break` explícito porque cada caso finaliza
+el bloque de elección.
+
 ---
 
 <a name="desde"></a>
@@ -258,6 +310,16 @@ para i en rango(5)
     escribir(i)
 fin
 #salida: 0 1 2 3 4
+
+para i en rango(2, 7)
+    escribir(i)
+fin
+#salida: 2 3 4 5 6
+
+para i en rango(1, 10, 2)
+    escribir(i)
+fin
+#salida: 1 3 5 7 9
 
 para i en rango(5, 0, -1)
     escribir(i)
@@ -414,6 +476,10 @@ un alias. Puede declararse sin parámetros o con `(argc, argv)`; en este
 lista de cadenas. El nombre del ejecutable o archivo no se incluye en ninguno
 de los dos.
 
+Latino también soporta funciones anidadas dentro de otra función: se declaran
+al mismo nivel que el resto del cuerpo y solo son visibles dentro de la
+función que las contiene.
+
 ```latino
 funcion principal(argc, argv)
     poner("recibiendo " .. argc .. " parametros:")
@@ -465,6 +531,11 @@ escribir(numeros[-1])
 #salida: 5
 ```
 
+La librería `lista` expone una API útil para manipular colecciones completas:
+`lista.agregar`, `lista.longitud`, `lista.contiene`, `lista.invertir`,
+`lista.concatenar`, `lista.encontrar`, `lista.insertar`, `lista.eliminar`,
+`lista.eliminar_indice`, `lista.extender`, `lista.separador` y `lista.crear`.
+
 ### Indexación de cadenas
 Una cadena es, internamente, un arreglo de caracteres, así que admite el mismo operador `[]` que las listas, tanto para leer como para modificar un carácter en una posición dada. El índice también puede ser negativo, con el mismo significado que en las listas.
 ```python
@@ -506,6 +577,117 @@ actores["Chilindrina"] = "Maria Antonieta"
 escribir(actores["Chilindrina"])
 #salida: Maria Antonieta
 ```
+
+La librería `dic` expone los accesos típicos: `dic.llaves`, `dic.valores`,
+`dic.contiene`, `dic.eliminar`, `dic.longitud` y `dic.elementos`.
+
+### Librerías estándar e `incluir`
+Además del código en un mismo archivo, Latino puede cargar librerías estándar
+con `incluir "nombre"`, donde `nombre` suele ser un módulo del runtime:
+
+```latino
+incluir "cadena"
+incluir "lista"
+incluir "dic"
+incluir "mate"
+incluir "sis"
+incluir "archivo"
+incluir "paquete"
+```
+
+Esto hace visibles las funciones del módulo en el ámbito actual, sin aislar
+el archivo en un módulo propio. Es el mecanismo recomendado para librerías y
+scripts de utilidad, mientras que `exportar`/`importar` definen un módulo con
+ámbito propio.
+
+### POO: clases, estructuras, interfaces y herencia
+Latino soporta programación orientada a objetos con clases y estructuras,
+modificadores de acceso, herencia, interfaces y `nuevo`.
+
+```latino
+clase Persona
+    publico nombre: cadena
+    privado _edad: numero
+
+    funcion Persona(nombre: cadena, edad: numero)
+        este.nombre = nombre
+        este._edad = edad
+    fin
+
+    publico funcion saludar(): cadena
+        retornar "Hola, soy " .. este.nombre
+    fin
+
+    estatico funcion crear(nombre: cadena): Persona
+        retornar nuevo Persona(nombre, 0)
+    fin
+fin
+
+p = nuevo Persona("Ana", 30)
+escribir(p.saludar())
+```
+
+Las estructuras se usan como tipos con campos y métodos, pero sin herencia:
+
+```latino
+estructura Punto
+    x: numero
+    y: numero
+
+    funcion Punto(x: numero, y: numero)
+        este.x = x
+        este.y = y
+    fin
+
+    funcion suma(): numero
+        retornar este.x + este.y
+    fin
+fin
+```
+
+Las interfaces describen un contrato de métodos que una clase debe implementar:
+
+```latino
+interfaz IImprimible
+    funcion aCadena(): cadena
+fin
+
+clase Producto implementa IImprimible
+    publico nombre: cadena
+
+    publico funcion aCadena(): cadena
+        retornar este.nombre
+    fin
+fin
+```
+
+La herencia usa `extiende` y el constructor de la clase base se llama con
+`base(...)`:
+
+```latino
+clase Animal
+    publico nombre: cadena
+
+    funcion Animal(nombre: cadena)
+        este.nombre = nombre
+    fin
+fin
+
+clase Perro extiende Animal
+    funcion Perro(nombre: cadena)
+        base(nombre)
+    fin
+
+    publico funcion hablar(): cadena sobreescribir
+        retornar este.nombre .. " dice: Guau"
+    fin
+fin
+```
+
+Los modificadores de acceso son `publico`, `privado` y `protegido`; la
+sobrescritura usa `sobreescribir` y el operador `es` permite comprobar
+instancias.
+
 ## X. Módulos: `exportar` / `importar`
 
 Cada archivo `.lat` puede comportarse como un módulo con ámbito propio, al
