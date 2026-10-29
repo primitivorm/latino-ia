@@ -1,0 +1,66 @@
+# Ejemplo didáctico: alcance local vs global
+# La variable global vive fuera de cualquier función y puede ser accedida
+# desde cualquier punto del módulo. Una variable local dentro de una función
+# funciona solo dentro de esa función.
+
+# 1) variable global
+global i = 0
+poner("1) i global inicial: " .. i)    # 0
+
+# 2) si se modifica dentro de un bloque, sigue siendo la misma variable global
+si i == 0
+    i = 5
+    poner("2) i dentro del si: " .. i)    # 5
+    mientras i < 8
+        i = i + 1
+        poner("3) i dentro del mientras: " .. i)    # 6, 7, 8
+    fin
+fin
+
+poner("4) i después del si/mientras: " .. i)    # 8
+
+# 3) una variable local en una función no afecta la global
+funcion mostrar_local()
+    local = 99
+    poner("5) local dentro de la función: " .. local)    # 99
+    # local no existe fuera de esta función
+    retorno local
+fin
+
+mostrar_local()
+poner("6) i global sigue intacta: " .. i)    # 8
+
+# 4) una función puede leer o cambiar la variable global
+funcion ajustar_global()
+    i = 12
+    poner("7) dentro de ajustar_global: " .. i)    # 12
+    retorno i
+fin
+
+poner("8) valor antes de llamar: " .. i)    # 8
+ajustar_global()
+poner("9) valor después de llamar: " .. i)    # 12
+
+# 5) una función global puede llamarse como símbolo compartido del módulo
+# y acceder a la variable global sin declarar otra copia
+global funcion cuadrado(y)
+    poner("10) cuadrado usa i global: " .. i)
+    i = i + 1
+    retorno y * y
+fin
+
+poner("11) antes de cuadrado: " .. i)    # 12
+poner("12) cuadrado(5): " .. cuadrado(5))    # 25
+poner("13) i global después de cuadrado: " .. i)    # 13
+
+# 6) las funciones normales reciben parámetros locales y no cambian el
+# valor del módulo salvo que modifiquen una variable global explícita.
+funcion algo(a)
+    a = 15
+    poner("14) parámetro local de algo: " .. a)    # 15
+    retorno 10
+fin
+
+x = algo(9)
+poner("15) x = " .. x)    # 10
+poner("16) i global final: " .. i)    # 13

@@ -527,6 +527,7 @@ struct FuncionDef : Sentencia {
     bool exportado = false;  // PLAN_MODULOS.md: prefijo "exportar"
     bool esDefecto = false;  // "exportar por defecto funcion ..."
     bool inseguro = false;   // PLAN_FFI.md: "funcion inseguro nombre(...)"
+    bool esGlobal = false;   // "global funcion nombre(...)" / "global fun nombre(...)"
     LATINO_ACEPTAR
 };
 

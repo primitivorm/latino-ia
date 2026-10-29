@@ -204,6 +204,12 @@ static void prueba_semantico_global() {
   esperarOK("global_nivel_superior_ok", "global contador = 0\n"
                                         "escribir(contador)\n");
 
+  esperarOK("global_funcion_nivel_superior_ok",
+            "global fun cuadrado(x)\n"
+            "  ret x * x\n"
+            "fin\n"
+            "escribir(cuadrado(3))\n");
+
   esperarOK("global_leida_y_escrita_dentro_de_funcion_ok",
             "global contador = 0\n"
             "funcion incrementar()\n"
@@ -214,6 +220,14 @@ static void prueba_semantico_global() {
   esperarError("global_dentro_de_funcion_error",
                "funcion mal()\n"
                "    global x = 1\n"
+               "fin\n",
+               "'global' solo puede usarse a nivel superior del módulo");
+
+  esperarError("global_funcion_dentro_de_funcion_error",
+               "funcion mal()\n"
+               "    global fun x()\n"
+               "      ret 1\n"
+               "    fin\n"
                "fin\n",
                "'global' solo puede usarse a nivel superior del módulo");
 

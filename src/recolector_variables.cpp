@@ -74,5 +74,56 @@ void recolectarVariables(const ListaSent& cuerpo, std::set<std::string>& destino
 }
 
 void recolectarGlobalesExplicitos(const ListaSent& cuerpo, std::set<std::string>& destino) {
-    colectarLista(cuerpo, destino, [](const Asignacion& a) { return a.esGlobal; });
+    for (const auto& s : cuerpo) {
+        if (!s) continue;
+        if (auto* a = dynamic_cast<Asignacion*>(s.get())) {
+            if (a->esGlobal)
+                for (auto& d : a->destinos)
+                    if (auto* id = dynamic_cast<Identificador*>(d.get()))
+                        destino.insert(id->nombre);
+            continue;
+        }
+        if (auto* f = dynamic_cast<FuncionDef*>(s.get())) {
+            if (f->esGlobal)
+                destino.insert(f->nombre);
+            continue;
+        }
+        if (auto* si = dynamic_cast<Si*>(s.get())) {
+            recolectarGlobalesExplicitos(si->entonces, destino);
+            for (auto& r : si->osis) recolectarGlobalesExplicitos(r.cuerpo, destino);
+            if (si->tieneSino) recolectarGlobalesExplicitos(si->sino, destino);
+            continue;
+        }
+        if (auto* el = dynamic_cast<Elegir*>(s.get())) {
+            for (auto& c : el->casos) recolectarGlobalesExplicitos(c.cuerpo, destino);
+            if (el->tieneDefecto) recolectarGlobalesExplicitos(el->defecto, destino);
+            continue;
+        }
+        if (auto* de = dynamic_cast<Desde*>(s.get())) {
+            if (de->inicio) {
+                auto* a = dynamic_cast<Asignacion*>(de->inicio.get());
+                if (a && a->esGlobal)
+                    for (auto& d : a->destinos)
+                        if (auto* id = dynamic_cast<Identificador*>(d.get()))
+                            destino.insert(id->nombre);
+            }
+            recolectarGlobalesExplicitos(de->cuerpo, destino);
+            continue;
+        }
+        if (auto* pa = dynamic_cast<Para*>(s.get())) {
+            recolectarGlobalesExplicitos(pa->cuerpo, destino);
+            continue;
+        }
+        if (auto* mi = dynamic_cast<Mientras*>(s.get())) {
+            recolectarGlobalesExplicitos(mi->cuerpo, destino);
+            continue;
+        }
+        if (auto* re = dynamic_cast<Repetir*>(s.get())) {
+            recolectarGlobalesExplicitos(re->cuerpo, destino);
+            continue;
+        }
+        if (auto* ib = dynamic_cast<InseguroBloque*>(s.get())) {
+            recolectarGlobalesExplicitos(ib->cuerpo, destino);
+        }
+    }
 }
