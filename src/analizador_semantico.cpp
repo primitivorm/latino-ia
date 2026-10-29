@@ -1223,6 +1223,11 @@ void AnalizadorSemantico::visitar(Romper& n) {
 }
 
 void AnalizadorSemantico::visitar(FuncionDef& n) {
+    if (n.esGlobal && profundidadFuncion > 0)
+        agregarError(n.linea,
+                     "'global' solo puede usarse a nivel superior del módulo, "
+                     "no dentro de una función o método");
+
     entrarGenericos(n.genericos);  // PLAN_GENERICOS.md
     validarTipoObjeto(n.tipoRetorno, n.tipoRetornoClase, n.linea);
     entrarAmbito();

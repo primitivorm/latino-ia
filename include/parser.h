@@ -30,6 +30,7 @@ private:
     // seguido de un tipo válido se devuelve al flujo).
     bool  tieneTokenDevuelto_ = false;
     Token tokenDevuelto_;
+    bool globalPendiente_ = false;
 
     // --- Manejo del flujo de tokens ---
     void avanzar();

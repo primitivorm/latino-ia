@@ -510,11 +510,17 @@ SentPtr Parser::parseFuncion() {
         esInsegura = true;
         avanzar();
     }
+    bool esGlobal = false;
+    if (esReservada("global")) {
+        esGlobal = true;
+        avanzar();
+    }
     if (actual.type != TokenType::Identificador)
         error("se esperaba el nombre de la función");
     auto nodo = std::make_unique<FuncionDef>();
     nodo->linea = l;
     nodo->inseguro = esInsegura;
+    nodo->esGlobal = esGlobal;
     nodo->nombre = actual.lexeme;
     avanzar();
     nodo->genericos = parseParametrosGenericos();
@@ -682,6 +688,13 @@ SentPtr Parser::parseVar() {
 // función/método (ver profundidadFuncion en analizador_semantico.cpp).
 SentPtr Parser::parseGlobal() {
     avanzar();  // consume "global"
+    if (esReservada("fun") || esReservada("funcion")) {
+        auto s = parseFuncion();
+        if (auto* f = dynamic_cast<FuncionDef*>(s.get()))
+            f->esGlobal = true;
+        return s;
+    }
+
     auto s = parseAsignacionOExpr();
     if (auto* a = dynamic_cast<Asignacion*>(s.get())) {
         a->esGlobal = true;
@@ -706,7 +719,7 @@ SentPtr Parser::parseGlobal() {
             return a;
         }
     }
-    error("se esperaba una declaración de variable o asignación válida después de 'global'");
+    error("se esperaba una declaración de variable o una función válida después de 'global'");
 }
 
 SentPtr Parser::parseConst() {
