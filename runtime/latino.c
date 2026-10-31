@@ -1,6 +1,8 @@
 /* latino.c — implementación del runtime de Latino. Ver latino.h. */
 
 #include "latino.h"
+#include "libs/dic.h"
+#include "libs/lista.h"
 #include "libs/paquete.h"
 
 #include <ctype.h>
@@ -448,12 +450,49 @@ void lat_obj_set_metodo(LatValor objeto, const char* nombre, LatValor fn) {
     dic_poner(objeto.como.objeto->metodos, nombre, fn);
 }
 
+static LatValor lat_llamar_valor_funcion(LatValor fn, int nargs, const LatValor* valores) {
+    if (fn.tipo != LAT_FUNCION || !fn.como.funcion) return lat_nulo();
+    if (nargs <= 0) {
+        LatValor resultado = fn.como.funcion(0, NULL);
+        return resultado;
+    }
+    LatValor* args = (LatValor*)malloc(sizeof(LatValor) * (size_t)nargs);
+    if (!args) return lat_nulo();
+    for (int i = 0; i < nargs; i++) args[i] = valores[i];
+    LatValor resultado = fn.como.funcion(nargs, args);
+    free(args);
+    return resultado;
+}
+
 LatValor lat_obj_llamar_metodo_args(LatValor objeto, const char* nombre, int nargs,
                                     const LatValor* valores) {
+    if (objeto.tipo == LAT_LISTA) {
+        if (strcmp(nombre, "longitud") == 0) return lat_lista_longitud(objeto);
+        fprintf(stderr, "lista: el miembro '%s' no es invocable\n", nombre);
+        return lat_nulo();
+    }
+
+    if (objeto.tipo == LAT_DICCIONARIO) {
+        LatValor miembro = dic_obtener(objeto.como.dic, nombre);
+        if (miembro.tipo == LAT_NULO) {
+            if (strcmp(nombre, "longitud") == 0)
+                return lat_dic_longitud(objeto);
+            fprintf(stderr, "diccionario: el miembro '%s' no existe\n", nombre);
+            return lat_nulo();
+        }
+        if (miembro.tipo != LAT_FUNCION) {
+            fprintf(stderr, "diccionario: el miembro '%s' no es invocable\n", nombre);
+            return lat_nulo();
+        }
+        return lat_llamar_valor_funcion(miembro, nargs, valores);
+    }
+
     if (objeto.tipo == LAT_OBJETO) {
         if (!objeto.como.objeto) return lat_nulo();
         LatValor metodo = dic_obtener(objeto.como.objeto->metodos, nombre);
         if (metodo.tipo == LAT_NULO) {
+            LatValor campo = lat_obj_get(objeto, nombre);
+            if (campo.tipo == LAT_FUNCION) return lat_llamar_valor_funcion(campo, nargs, valores);
             fprintf(stderr, "objeto: método '%s' no encontrado en la clase '%s'\n",
                     nombre, objeto.como.objeto->clase);
             return lat_nulo();
@@ -490,17 +529,51 @@ LatValor lat_obj_llamar_metodo_args(LatValor objeto, const char* nombre, int nar
         return resultado;
     }
 
-    fprintf(stderr, "objeto: invocar métodos sólo es compatible con objetos y módulos\n");
+    fprintf(stderr, "objeto: invocar métodos sólo es compatible con objetos, diccionarios, listas y módulos\n");
     return lat_nulo();
 }
 
 LatValor lat_obj_llamar_metodo_llvm_args(LatValor objeto, const char* nombre, int nargs,
                                          const LatValor* valores) {
+    if (objeto.tipo == LAT_LISTA) {
+        if (strcmp(nombre, "longitud") == 0) return lat_lista_longitud(objeto);
+        return lat_nulo();
+    }
+    if (objeto.tipo == LAT_DICCIONARIO) {
+        LatValor miembro = dic_obtener(objeto.como.dic, nombre);
+        if (miembro.tipo == LAT_NULO) {
+            if (strcmp(nombre, "longitud") == 0) return lat_dic_longitud(objeto);
+            return lat_nulo();
+        }
+        if (miembro.tipo != LAT_FUNCION) return lat_nulo();
+        LatValor* args = (LatValor*)malloc(sizeof(LatValor) * (size_t)nargs);
+        if (!args) return lat_nulo();
+        for (int i = 0; i < nargs; i++) args[i] = valores[i];
+        LatValor resultado = lat_nulo();
+        LatFnLLVM fn = (LatFnLLVM)(void*)miembro.como.funcion;
+        fn(&resultado, nargs, args);
+        free(args);
+        return resultado;
+    }
     if (objeto.tipo != LAT_OBJETO) {
         return lat_obj_llamar_metodo_args(objeto, nombre, nargs, valores);
     }
     if (!objeto.como.objeto) return lat_nulo();
     LatValor metodo = dic_obtener(objeto.como.objeto->metodos, nombre);
+    if (metodo.tipo == LAT_NULO) {
+        LatValor campo = lat_obj_get(objeto, nombre);
+        if (campo.tipo == LAT_FUNCION) {
+            LatValor* args = (LatValor*)malloc(sizeof(LatValor) * (size_t)nargs);
+            if (!args) return lat_nulo();
+            for (int i = 0; i < nargs; i++) args[i] = valores[i];
+            LatValor resultado = lat_nulo();
+            LatFnLLVM fn = (LatFnLLVM)(void*)campo.como.funcion;
+            fn(&resultado, nargs, args);
+            free(args);
+            return resultado;
+        }
+        return lat_nulo();
+    }
     if (metodo.tipo != LAT_FUNCION) return lat_nulo();
 
     LatValor* args = (LatValor*)malloc(sizeof(LatValor) * (size_t)(nargs + 1));
@@ -826,6 +899,14 @@ LatValor lat_obtener_miembro(LatValor cont, LatValor indice) {
         }
         free(k);
         return lat_cadena("");
+    }
+    if (cont.tipo == LAT_LISTA) {
+        char* k = lat_a_cadena(indice);
+        if (strcmp(k, "longitud") == 0) {
+            free(k);
+            return lat_lista_longitud(cont);
+        }
+        free(k);
     }
     return lat_obtener_indice(cont, indice);
 }

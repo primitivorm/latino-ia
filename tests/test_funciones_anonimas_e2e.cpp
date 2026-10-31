@@ -75,6 +75,38 @@ static const harness::CasoTest CASOS[] = {
       "    escribir(f(i))\n"
       "fin\n",
       "1 2 3" },
+
+    { "diccionario_con_funcion_y_longitud_lista",
+      "funcion test_accion(arg1)\n"
+      "    poner(\"test_accion: \" .. arg1)\n"
+      "fin\n"
+      "funcion id_accion(arg1)\n"
+      "    poner(\"id_accion: \" .. arg1)\n"
+      "fin\n"
+      "triggers = [\n"
+      "    {\"comando\" : \"/test\", \"accion\": test_accion},\n"
+      "    {\"comando\" : \"/id\", \"accion\": id_accion}\n"
+      "]\n"
+      "funcion ejecutar(texto)\n"
+      "    desde (i=0; i < lista.longitud(triggers); i++)\n"
+      "        si texto == triggers[i].comando\n"
+      "            fn = triggers[i].accion\n"
+      "            fn(\"enviando desde triggers\")\n"
+      "            triggers[i].accion(\"enviando desde triggers\")\n"
+      "        fin\n"
+      "    fin\n"
+      "fin\n"
+      "ejecutar(\"/test\")\n"
+      "ejecutar(\"/id\")\n",
+      "test_accion: enviando desde triggers\n"
+      "test_accion: enviando desde triggers\n"
+      "id_accion: enviando desde triggers\n"
+      "id_accion: enviando desde triggers" },
+
+    { "lista_longitud_como_metodo",
+      "l = [1, 2, 3]\n"
+      "escribir(l.longitud())\n",
+      "3" },
 };
 
 int main(int argc, char* argv[]) {

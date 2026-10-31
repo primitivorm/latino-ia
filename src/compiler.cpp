@@ -361,6 +361,9 @@ std::string GeneradorC::genExpr(Expresion* e) {
         return "lat_nulo()";
     }
     if (auto* n = dynamic_cast<Identificador*>(e)) {
+        auto it = funciones.find(n->nombre);
+        if (it != funciones.end())
+            return "lat_funcion_nueva(" + funC(n->nombre) + ")";
         return varC(n->nombre);
     }
     if (dynamic_cast<VarArgs*>(e)) {
@@ -562,24 +565,14 @@ std::string GeneradorC::genLlamada(Llamada* ll) {
 
         auto it = funciones.find(nombre);
         if (it != funciones.end()) {
-            const InfoFuncion& info = it->second;
-            size_t nfix = info.numParametros;
             size_t nargs = ll->argumentos.size();
-            std::string s = funC(nombre) + "(";
-            for (size_t i = 0; i < nfix; i++) {
-                if (i) s += ", ";
-                s += (i < nargs) ? genExpr(ll->argumentos[i].get()) : "lat_nulo()";
-            }
-            if (info.variadico) {
-                if (nfix) s += ", ";
-                size_t resto = (nargs > nfix) ? nargs - nfix : 0;
-                s += "lat_lista_de(" + std::to_string(resto);
-                for (size_t i = nfix; i < nargs; i++)
-                    s += ", " + genExpr(ll->argumentos[i].get());
-                s += ")";
-            }
-            s += ")";
-            return s;
+            size_t cap = nargs > 0 ? nargs : 1;
+            std::string argsArr = nuevoTemp();
+            emitir("LatValor " + argsArr + "[" + std::to_string(cap) + "]; ");
+            for (size_t i = 0; i < nargs; i++)
+                emitir(argsArr + "[" + std::to_string(i) + "] = " +
+                       genExpr(ll->argumentos[i].get()) + ";");
+            return funC(nombre) + "(" + std::to_string(nargs) + ", " + argsArr + ")";
         }
 
         // PLAN_FFI.md (F5): llamada a una función "externo". La aridad/tipo
@@ -982,22 +975,25 @@ void GeneradorC::genBloque(const ListaSent& cuerpo) {
 }
 
 void GeneradorC::genFuncion(FuncionDef* f) {
-    std::string params;
+    emitir("static LatValor " + funC(f->nombre) + "(int nargs, LatValor* args) {");
+    ++indentacion;
+
     for (size_t i = 0; i < f->parametros.size(); i++) {
-        if (i) params += ", ";
-        params += "LatValor " + varC(f->parametros[i].nombre);
+        std::string expr = "(nargs > " + std::to_string(i) + ") ? args[" +
+                           std::to_string(i) + "] : lat_nulo()";
+        emitir("LatValor " + varC(f->parametros[i].nombre) + " = " + expr + ";");
     }
     if (f->variadico) {
-        if (!f->parametros.empty()) params += ", ";
-        params += "LatValor lat_resto";
+        size_t nfix = f->parametros.size();
+        std::string expr = "lat_lista_de_args((nargs > " + std::to_string(nfix) + ") ? (size_t)(nargs - " +
+                           std::to_string(nfix) + ") : 0, (nargs > " + std::to_string(nfix) + ") ? &args[" +
+                           std::to_string(nfix) + "] : NULL)";
+        emitir("LatValor lat_resto = " + expr + ";");
     }
-    if (params.empty()) params = "void";
-
-    emitir("static LatValor " + funC(f->nombre) + "(" + params + ") {");
-    ++indentacion;
 
     std::set<std::string> excluir;
     for (const auto& p : f->parametros) excluir.insert(p.nombre);
+    if (f->variadico) excluir.insert("lat_resto");
     excluir.insert(globalesExplicitos.begin(), globalesExplicitos.end());
 
     std::set<std::string> vars;
@@ -1141,17 +1137,7 @@ void GeneradorC::generarCuerpo(Programa& programa) {
     bool hayFunciones = false;
     for (auto& s : programa.sentencias) {
         if (auto* f = dynamic_cast<FuncionDef*>(s.get())) {
-            std::string tipos;
-            for (size_t i = 0; i < f->parametros.size(); i++) {
-                if (i) tipos += ", ";
-                tipos += "LatValor";
-            }
-            if (f->variadico) {
-                if (!f->parametros.empty()) tipos += ", ";
-                tipos += "LatValor";
-            }
-            if (tipos.empty()) tipos = "void";
-            emitir("static LatValor " + funC(f->nombre) + "(" + tipos + ");");
+            emitir("static LatValor " + funC(f->nombre) + "(int nargs, LatValor* args);");
             hayFunciones = true;
         }
     }

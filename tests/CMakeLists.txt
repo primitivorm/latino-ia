@@ -153,7 +153,13 @@ add_test(NAME test_ffi COMMAND test_ffi)
 add_executable(test_runtime_ffi
   test_runtime_ffi.cpp
   ${CMAKE_SOURCE_DIR}/runtime/latino.c
+  ${CMAKE_SOURCE_DIR}/runtime/libs/cadena.c
+  ${CMAKE_SOURCE_DIR}/runtime/libs/dic.c
+  ${CMAKE_SOURCE_DIR}/runtime/libs/lista.c
   ${CMAKE_SOURCE_DIR}/runtime/libs/paquete.c
+  ${CMAKE_SOURCE_DIR}/runtime/libs/mate.c
+  ${CMAKE_SOURCE_DIR}/runtime/libs/sis.c
+  ${CMAKE_SOURCE_DIR}/runtime/libs/archivo.c
 )
 target_include_directories(test_runtime_ffi PRIVATE
   ${CMAKE_SOURCE_DIR}/runtime
@@ -165,8 +171,13 @@ add_test(NAME test_runtime_ffi COMMAND test_runtime_ffi)
 add_executable(test_runtime_rango
   test_runtime_rango.cpp
   ${CMAKE_SOURCE_DIR}/runtime/latino.c
-  ${CMAKE_SOURCE_DIR}/runtime/libs/paquete.c
+  ${CMAKE_SOURCE_DIR}/runtime/libs/cadena.c
+  ${CMAKE_SOURCE_DIR}/runtime/libs/dic.c
   ${CMAKE_SOURCE_DIR}/runtime/libs/lista.c
+  ${CMAKE_SOURCE_DIR}/runtime/libs/paquete.c
+  ${CMAKE_SOURCE_DIR}/runtime/libs/mate.c
+  ${CMAKE_SOURCE_DIR}/runtime/libs/sis.c
+  ${CMAKE_SOURCE_DIR}/runtime/libs/archivo.c
 )
 target_include_directories(test_runtime_rango PRIVATE
   ${CMAKE_SOURCE_DIR}/runtime
