@@ -142,7 +142,19 @@ add_subdirectory(src)
 
 # Runtime en C que usan los programas Latino generados. Se compila aquí para
 # verificar que sigue siendo válido; los programas generados se enlazan con él.
-add_library(latino_runtime STATIC runtime/latino.c)
+# Incluye todas las bibliotecas del runtime, no solo latino.c, porque
+# funciones como lat_lista_longitud/lat_dic_longitud y el resto de la API de
+# runtime son referenciadas desde lat_obj_llamar_metodo_args y desde los
+# programas generados.
+add_library(latino_runtime STATIC
+  runtime/latino.c
+  runtime/libs/archivo.c
+  runtime/libs/cadena.c
+  runtime/libs/dic.c
+  runtime/libs/lista.c
+  runtime/libs/mate.c
+  runtime/libs/paquete.c
+  runtime/libs/sis.c)
 target_include_directories(latino_runtime PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/runtime)
 
 enable_testing()

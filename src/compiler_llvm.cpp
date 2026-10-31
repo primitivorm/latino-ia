@@ -148,7 +148,15 @@ llvm::Value* GeneradorLLVM::genExpr(Expresion& expr, llvm::IRBuilder<>& builder,
     }
     if (auto* n = dynamic_cast<Identificador*>(&expr)) {
         auto it = variables.find(n->nombre);
-        return it == variables.end() ? nullptr : it->second;
+        if (it != variables.end()) return it->second;
+        auto itFn = funciones_.find(n->nombre);
+        if (itFn != funciones_.end()) {
+            llvm::Function* fnNueva = abi_->declarar(modulo, "lat_funcion_nueva_llvm");
+            llvm::Value* celda = builder.CreateAlloca(tipoLatValor, nullptr, "fn_ident");
+            builder.CreateCall(fnNueva, {celda, itFn->second.fn});
+            return celda;
+        }
+        return nullptr;
     }
     if (dynamic_cast<VarArgs*>(&expr)) {
         // "..." dentro de [...] -- ver ListaLiteral más abajo y el
