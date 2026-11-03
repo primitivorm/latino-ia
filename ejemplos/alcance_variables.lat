@@ -41,3 +41,5 @@ poner("global a:" .. a) #20
 poner("global x:" .. x) #10
 poner("cuadrado de a:" .. cuadrado(a)) #400
 poner("global a:" .. a) #13
+
+#salida: i global: 0 i dentro de mientras: 5 i dentro de mientras: 6 i dentro de mientras: 7 i dentro de mientras: 8 i dentro de mientras: 9 i despues de mientras: 10 i dentro de desde: 0 i dentro de desde: 1 i dentro de desde: 2 i despues de desde: 3 i global: 2 global a:20 local a dentro de la funcion:15 global a:20 global x:10 global dentro de funcion cuadrado x : 10 cuadrado de a:400 global a:20

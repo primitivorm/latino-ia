@@ -379,6 +379,8 @@ add_library(test_paquete_fixture SHARED
   fixtures/paquete_fixture.c
   ${CMAKE_SOURCE_DIR}/runtime/latino.c
   ${CMAKE_SOURCE_DIR}/runtime/libs/paquete.c
+  ${CMAKE_SOURCE_DIR}/runtime/libs/dic.c
+  ${CMAKE_SOURCE_DIR}/runtime/libs/lista.c
 )
 target_include_directories(test_paquete_fixture PRIVATE ${CMAKE_SOURCE_DIR}/runtime)
 set_target_properties(test_paquete_fixture PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)

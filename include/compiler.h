@@ -18,6 +18,9 @@
 
 class GeneradorC {
 public:
+    static std::string varC(const std::string& nombre);   // v_<nombre>
+    static std::string funC(const std::string& nombre);   // lat_fn_<nombre>
+
     // Devuelve el código C completo equivalente al programa.
     std::string generar(Programa& programa);
 
@@ -97,8 +100,6 @@ private:
     void generarCuerpo(Programa& programa);  // genera funciones + main (sin preámbulo)
 
     // Utilidades
-    static std::string varC(const std::string& nombre);   // v_<nombre>
-    static std::string funC(const std::string& nombre);   // lat_fn_<nombre>
     static std::string escaparCadena(const std::string& s);
     std::string genLlamada(Llamada* ll);
     std::string genAsignacionDestino(Expresion* destino, const std::string& valorC);

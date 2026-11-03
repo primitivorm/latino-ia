@@ -155,7 +155,7 @@ static void prueba_poo_gen_metodo() {
         "p = nuevo Persona()\n"
         "p.saludar()\n";
     std::string c = generar(src);
-    CHECK(contiene(c, "lat_obj_set_metodo(_t0, \"saludar\", lat_funcion_nueva(lat_fn_Persona_saludar));"),
+    CHECK(contiene(c, "lat_obj_set_metodo(_t0, \"saludar\", lat_funcion_nueva(lat_fn_modulo_Persona_saludar));"),
           "registro de método en la instancia");
     CHECK(contiene(c, "lat_obj_llamar_metodo(v_p, \"saludar\", 0)"),
           "llamada de método de objeto");
