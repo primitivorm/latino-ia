@@ -64,3 +64,5 @@ fin
 x = algo(9)
 poner("15) x = " .. x)    # 10
 poner("16) i global final: " .. i)    # 13
+
+#salida: 1) i global inicial: 0 2) i dentro del si: 5 3) i dentro del mientras: 6 3) i dentro del mientras: 7 3) i dentro del mientras: 8 4) i después del si/mientras: 8 5) local dentro de la función: 99 6) i global sigue intacta: 8 8) valor antes de llamar: 8 7) dentro de ajustar_global: 12 9) valor después de llamar: 12 11) antes de cuadrado: 12 10) cuadrado usa i global: 12 12) cuadrado(5): 25 13) i global después de cuadrado: 13 14) parámetro local de algo: 15 15) x = 10 16) i global final: 13

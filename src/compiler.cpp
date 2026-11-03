@@ -66,6 +66,59 @@ const char* tipoFFIaLatTipo(TipoFFI t) {
 std::string GeneradorC::varC(const std::string& nombre) { return "v_" + nombre; }
 std::string GeneradorC::funC(const std::string& nombre) { return "lat_fn_" + nombre; }
 
+static std::string funModuloC(const std::string& nombre) { return "lat_fn_modulo_" + nombre; }
+
+static std::string firmaDirectaFuncion(const std::vector<ParamFuncion>& params, bool variadico) {
+    std::string firma;
+    for (size_t i = 0; i < params.size(); ++i) {
+        if (i) firma += ", ";
+        firma += "LatValor " + GeneradorC::varC(params[i].nombre);
+    }
+    if (variadico) {
+        if (!params.empty()) firma += ", ";
+        firma += "LatValor lat_resto";
+    }
+    return firma;
+}
+
+static std::string firmaPrototipoFuncion(const std::vector<ParamFuncion>& params, bool variadico) {
+    std::string firma;
+    for (size_t i = 0; i < params.size(); ++i) {
+        if (i) firma += ", ";
+        firma += "LatValor";
+    }
+    if (variadico) {
+        if (!params.empty()) firma += ", ";
+        firma += "LatValor";
+    }
+    return firma;
+}
+
+static std::string firmaDirectaMetodo(bool instancia, const std::vector<ParamFuncion>& params) {
+    std::string firma;
+    if (instancia) {
+        firma += "LatValor este";
+        if (!params.empty()) firma += ", ";
+    }
+    if (!params.empty()) {
+        firma += firmaDirectaFuncion(params, false);
+    }
+    return firma;
+}
+
+static std::string firmaPrototipoMetodo(bool instancia, const std::vector<ParamFuncion>& params) {
+    std::string firma;
+    if (instancia) {
+        firma += "LatValor";
+        if (!params.empty()) firma += ", ";
+    }
+    for (size_t i = 0; i < params.size(); ++i) {
+        if (i) firma += ", ";
+        firma += "LatValor";
+    }
+    return firma;
+}
+
 std::string GeneradorC::escaparCadena(const std::string& s) {
     std::string r;
     for (char c : s) {
@@ -305,7 +358,7 @@ void GeneradorC::genFuncionAnonima(FuncionAnonima* f, const std::string& nombreC
     for (size_t i = 0; i < f->parametros.size(); i++) {
         std::string expr = "(nargs > " + std::to_string(i) + ") ? args[" +
                            std::to_string(i) + "] : lat_nulo()";
-        emitir("LatValor " + varC(f->parametros[i].nombre) + " = " + expr + ";");
+        emitir("LatValor " + GeneradorC::varC(f->parametros[i].nombre) + " = " + expr + ";");
     }
     if (f->variadico) {
         size_t nfix = f->parametros.size();
@@ -322,13 +375,13 @@ void GeneradorC::genFuncionAnonima(FuncionAnonima* f, const std::string& nombreC
     std::set<std::string> vars;
     recolectarVariables(f->cuerpo, vars, excluir);
     for (const std::string& v : vars)
-        emitir("LatValor " + varC(v) + " = lat_nulo();");
+        emitir("LatValor " + GeneradorC::varC(v) + " = lat_nulo();");
 
     // Chequeos de tipo de parámetros anotados.
     for (const auto& p : f->parametros) {
         if (p.tipo != TipoAnotado::Ninguno) {
             const char* ct = tipoALatTipo(p.tipo);
-            emitir("lat_verificar_tipo(" + varC(p.nombre) + ", " + ct +
+            emitir("lat_verificar_tipo(" + GeneradorC::varC(p.nombre) + ", " + ct +
                    ", \"" + p.nombre + "\", " + std::to_string(f->linea) + ");");
         }
     }
@@ -363,8 +416,8 @@ std::string GeneradorC::genExpr(Expresion* e) {
     if (auto* n = dynamic_cast<Identificador*>(e)) {
         auto it = funciones.find(n->nombre);
         if (it != funciones.end())
-            return "lat_funcion_nueva(" + funC(n->nombre) + ")";
-        return varC(n->nombre);
+            return "lat_funcion_nueva(" + funModuloC(n->nombre) + ")";
+        return GeneradorC::varC(n->nombre);
     }
     if (dynamic_cast<VarArgs*>(e)) {
         return "lat_resto";
@@ -434,7 +487,7 @@ std::string GeneradorC::genExpr(Expresion* e) {
                 }
                 for (const MetodoDef& metodo : tipo->metodos) {
                     if (metodo.esConstructor || metodo.esEstatico || metodo.esAbstracto) continue;
-                    emitir("lat_obj_set_metodo(" + obj + ", \"" + escaparCadena(metodo.nombre) + "\", lat_funcion_nueva(" + funC(tipo->nombre + "_" + metodo.nombre) + "));" );
+                    emitir("lat_obj_set_metodo(" + obj + ", \"" + escaparCadena(metodo.nombre) + "\", lat_funcion_nueva(" + funModuloC(tipo->nombre + "_" + metodo.nombre) + "));" );
                 }
             };
             registrarTipo(c);
@@ -455,7 +508,12 @@ std::string GeneradorC::genExpr(Expresion* e) {
                     std::string arg = genExpr(n->argumentos[i].get());
                     emitir(argsArr + "[" + std::to_string(i + 1) + "] = " + arg + ";");
                 }
-                emitir(funC(n->clase + "_" + n->clase) + "(" + std::to_string(nargs) + ", " + argsArr + ");");
+                std::string ctorArgs;
+                for (size_t i = 0; i < n->argumentos.size(); ++i) {
+                    if (!ctorArgs.empty()) ctorArgs += ", ";
+                    ctorArgs += genExpr(n->argumentos[i].get());
+                }
+                emitir(funC(n->clase + "_" + n->clase) + "(" + obj + (ctorArgs.empty() ? "" : ", " + ctorArgs) + ");");
             }
         } else {
             emitir("LatValor " + obj + " = lat_obj_nuevo(\"" + escaparCadena(n->clase) + "\");");
@@ -470,7 +528,7 @@ std::string GeneradorC::genExpr(Expresion* e) {
                 }
                 for (const MetodoDef& metodo : e->metodos) {
                     if (metodo.esConstructor || metodo.esEstatico || metodo.esAbstracto) continue;
-                    emitir("lat_obj_set_metodo(" + obj + ", \"" + escaparCadena(metodo.nombre) + "\", lat_funcion_nueva(" + funC(e->nombre + "_" + metodo.nombre) + "));" );
+                    emitir("lat_obj_set_metodo(" + obj + ", \"" + escaparCadena(metodo.nombre) + "\", lat_funcion_nueva(" + funModuloC(e->nombre + "_" + metodo.nombre) + "));" );
                 }
 
                 bool tieneCtor = false;
@@ -489,7 +547,12 @@ std::string GeneradorC::genExpr(Expresion* e) {
                         std::string arg = genExpr(n->argumentos[i].get());
                         emitir(argsArr + "[" + std::to_string(i + 1) + "] = " + arg + ";");
                     }
-                    emitir(funC(e->nombre + "_" + e->nombre) + "(" + std::to_string(nargs) + ", " + argsArr + ");");
+                    std::string ctorArgs;
+                    for (size_t i = 0; i < n->argumentos.size(); ++i) {
+                        if (!ctorArgs.empty()) ctorArgs += ", ";
+                        ctorArgs += genExpr(n->argumentos[i].get());
+                    }
+                    emitir(funC(e->nombre + "_" + e->nombre) + "(" + obj + (ctorArgs.empty() ? "" : ", " + ctorArgs) + ");");
                 }
             }
         }
@@ -565,14 +628,26 @@ std::string GeneradorC::genLlamada(Llamada* ll) {
 
         auto it = funciones.find(nombre);
         if (it != funciones.end()) {
-            size_t nargs = ll->argumentos.size();
-            size_t cap = nargs > 0 ? nargs : 1;
-            std::string argsArr = nuevoTemp();
-            emitir("LatValor " + argsArr + "[" + std::to_string(cap) + "]; ");
-            for (size_t i = 0; i < nargs; i++)
-                emitir(argsArr + "[" + std::to_string(i) + "] = " +
-                       genExpr(ll->argumentos[i].get()) + ";");
-            return funC(nombre) + "(" + std::to_string(nargs) + ", " + argsArr + ")";
+            std::string args;
+            size_t fixed = it->second.numParametros;
+            size_t total = ll->argumentos.size();
+            for (size_t i = 0; i < total && i < fixed; ++i) {
+                if (!args.empty()) args += ", ";
+                args += genExpr(ll->argumentos[i].get());
+            }
+            if (it->second.variadico) {
+                if (total > fixed) {
+                    if (!args.empty()) args += ", ";
+                    args += "lat_lista_de(" + std::to_string(total - fixed);
+                    for (size_t i = fixed; i < total; ++i)
+                        args += ", " + genExpr(ll->argumentos[i].get());
+                    args += ")";
+                } else {
+                    if (!args.empty()) args += ", ";
+                    args += "lat_lista_de(0)";
+                }
+            }
+            return funC(nombre) + "(" + args + ")";
         }
 
         // PLAN_FFI.md (F5): llamada a una función "externo". La aridad/tipo
@@ -587,7 +662,7 @@ std::string GeneradorC::genLlamada(Llamada* ll) {
         // Llamar vía lat_llamar_funcion (paridad con el resto de destinos no
         // Identificador).
         {
-            std::string fn = varC(nombre);
+            std::string fn = GeneradorC::varC(nombre);
             size_t nargs = ll->argumentos.size();
             size_t cap = nargs > 0 ? nargs : 1;  // evitar array de tamaño cero
             std::string argsArr = nuevoTemp();
@@ -680,15 +755,14 @@ std::string GeneradorC::genLlamada(Llamada* ll) {
             }
             if (!tipoDeclarante.empty()) {
                 size_t nargs = ll->argumentos.size();
-                std::string argsArr;
+                std::string argsArr = "NULL";
                 if (nargs > 0) {
                     argsArr = nuevoTemp();
-                    emitir("LatValor " + argsArr + "[" + std::to_string(nargs) + "];");
+                    emitir("LatValor " + argsArr + "[" + std::to_string(nargs) + "]; ");
                     for (size_t i = 0; i < nargs; i++)
                         emitir(argsArr + "[" + std::to_string(i) + "] = " + genExpr(ll->argumentos[i].get()) + ";");
                 }
-                return funC(tipoDeclarante + "_" + am->miembro) + "(" + std::to_string(nargs) +
-                       ", " + (nargs > 0 ? argsArr : "NULL") + ")";
+                return funC(tipoDeclarante + "_" + am->miembro) + "(" + std::to_string(nargs) + ", " + argsArr + ")";
             }
         }
 
@@ -791,7 +865,7 @@ std::string GeneradorC::genLlamadaExterna(const std::string& nombre,
 std::string GeneradorC::genAsignacionDestino(Expresion* destino,
                                              const std::string& valorC) {
     if (auto* id = dynamic_cast<Identificador*>(destino)) {
-        return varC(id->nombre) + " = " + valorC + ";";
+        return GeneradorC::varC(id->nombre) + " = " + valorC + ";";
     }
     if (auto* ai = dynamic_cast<AccesoIndice*>(destino)) {
         return "lat_asignar_indice(" + genExpr(ai->objeto.get()) + ", " +
@@ -908,7 +982,7 @@ void GeneradorC::genSentencia(Sentencia* s) {
         emitir("LatValor " + actual + " = lat_rango_inicio(" + rango + ");");
         emitir("while (lat_rango_contiene(" + rango + ", " + actual + ")) {");
         ++indentacion;
-        emitir(varC(pa->variable) + " = " + actual + ";");
+        emitir(GeneradorC::varC(pa->variable) + " = " + actual + ";");
         genBloque(pa->cuerpo);
         emitir(actual + " = lat_rango_siguiente(" + rango + ", " + actual + ");");
         --indentacion;
@@ -945,7 +1019,12 @@ void GeneradorC::genSentencia(Sentencia* s) {
         if (!padreTieneCtor) {
             emitir("/* base() sin constructor de clase base que ejecutar */");
         } else {
-            emitir(funC(actualPadre + "_" + actualPadre) + "(" + std::to_string(nargs) + ", " + argsArr + ");");
+            std::string args;
+            args += "este";
+            for (size_t i = 0; i < b->argumentos.size(); ++i) {
+                args += ", " + genExpr(b->argumentos[i].get());
+            }
+            emitir(funC(actualPadre + "_" + actualPadre) + "(" + args + ");");
         }
         return;
     }
@@ -975,21 +1054,11 @@ void GeneradorC::genBloque(const ListaSent& cuerpo) {
 }
 
 void GeneradorC::genFuncion(FuncionDef* f) {
-    emitir("static LatValor " + funC(f->nombre) + "(int nargs, LatValor* args) {");
+    std::string firma = firmaDirectaFuncion(f->parametros, f->variadico);
+    std::string directName = funC(f->nombre);
+    std::string moduloName = funModuloC(f->nombre);
+    emitir("static LatValor " + directName + "(" + firma + ") {");
     ++indentacion;
-
-    for (size_t i = 0; i < f->parametros.size(); i++) {
-        std::string expr = "(nargs > " + std::to_string(i) + ") ? args[" +
-                           std::to_string(i) + "] : lat_nulo()";
-        emitir("LatValor " + varC(f->parametros[i].nombre) + " = " + expr + ";");
-    }
-    if (f->variadico) {
-        size_t nfix = f->parametros.size();
-        std::string expr = "lat_lista_de_args((nargs > " + std::to_string(nfix) + ") ? (size_t)(nargs - " +
-                           std::to_string(nfix) + ") : 0, (nargs > " + std::to_string(nfix) + ") ? &args[" +
-                           std::to_string(nfix) + "] : NULL)";
-        emitir("LatValor lat_resto = " + expr + ";");
-    }
 
     std::set<std::string> excluir;
     for (const auto& p : f->parametros) excluir.insert(p.nombre);
@@ -999,21 +1068,16 @@ void GeneradorC::genFuncion(FuncionDef* f) {
     std::set<std::string> vars;
     recolectarVariables(f->cuerpo, vars, excluir);
     for (const std::string& v : vars)
-        emitir("LatValor " + varC(v) + " = lat_nulo();");
+        emitir("LatValor " + GeneradorC::varC(v) + " = lat_nulo();");
 
-    // PLAN_GENERICOS.md: un parámetro de tipo "T" se compila exactamente
-    // como si no tuviera anotación (erasure) — nunca se emite un chequeo de
-    // runtime para él, sea cual sea el bound declarado (los bounds son
-    // solo estáticos, ver el plan).
     std::set<std::string> genericosFn;
     for (const auto& g : f->genericos) genericosFn.insert(g.nombre);
 
-    // Chequeos de tipo de parámetros anotados.
     for (const auto& p : f->parametros) {
         if (p.tipo == TipoAnotado::Objeto && genericosFn.count(p.tipoClase)) continue;
         if (p.tipo != TipoAnotado::Ninguno) {
             const char* ct = tipoALatTipo(p.tipo);
-            emitir("lat_verificar_tipo(" + varC(p.nombre) + ", " + ct +
+            emitir("lat_verificar_tipo(" + GeneradorC::varC(p.nombre) + ", " + ct +
                    ", \"" + p.nombre + "\", " + std::to_string(f->linea) + ");");
         }
     }
@@ -1024,41 +1088,67 @@ void GeneradorC::genFuncion(FuncionDef* f) {
     --indentacion;
     emitir("}");
     emitir("");
+
+    emitir("static LatValor " + moduloName + "(int nargs, LatValor* args) {");
+    ++indentacion;
+    if (!f->parametros.empty()) {
+        for (size_t i = 0; i < f->parametros.size(); ++i) {
+            const auto& p = f->parametros[i];
+            std::string expr = "(nargs > " + std::to_string(i) + ") ? args[" + std::to_string(i) + "] : lat_nulo()";
+            emitir("LatValor " + GeneradorC::varC(p.nombre) + " = " + expr + ";");
+        }
+    }
+    if (f->variadico) {
+        size_t nfix = f->parametros.size();
+        std::string expr = "lat_lista_de_args((nargs > " + std::to_string(nfix) + ") ? (size_t)(nargs - " +
+                           std::to_string(nfix) + ") : 0, (nargs > " + std::to_string(nfix) + ") ? &args[" +
+                           std::to_string(nfix) + "] : NULL)";
+        emitir("LatValor lat_resto = " + expr + ";");
+    }
+
+    std::string callArgs;
+    for (size_t i = 0; i < f->parametros.size(); ++i) {
+        if (!callArgs.empty()) callArgs += ", ";
+        callArgs += GeneradorC::varC(f->parametros[i].nombre);
+    }
+    if (f->variadico) {
+        if (!callArgs.empty()) callArgs += ", ";
+        callArgs += "lat_resto";
+    }
+    emitir("return " + directName + "(" + callArgs + ");");
+    --indentacion;
+    emitir("}");
+    emitir("");
 }
 
 void GeneradorC::genMetodo(const std::string& claseNombre, MetodoDef* metodo,
                            const std::string& padreNombre) {
     if (metodo->esAbstracto) return;
 
-    emitir("static LatValor " + funC(claseNombre + "_" + metodo->nombre) + "(int nargs, LatValor* args) {");
+    std::string directName = funC(claseNombre + "_" + metodo->nombre);
+    std::string moduloName = funModuloC(claseNombre + "_" + metodo->nombre);
+    std::string firma = metodo->esEstatico ? "int nargs, LatValor* args"
+                                           : firmaDirectaMetodo(!metodo->esEstatico, metodo->parametros);
+    emitir("static LatValor " + directName + "(" + firma + ") {");
     ++indentacion;
 
-    bool instancia = !metodo->esEstatico;
-    if (instancia) {
-        emitir("LatValor este = (nargs > 0) ? args[0] : lat_nulo();");
-    }
-
-    size_t offset = instancia ? 1 : 0;
-    for (size_t i = 0; i < metodo->parametros.size(); i++) {
-        const std::string& nombre = metodo->parametros[i].nombre;
-        std::string idx = std::to_string(i + offset);
-        std::string expr = "(nargs > " + idx + ") ? args[" + idx + "] : lat_nulo()";
-        emitir("LatValor " + varC(nombre) + " = " + expr + ";");
+    if (metodo->esEstatico) {
+        for (size_t i = 0; i < metodo->parametros.size(); ++i) {
+            const auto& p = metodo->parametros[i];
+            emitir("LatValor " + GeneradorC::varC(p.nombre) + " = (nargs > " + std::to_string(i) + ") ? args[" + std::to_string(i) + "] : lat_nulo();");
+        }
     }
 
     std::set<std::string> excluir;
-    if (instancia) excluir.insert("este");
+    if (!metodo->esEstatico) excluir.insert("este");
     for (const auto& p : metodo->parametros) excluir.insert(p.nombre);
     excluir.insert(globalesExplicitos.begin(), globalesExplicitos.end());
 
     std::set<std::string> vars;
     recolectarVariables(metodo->cuerpo, vars, excluir);
     for (const std::string& v : vars)
-        emitir("LatValor " + varC(v) + " = lat_nulo();");
+        emitir("LatValor " + GeneradorC::varC(v) + " = lat_nulo();");
 
-    // PLAN_GENERICOS.md: erasure — ver comentario equivalente en genFuncion().
-    // Un parámetro tipado con el nombre de un genérico del método o de la
-    // clase/estructura envolvente nunca recibe un chequeo de runtime.
     std::set<std::string> genericosMetodo;
     for (const auto& g : metodo->genericos) genericosMetodo.insert(g.nombre);
     if (auto itClase = clases.find(claseNombre); itClase != clases.end())
@@ -1070,7 +1160,7 @@ void GeneradorC::genMetodo(const std::string& claseNombre, MetodoDef* metodo,
         if (p.tipo == TipoAnotado::Objeto && genericosMetodo.count(p.tipoClase)) continue;
         if (p.tipo != TipoAnotado::Ninguno) {
             const char* ct = tipoALatTipo(p.tipo);
-            emitir("lat_verificar_tipo(" + varC(p.nombre) + ", " + ct +
+            emitir("lat_verificar_tipo(" + GeneradorC::varC(p.nombre) + ", " + ct +
                    ", \"" + p.nombre + "\", " + std::to_string(metodo->linea) + ");");
         }
     }
@@ -1086,6 +1176,28 @@ void GeneradorC::genMetodo(const std::string& claseNombre, MetodoDef* metodo,
     }
     emitir("return lat_nulo();");
 
+    --indentacion;
+    emitir("}");
+    emitir("");
+
+    emitir("static LatValor " + moduloName + "(int nargs, LatValor* args) {");
+    ++indentacion;
+    if (metodo->esEstatico) {
+        emitir("return " + directName + "(nargs, args);");
+    } else {
+        emitir("LatValor este = (nargs > 0) ? args[0] : lat_nulo();");
+        for (size_t i = 0; i < metodo->parametros.size(); ++i) {
+            const auto& p = metodo->parametros[i];
+            std::string idx = std::to_string(i + 1);
+            std::string expr = "(nargs > " + idx + ") ? args[" + idx + "] : lat_nulo()";
+            emitir("LatValor " + GeneradorC::varC(p.nombre) + " = " + expr + ";");
+        }
+        std::string callArgs = "este";
+        for (size_t i = 0; i < metodo->parametros.size(); ++i) {
+            callArgs += ", " + GeneradorC::varC(metodo->parametros[i].nombre);
+        }
+        emitir("return " + directName + "(" + callArgs + ");");
+    }
     --indentacion;
     emitir("}");
     emitir("");
@@ -1133,11 +1245,12 @@ void GeneradorC::generarCuerpo(Programa& programa) {
     }
     if (!funcionPrincipal) funcionPrincipal = funcionInicio;
 
-    // Prototipos de las funciones de usuario.
+    // Prototipos de las funciones de usuario usando la firma directa C.
     bool hayFunciones = false;
     for (auto& s : programa.sentencias) {
         if (auto* f = dynamic_cast<FuncionDef*>(s.get())) {
-            emitir("static LatValor " + funC(f->nombre) + "(int nargs, LatValor* args);");
+            std::string firma = firmaPrototipoFuncion(f->parametros, f->variadico);
+            emitir("static LatValor " + funC(f->nombre) + "(" + firma + ");");
             hayFunciones = true;
         }
     }
@@ -1149,13 +1262,15 @@ void GeneradorC::generarCuerpo(Programa& programa) {
     // Prototipos de métodos de clases y estructuras.
     for (auto& [nombre, c] : clases) {
         for (const MetodoDef& m : c->metodos) {
-            emitir("static LatValor " + funC(nombre + "_" + m.nombre) + "(int nargs, LatValor* args);");
+            std::string firma = firmaPrototipoMetodo(!m.esEstatico, m.parametros);
+            emitir("static LatValor " + funC(nombre + "_" + m.nombre) + "(" + firma + ");");
             hayFunciones = true;
         }
     }
     for (auto& [nombre, e] : estructuras) {
         for (const MetodoDef& m : e->metodos) {
-            emitir("static LatValor " + funC(nombre + "_" + m.nombre) + "(int nargs, LatValor* args);");
+            std::string firma = firmaPrototipoMetodo(!m.esEstatico, m.parametros);
+            emitir("static LatValor " + funC(nombre + "_" + m.nombre) + "(" + firma + ");");
             hayFunciones = true;
         }
     }
@@ -1176,7 +1291,7 @@ void GeneradorC::generarCuerpo(Programa& programa) {
     std::set<std::string> vars;
     recolectarVariables(programa.sentencias, vars, {});
     for (const std::string& v : vars)
-        emitir("static LatValor " + varC(v) + ";");
+        emitir("static LatValor " + GeneradorC::varC(v) + ";");
     if (!vars.empty()) emitir("");
 
     // "global" (ver ast.h, Asignacion::esGlobal): mismo storage "static

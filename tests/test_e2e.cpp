@@ -49,11 +49,16 @@ static int ejecutarComando(const std::string& cmd, std::string& salidaStd) {
 #endif
 }
 
-// Extrae todos los tokens esperados de un archivo .lat.
-static std::vector<std::string> extraerTokensEsperados(const std::string& rutaLat) {
-    std::ifstream archivo(rutaLat);
+struct ResultadoSalidaEsperada {
     std::vector<std::string> tokens;
-    if (!archivo) return tokens;
+    bool encontrada = false;
+};
+
+// Extrae todos los tokens esperados de un archivo .lat.
+static ResultadoSalidaEsperada extraerTokensEsperados(const std::string& rutaLat) {
+    std::ifstream archivo(rutaLat);
+    ResultadoSalidaEsperada resultado;
+    if (!archivo) return resultado;
 
     std::string linea;
     bool esperandoLineasSalida = false;
@@ -65,6 +70,7 @@ static std::vector<std::string> extraerTokensEsperados(const std::string& rutaLa
 
         size_t posSalida = linea.find("#salida:");
         if (posSalida != std::string::npos) {
+            resultado.encontrada = true;
             std::string resto = linea.substr(posSalida + 8); // Longitud de "#salida:"
             size_t start = resto.find_first_not_of(" \t");
             if (start != std::string::npos) {
@@ -73,7 +79,7 @@ static std::vector<std::string> extraerTokensEsperados(const std::string& rutaLa
                 std::stringstream ss(contenido);
                 std::string tok;
                 while (ss >> tok) {
-                    tokens.push_back(tok);
+                    resultado.tokens.push_back(tok);
                 }
                 esperandoLineasSalida = false;
             } else {
@@ -86,14 +92,14 @@ static std::vector<std::string> extraerTokensEsperados(const std::string& rutaLa
                 std::stringstream ss(resto);
                 std::string tok;
                 while (ss >> tok) {
-                    tokens.push_back(tok);
+                    resultado.tokens.push_back(tok);
                 }
             } else {
                 esperandoLineasSalida = false;
             }
         }
     }
-    return tokens;
+    return resultado;
 }
 
 int main(int argc, char* argv[]) {
@@ -117,11 +123,12 @@ int main(int argc, char* argv[]) {
     std::cout << "[E2E] Analizando: " << archivoLat << std::endl;
 
     // 1. Extraer los tokens de salida esperada.
-    std::vector<std::string> esperado = extraerTokensEsperados(archivoLat);
-    if (esperado.empty()) {
+    ResultadoSalidaEsperada salidaEsperada = extraerTokensEsperados(archivoLat);
+    if (!salidaEsperada.encontrada) {
         std::cerr << "[E2E Error] No se encontraron comentarios '#salida:' en " << archivoLat << std::endl;
         return 1;
     }
+    std::vector<std::string> esperado = salidaEsperada.tokens;
 
     // 2. Compilar el archivo .lat usando latino.
     std::string cmdCompilacion = entrecomillar(compilador) + " " + entrecomillar(archivoLat) +
