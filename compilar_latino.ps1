@@ -18,21 +18,27 @@ if ($respuesta -match "^[sS]") {
     $directorioBuild = ".\build-llvm"
 }
 
-# Crear directorio de build si no existe
-if (-not (Test-Path $directorioBuild)) {
-    New-Item -ItemType Directory -Path $directorioBuild | Out-Null
+# Crear directorio de build si no existe; si ya existe y estaba generado con
+# otra plataforma/generador, lo destruimos para evitar los errores de
+# "generator platform: x64" / "Does not match the platform used previously".
+if (Test-Path $directorioBuild) {
+    Write-Host "Se elimina la configuración previa de CMake en $directorioBuild para evitar conflictos de plataforma/generador."
+    Remove-Item -Path $directorioBuild -Recurse -Force
 }
+New-Item -ItemType Directory -Path $directorioBuild | Out-Null
 
 # Navegar al directorio de build
 Set-Location -Path $directorioBuild
 
-# Invocar el comando cmake para generar la salida de Visual Studio 2022
+# Invocar el comando cmake para generar la salida de Visual Studio 2022.
+# Usamos -S .. -B . para dejar explícita la fuente y el directorio de salida,
+# evitando que CMake reuse un directorio con caché previo bajo otra config.
 if ($respuesta -match "^[sS]") {
-    cmake -G "Visual Studio 17 2022" -A x64 `
+    cmake -S .. -B . -G "Visual Studio 17 2022" -A x64 `
         "-DCMAKE_TOOLCHAIN_FILE=$vcpkgRoot\scripts\buildsystems\vcpkg.cmake" `
-        "-DVCPKG_TARGET_TRIPLET=$triplet" ..
+        "-DVCPKG_TARGET_TRIPLET=$triplet"
 } else {
-    cmake -G "Visual Studio 17 2022" -A x64 ..
+    cmake -S .. -B . -G "Visual Studio 17 2022" -A x64
 }
 if ($LASTEXITCODE -ne 0) {
     Set-Location -Path ..

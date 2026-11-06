@@ -10,6 +10,7 @@
 /*.user
 /*.dir/
 /*.log
+/test.ps1.log
 **/*.exe
 
 # Artefactos de CTest cuando se ejecuta desde la raíz del repo en vez de
