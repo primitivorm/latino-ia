@@ -40,7 +40,9 @@ function EjecutarYLoguear {
     $salida = & $Bloque 2>&1
     $codigo = $LASTEXITCODE
     $salida | Out-File -FilePath $LogPath -Append -Encoding utf8
-    $salida
+    # Escribir a consola sin enviar al pipeline, para que el llamador reciba
+    # únicamente el código de salida en $codigo (no las líneas de salida).
+    $salida | ForEach-Object { Write-Host $_ }
     return $codigo
 }
 if (-not [System.IO.Path]::IsPathRooted($BuildDir)) {
