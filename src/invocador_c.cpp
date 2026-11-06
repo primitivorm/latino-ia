@@ -64,25 +64,18 @@ int ejecutarMsvc(const std::string& archivoC, const std::string& salidaExe,
         " " + entrecomillar(runtimeDir + "/latino.c") + libs +
         " /Fe:" + entrecomillar(salidaExe) + " /Fo:" + entrecomillar(objArg) + enlazarExtra;
 
-    fs::path bat = tmp / "latino_compilar.bat";
     fs::path log = tmp / "latino_compilar.log";
-    {
-        std::ofstream f(bat);
-        f << "@echo off\n";
-        // -startdir=none evita que VsDevCmd cambie el directorio de trabajo.
-        if (!vsdevcmd.empty())
-            f << "call " << entrecomillar(vsdevcmd)
-              << " -arch=x64 -no_logo -startdir=none >nul\n";
-        f << cl << " > " << entrecomillar(log.string()) << " 2>&1\n";
-        f << "exit /b %errorlevel%\n";
-    }
 
     if (!vsdevcmd.empty() && !fs::exists(vsdevcmd)) {
         std::cerr << "Advertencia: no se encontró VsDevCmd.bat en " << vsdevcmd
                   << "; se intentará usar 'cl' del PATH." << std::endl;
     }
 
-    std::string comando = entrecomillar(bat.string());
+    std::string comando = "cmd /d /s /c \"";
+    if (!vsdevcmd.empty()) {
+        comando += "call " + entrecomillar(vsdevcmd) + " -arch=x64 -no_logo -startdir=none >nul && ";
+    }
+    comando += cl + " > " + entrecomillar(log.string()) + " 2>&1\"";
     int codigo = std::system(comando.c_str());
     std::ifstream salidaCompilador(log);
     if (codigo != 0 && salidaCompilador)

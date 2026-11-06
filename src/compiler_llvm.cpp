@@ -153,7 +153,14 @@ llvm::Value* GeneradorLLVM::genExpr(Expresion& expr, llvm::IRBuilder<>& builder,
         if (itFn != funciones_.end()) {
             llvm::Function* fnNueva = abi_->declarar(modulo, "lat_funcion_nueva_llvm");
             llvm::Value* celda = builder.CreateAlloca(tipoLatValor, nullptr, "fn_ident");
-            builder.CreateCall(fnNueva, {celda, itFn->second.fn});
+            // Usar un wrapper con firma (sret, nargs, args) -- compatible con
+            // LatFnLLVM -- para que la función de usuario pueda llamarse vía
+            // lat_llamar_funcion_llvm_args / lat_obj_llamar_metodo_llvm_args
+            // cuando se pasa como valor (almacenada en diccionarios, listas,
+            // variables, etc.). Las funciones anónimas YA tienen esta firma
+            // nativa; solo las de usuario necesitan el wrapper.
+            llvm::Function* fnWrapper = obtenerWrapperFuncion(n->nombre, itFn->second, modulo);
+            builder.CreateCall(fnNueva, {celda, fnWrapper});
             return celda;
         }
         return nullptr;
@@ -1579,6 +1586,62 @@ void GeneradorLLVM::genFuncionAnonima(FuncionAnonima& f, llvm::Module& modulo) {
         builder.CreateRetVoid();
     }
     celdaRetorno_ = anteriorRetorno;
+}
+
+llvm::Function* GeneradorLLVM::obtenerWrapperFuncion(const std::string& nombre,
+                                                     const InfoFuncionUsuario& info,
+                                                     llvm::Module& modulo) {
+    auto it = wrappersFuncion_.find(nombre);
+    if (it != wrappersFuncion_.end()) return it->second;
+
+    llvm::PointerType* tipoPuntero = llvm::PointerType::get(*contexto_, 0);
+    // Firma del wrapper: void wrapper(ptr sret %ret, i32 %nargs, ptr %args)
+    // -- compatible con LatFnLLVM, la firma que esperan
+    // lat_llamar_funcion_llvm_args / lat_obj_llamar_metodo_llvm_args.
+    std::vector<llvm::Type*> tiposWrapper{tipoPuntero, llvm::Type::getInt32Ty(*contexto_), tipoPuntero};
+    llvm::FunctionType* tipoFnWrapper =
+        llvm::FunctionType::get(llvm::Type::getVoidTy(*contexto_), tiposWrapper, /*isVarArg=*/false);
+
+    llvm::Function* wrapper = llvm::Function::Create(
+        tipoFnWrapper, llvm::Function::InternalLinkage, "lat_fn_wrapper_" + nombre, &modulo);
+    wrapper->addParamAttr(0, llvm::Attribute::getWithStructRetType(*contexto_, abi_->tipoLatValor()));
+
+    // Construir el cuerpo del wrapper con un IRBuilder independiente
+    // (no usamos el builder de genExpr, que está posicionado en otro bloque).
+    llvm::IRBuilder<> builderWrapper(*contexto_);
+    llvm::BasicBlock* entrada = llvm::BasicBlock::Create(*contexto_, "entrada", wrapper);
+    builderWrapper.SetInsertPoint(entrada);
+
+    auto argumento = wrapper->arg_begin();
+    llvm::Value* celdaRetorno = &*argumento++;  // %ret  (sret)
+    llvm::Value* nargs = &*argumento++;         // %nargs
+    llvm::Value* args = &*argumento;            // %args (array de LatValor)
+
+    llvm::StructType* tipoLatValor = abi_->tipoLatValor();
+
+    // Preparar argumentos para la llamada a la función de usuario real.
+    std::vector<llvm::Value*> argsUsuario{celdaRetorno};
+
+    if (info.variadico) {
+        // Pasar nargs y el array completo como lat_resto (ptr %args).
+        argsUsuario.push_back(nargs);
+        argsUsuario.push_back(args);
+    } else {
+        // Pasar cada parámetro fijo como puntero a celda (ptr), no como struct
+        // por valor. La función de usuario espera (ptr sret, ptr param0, ...).
+        for (size_t i = 0; i < info.numParametros; i++) {
+            llvm::Value* slot = builderWrapper.CreateGEP(tipoLatValor, args,
+                                                         builderWrapper.getInt64(static_cast<int>(i)),
+                                                         "arg_slot");
+            argsUsuario.push_back(slot);
+        }
+    }
+
+    builderWrapper.CreateCall(info.fn, argsUsuario);
+    builderWrapper.CreateRetVoid();
+
+    wrappersFuncion_[nombre] = wrapper;
+    return wrapper;
 }
 
 void GeneradorLLVM::recolectarTipos(Programa& programa) {

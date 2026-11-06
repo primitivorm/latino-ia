@@ -467,6 +467,22 @@ private:
     };
     std::unordered_map<std::string, InfoFuncionUsuario> funciones_;
 
+    // Wrappers con firma uniforme (ptr sret %ret, i32 %nargs, ptr %args)
+    // -- compatible con LatFnLLVM -- que envuelven cada función de usuario
+    // para que pueda pasarse como valor (almacenarse en diccionarios/listas/
+    // variables y llamarse vía lat_llamar_funcion_llvm_args /
+    // lat_obj_llamar_metodo_llvm_args) sin romper la ABI. Las funciones
+    // anónimas YA tienen esta firma nativa (ver declararFuncionAnonima);
+    // solo las funciones de usuario necesitan el wrapper.
+    std::unordered_map<std::string, llvm::Function*> wrappersFuncion_;
+
+    // Devuelve (creando si es necesario) un wrapper LLVM con firma
+    // (ptr sret %ret, i32 %nargs, ptr %args) para la función de usuario
+    // 'info', que carga los parámetros del array 'args' y llama a
+    // 'info.fn' con su firma real (ptr sret, ptr param0, ...). Idempotente.
+    llvm::Function* obtenerWrapperFuncion(const std::string& nombre, const InfoFuncionUsuario& info,
+                                          llvm::Module& modulo);
+
     std::vector<FuncionAnonima*> anonimas_;
     std::unordered_map<FuncionAnonima*, size_t> indicesAnonimas_;
     std::unordered_map<FuncionAnonima*, llvm::Function*> funcionesAnonimas_;
