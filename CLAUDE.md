@@ -79,7 +79,7 @@ Suites de prueba disponibles:
 | `test_ast` | Nodos del AST |
 | `test_semantico` | Análisis semántico |
 | `test_codegen` | Generación de código C |
-| `test_funciones_anonimas_e2e` | Funciones anónimas en los backends C y LLVM, incluidas llamadas desde variables/listas y anónimas anidadas |
+| `test_funciones_anonimas_e2e` | Funciones anónimas en los backends C y LLVM, incluidas llamadas desde variables/listas/diccionarios, funciones almacenadas en diccionarios (callables/triggers) y acceso `.longitud()` a listas y diccionarios |
 | `test_tipado` | Tipado gradual opcional (Fase 27) |
 | `test_poo` | Parser/semántico/codegen de POO: clases, herencia, interfaces (Fase 28) |
 | `test_poo_e2e` | Programas POO completos (Fase 28) |
@@ -185,6 +185,16 @@ fin
 incluir "cadena"
 cadena.mayusculas("hola")   # "HOLA"
 lista.a_lista(rango(5))     # [0, 1, 2, 3, 4]
+
+l = [1, 2, 3]
+l.longitud()                # 3  (acceso miembro a la longitud)
+d = {"a": 1, "b": 2}
+d.longitud()                # 2  (acceso miembro a la longitud)
+
+# Funciones como valores en diccionarios (callables / triggers)
+acciones = {}
+acciones["sumar"] = fun(a, b) ret a + b fin
+acciones["sumar"](10, 4)    # 14
 
 # Operadores especiales
 ".."   # concatenación de cadenas

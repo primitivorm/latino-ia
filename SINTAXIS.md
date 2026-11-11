@@ -536,6 +536,13 @@ La librería `lista` expone una API útil para manipular colecciones completas:
 `lista.concatenar`, `lista.encontrar`, `lista.insertar`, `lista.eliminar`,
 `lista.eliminar_indice`, `lista.extender`, `lista.separador` y `lista.crear`.
 
+Como acceso miembro, cualquier lista también responde a `.longitud()`:
+
+```latino
+l = [1, 2, 3]
+escribir(l.longitud())   # 3
+```
+
 ### Indexación de cadenas
 Una cadena es, internamente, un arreglo de caracteres, así que admite el mismo operador `[]` que las listas, tanto para leer como para modificar un carácter en una posición dada. El índice también puede ser negativo, con el mismo significado que en las listas.
 ```python
@@ -580,6 +587,51 @@ escribir(actores["Chilindrina"])
 
 La librería `dic` expone los accesos típicos: `dic.llaves`, `dic.valores`,
 `dic.contiene`, `dic.eliminar`, `dic.longitud` y `dic.elementos`.
+
+### Funciones como valores: callables y triggers en diccionarios
+
+Un diccionario puede almacenar cualquier valor, incluida una función. Una
+función guardada en un diccionario se puede invocar como un *callable*
+(por ejemplo, para implementar "triggers" o manejadores de eventos):
+
+```latino
+acciones = {}
+acciones["sumar"] = fun(a, b) ret a + b fin
+acciones["restar"] = fun(a, b) ret a - b fin
+
+escribir(acciones["sumar"](10, 4))   # 14
+escribir(acciones["restar"](10, 4))  # 6
+```
+
+También se puede recorrer un arreglo de diccionarios que contengan funciones
+y disparar la que coincida:
+
+```latino
+triggers = [
+    { "comando" : "/test", "accion": test_accion },
+    { "comando" : "/id",   "accion": id_accion   }
+]
+
+funcion ejecutar(texto)
+    desde (i = 0; i < lista.longitud(triggers); i++)
+        si texto == triggers[i].comando
+            fn = triggers[i].accion
+            fn("disparado desde triggers")
+        fin
+    fin
+fin
+```
+
+Como las listas, los diccionarios también exponen su cantidad de entradas
+mediante el acceso miembro `.longitud()`:
+
+```latino
+d = { "a": 1, "b": 2 }
+escribir(d.longitud())   # 2
+```
+
+Además, un campo de un objeto que almacene una función se puede invocar
+como si fuera un método de esa instancia.
 
 ### Librerías estándar e `incluir`
 Además del código en un mismo archivo, Latino puede cargar librerías estándar
@@ -686,7 +738,8 @@ fin
 
 Los modificadores de acceso son `publico`, `privado` y `protegido`; la
 sobrescritura usa `sobreescribir` y el operador `es` permite comprobar
-instancias.
+instancias. Un campo de objeto que almacene una función se puede invocar
+como si fuera un método de esa instancia.
 
 ## X. Módulos: `exportar` / `importar`
 

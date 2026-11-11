@@ -46,6 +46,7 @@ módulos (`exportar`/`importar`) y FFI con C al estilo de Rust (`externo`/
 | 30   | Módulos: `exportar` / `importar` (M1-M6 completas, M7 diferida) | #39–#45 |
 | 31   | Genéricos al estilo de Rust: `<T>`, bounds, `donde`, turbofish (G1-G8 completas) | #46–#47 |
 | 32   | FFI con C al estilo de Rust: `externo` / `inseguro` — ver [FFI con C](#ffi-con-c-al-estilo-de-rust) (F1-F8 completas) | #49–#56 |
+| 34   | Funciones como valores en diccionarios (callables/triggers) y acceso miembro `.longitud()` a listas y diccionarios | #87 |
 
 ## Estrategia
 
@@ -188,6 +189,15 @@ escribir(lista.longitud([1, 2, 3]))       # 3
 escribir(mate.raiz(16))                   # 4
 escribir(sis.operativo())                 # "windows" | "linux" | "macos"
 archivo.escribir("out.txt", "contenido")
+
+l = [1, 2, 3]
+escribir(l.longitud())                    # 3  (acceso miembro a la longitud)
+d = {"a": 1, "b": 2}
+escribir(d.longitud())                    # 2  (acceso miembro a la longitud)
+
+acciones = {}
+acciones["sumar"] = fun(a, b) ret a + b fin
+escribir(acciones["sumar"](10, 4))        # 14  (funcion como valor en un diccionario)
 ```
 
 ### Programación Orientada a Objetos
