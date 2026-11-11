@@ -158,6 +158,11 @@ int lat_es_verdadero(LatValor v);
 LatValor lat_obtener_indice(LatValor cont, LatValor indice);
 LatValor lat_obtener_miembro(LatValor cont, LatValor indice);
 void lat_asignar_indice(LatValor cont, LatValor indice, LatValor valor);
+/* Desempaqueta el i-ésimo valor de retorno de una función (estilo Go).
+ * Si 'resultado' es una lista, devuelve datos[indice] (o lat_nulo si está
+ * fuera de rango). Si no es lista, devuelve resultado cuando indice == 0 y
+ * lat_nulo en cualquier otro índice. */
+LatValor lat_desempaquetar_elem(LatValor resultado, size_t indice);
 
 /* --- Conversión a cadena (devuelve memoria en el heap) --- */
 char* lat_a_cadena(LatValor v);

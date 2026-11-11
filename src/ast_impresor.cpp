@@ -332,7 +332,8 @@ void ImpresorAST::visitar(FuncionAnonima& n) {
 
 void ImpresorAST::visitar(Retornar& n) {
     linea("Retornar");
-    if (n.valor) hijo(*n.valor);
+    for (auto& v : n.valores)
+        if (v) hijo(*v);
 }
 
 // --- POO ---------------------------------------------------------------

@@ -117,6 +117,7 @@ void lat_abi_referenciar_todo(void) {
     (void)lat_dic_valores;
     (void)lat_dic_vals;
     (void)lat_distinto;
+    (void)lat_desempaquetar_elem;
     (void)lat_dividir;
     (void)lat_error;
     (void)lat_es_verdadero;

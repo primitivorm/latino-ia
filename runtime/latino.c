@@ -953,6 +953,20 @@ void lat_asignar_indice(LatValor cont, LatValor indice, LatValor valor) {
     abortar("el valor no admite asignación por índice");
 }
 
+/* Desempaqueta el i-ésimo valor de retorno de una función (estilo Go).
+ * Si 'resultado' es una lista, devuelve datos[indice] (o lat_nulo si está
+ * fuera de rango). Si no es lista, devuelve resultado cuando indice == 0 y
+ * lat_nulo en cualquier otro índice. */
+LatValor lat_desempaquetar_elem(LatValor resultado, size_t indice) {
+    if (resultado.tipo == LAT_LISTA) {
+        LatLista* l = resultado.como.lista;
+        if (l && indice < l->longitud) return l->datos[indice];
+        return lat_nulo();
+    }
+    if (indice == 0) return resultado;
+    return lat_nulo();
+}
+
 /* ------------------------------------------------------------------ */
 /* Conversión a cadena                                                */
 /* ------------------------------------------------------------------ */

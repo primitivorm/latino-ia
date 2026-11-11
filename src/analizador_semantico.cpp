@@ -1288,5 +1288,6 @@ void AnalizadorSemantico::visitar(InseguroBloque& n) {
 void AnalizadorSemantico::visitar(Retornar& n) {
     if (profundidadFuncion == 0)
         agregarError(n.linea, "'retornar' fuera de una función");
-    if (n.valor) n.valor->aceptar(*this);
+    for (auto& v : n.valores)
+        if (v) v->aceptar(*this);
 }

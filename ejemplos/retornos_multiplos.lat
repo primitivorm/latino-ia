@@ -1,0 +1,37 @@
+// retornos_multiplos.lat
+// Soporte para múltiples valores de retorno al estilo Go.
+// Una sentencia "retornar v1, v2, ..." empaqueta los valores en una lista.
+// Una asignación múltiple "a, b = f()" desempaqueta la lista retornada.
+
+funcion dividir(a, b)
+    retornar a / b, a % b
+fin
+
+funcion solo_valor(x)
+    retornar x * 2
+fin
+
+funcion sin_retorno()
+fin
+
+// Desempaquetado múltiple
+cociente, residuo = dividir(10, 3)
+escribir(cociente)  // 3.33333333333333
+escribir(residuo)   // 1
+
+// Un solo destino recibe el valor directamente (no envuelve en lista)
+resultado = solo_valor(21)
+escribir(resultado) // 42
+
+// Un solo destino recibe la lista cuando la función retorna varios
+lista = dividir(10, 3)
+escribir(lista)     // [3.33333333333333, 1]
+
+// Asignación múltiple con función de un solo retorno: primero recibe el valor, el resto nulo
+u, v = solo_valor(7)
+escribir(u)         // 14
+escribir(v)         // nulo
+
+// Retornar sin valor da nulo
+n = sin_retorno()
+escribir(n)         // nulo

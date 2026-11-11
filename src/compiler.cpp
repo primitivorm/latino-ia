@@ -244,7 +244,8 @@ void GeneradorC::recolectarAnonimasEnSentencia(Sentencia* s) {
         return;
     }
     if (auto* rt = dynamic_cast<Retornar*>(s)) {
-        recolectarAnonimasEnExpresion(rt->valor.get());
+        for (auto& v : rt->valores)
+            recolectarAnonimasEnExpresion(v.get());
         return;
     }
     if (auto* ib = dynamic_cast<InseguroBloque*>(s)) {
@@ -905,6 +906,17 @@ void GeneradorC::genSentencia(Sentencia* s) {
             emitir(genAsignacionDestino(a->destinos[0].get(), val));
             return;
         }
+        // Asignación múltiple con una sola llamada que retorna varios valores
+        // (estilo Go): "a, b = f()" desempaqueta la lista retornada.
+        if (a->destinos.size() > 1 && a->valores.size() == 1 &&
+            dynamic_cast<Llamada*>(a->valores[0].get())) {
+            std::string r = nuevoTemp();
+            emitir("LatValor " + r + " = " + genExpr(a->valores[0].get()) + ";");
+            for (size_t i = 0; i < a->destinos.size(); i++)
+                emitir(genAsignacionDestino(a->destinos[i].get(),
+                    "lat_desempaquetar_elem(" + r + ", " + std::to_string(i) + ")"));
+            return;
+        }
         std::vector<std::string> temps;
         for (auto& v : a->valores) {
             std::string t = nuevoTemp();
@@ -1033,7 +1045,27 @@ void GeneradorC::genSentencia(Sentencia* s) {
         return;
     }
     if (auto* rt = dynamic_cast<Retornar*>(s)) {
-        emitir("return " + (rt->valor ? genExpr(rt->valor.get()) : "lat_nulo()") + ";");
+        if (rt->valores.empty()) {
+            emitir("return lat_nulo();");
+            return;
+        }
+        if (rt->valores.size() == 1) {
+            emitir("return " + genExpr(rt->valores[0].get()) + ";");
+            return;
+        }
+        // Múltiples valores de retorno (estilo Go): empaquetar en una lista.
+        std::vector<std::string> temps;
+        for (auto& v : rt->valores) {
+            std::string t = nuevoTemp();
+            emitir("LatValor " + t + " = " + genExpr(v.get()) + ";");
+            temps.push_back(t);
+        }
+        std::string arr = nuevoTemp();
+        emitir("LatValor " + arr + "[" + std::to_string(temps.size()) + "];");
+        for (size_t i = 0; i < temps.size(); i++)
+            emitir(arr + "[" + std::to_string(i) + "] = " + temps[i] + ";");
+        emitir("return lat_lista_de_args(" + std::to_string(temps.size()) + ", " +
+               arr + ");");
         return;
     }
     // PLAN_FFI.md (F5): "inseguro" es puramente un marcador estático (F4 ya
