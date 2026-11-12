@@ -80,6 +80,7 @@ Suites de prueba disponibles:
 | `test_semantico` | Análisis semántico |
 | `test_codegen` | Generación de código C |
 | `test_funciones_anonimas_e2e` | Funciones anónimas en los backends C y LLVM, incluidas llamadas desde variables/listas/diccionarios, funciones almacenadas en diccionarios (callables/triggers) y acceso `.longitud()` a listas y diccionarios |
+| `test_codegen` / `test_codegen_llvm` | Codegen de `retornar v1, v2` (empaque en `lat_lista_de_args`), asignación múltiple `a, b = f()` (desempaque con `lat_desempaquetar_elem`) y retorno sin valor (`lat_nulo`) |
 | `test_tipado` | Tipado gradual opcional (Fase 27) |
 | `test_poo` | Parser/semántico/codegen de POO: clases, herencia, interfaces (Fase 28) |
 | `test_poo_e2e` | Programas POO completos (Fase 28) |
@@ -180,6 +181,15 @@ elegir x / caso N: / defecto: / fin
 funcion nombre(a, b)
     retornar a + b
 fin
+
+# Múltiples valores de retorno (estilo Go): retornar varios y desempaquetar
+funcion dividir(a, b)
+    retornar a / b, a % b
+fin
+
+cociente, residuo = dividir(10, 3)   # cociente=3.33..., residuo=1
+resultado = solo_valor(21)           # un destino: valor directo o lista si varios
+u, v = uno()                         # un solo retorno: u=valor, v=nulo
 
 # Librerías
 incluir "cadena"

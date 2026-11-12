@@ -47,6 +47,7 @@ módulos (`exportar`/`importar`) y FFI con C al estilo de Rust (`externo`/
 | 31   | Genéricos al estilo de Rust: `<T>`, bounds, `donde`, turbofish (G1-G8 completas) | #46–#47 |
 | 32   | FFI con C al estilo de Rust: `externo` / `inseguro` — ver [FFI con C](#ffi-con-c-al-estilo-de-rust) (F1-F8 completas) | #49–#56 |
 | 34   | Funciones como valores en diccionarios (callables/triggers) y acceso miembro `.longitud()` a listas y diccionarios | #87 |
+| 35   | Múltiples valores de retorno (estilo Go): `retornar v1, v2` y asignación múltiple `a, b = f()` | #91 |
 
 ## Estrategia
 
@@ -171,6 +172,15 @@ funcion suma(a, b)
 fin
 
 escribir(suma(3, 4))   # 7
+
+# Múltiples valores de retorno (estilo Go)
+funcion dividir(a, b)
+    retornar a / b, a % b
+fin
+
+cociente, residuo = dividir(10, 3)   # cociente=3.33..., residuo=1
+escribir(cociente)
+escribir(residuo)
 ```
 
 ### Librerías estándar

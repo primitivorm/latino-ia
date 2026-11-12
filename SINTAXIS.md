@@ -391,8 +391,7 @@ Una función consiste generalmente de una lista de sentencias a ejecutar, una li
 
 Las funciones se definen con la palabra reservada `funcion` o la forma corta `fun`.
 
-Se puede regresar el valor con la palabra clave `regresar`, `retornar`, `retorno` o la forma corta `ret`.
-La estructura de una función es la siguiente:
+Se puede regresar el valor con la palabra clave `regresar`, `retornar`, `retorno` o la forma corta `ret`. También se pueden regresar **varios valores a la vez** separándolos por coma (al estilo de Go): `retornar v1, v2, ...`. Los valores se empaquetan en una lista y el llamador puede desempaquetarlos en una asignación múltiple `a, b = f()`.
 ```python
 funcion nombreFuncion (argumento1, argumento2)
     #codigo
@@ -403,6 +402,13 @@ fin
 fun sumar(a, b)
   ret a + b
 fin
+
+# Múltiples valores de retorno (estilo Go)
+funcion dividir(a, b)
+    retornar a / b, a % b
+fin
+
+cociente, residuo = dividir(10, 3)   # cociente=3.33..., residuo=1
 ```
 
 Para invocar (ejecutar) una función se hace con el nombre de la función y la lista de parámetros entre paréntesis.
@@ -632,6 +638,27 @@ escribir(d.longitud())   # 2
 
 Además, un campo de un objeto que almacene una función se puede invocar
 como si fuera un método de esa instancia.
+
+### Múltiples valores de retorno y asignación múltiple
+
+Cuando una función retorna varios valores, una asignación con varios destinos los
+desempaqueta uno a uno en orden:
+
+```latino
+funcion dividir(a, b)
+    retornar a / b, a % b
+fin
+
+cociente, residuo = dividir(10, 3)   # cociente es 3.33..., residuo es 1
+```
+
+Semántica del desempaquetado y del retorno múltiple:
+
+* `retornar v1, v2` empaqueta los valores en una lista `[v1, v2]`.
+* `a, b = f()` asigna `a = f()[0]` y `b = f()[1]` (si faltan destinos, se ignoran; si sobran, valen `nulo`).
+* `r = f()` con un solo destino recibe el valor directo si `f()` retorna uno, o la lista completa si retorna varios.
+* `u, v = g()` con `g()` de un solo retorno da `u = valor` y `v = nulo`.
+* `retornar` sin valor devuelve `nulo`.
 
 ### Librerías estándar e `incluir`
 Además del código en un mismo archivo, Latino puede cargar librerías estándar
