@@ -213,6 +213,30 @@ static void prueba_asignacion_multiple() {
     CHECK(contiene(c, "v_a = _t0;") && contiene(c, "v_b = _t1;"), "asignaciones");
 }
 
+// Múltiples valores de retorno al estilo Go: "retornar 1, 2" empaqueta en una
+// lista y una asignación múltiple "a, b = f()" la desempaqueta.
+static void prueba_retornos_multiplos() {
+    // Varios retornos: debe empaquetarse en lat_lista_de_args.
+    std::string c = generar("funcion f()\n    retornar 1, 2\nfin\n");
+    CHECK(contiene(c, "return lat_lista_de_args(2,"), "varios retornos empaquetados");
+
+    // Un solo retorno: no debe envolverse en una lista.
+    c = generar("funcion g()\n    retornar 5\nfin\n");
+    CHECK(contiene(c, "return lat_numero(5);"), "un solo retorno sin envolver");
+    CHECK(!contiene(c, "lat_lista_de_args"), "un solo retorno no usa lista");
+
+    // Retornar sin valor: lat_nulo().
+    c = generar("funcion h()\n    retornar\nfin\n");
+    CHECK(contiene(c, "return lat_nulo();"), "retornar sin valor");
+
+    // Asignación múltiple desde una llamada: se usa lat_desempaquetar_elem.
+    c = generar("a, b = f()\n");
+    CHECK(contiene(c, "lat_desempaquetar_elem("), "desempaquetado de llamada");
+    CHECK(contiene(c, "lat_desempaquetar_elem(_t0, 0)") &&
+              contiene(c, "lat_desempaquetar_elem(_t0, 1)"),
+          "desempaquetado en ambos destinos");
+}
+
 // Hallazgo real (auditoría de input/, ver PLAN_BASE.md/PLAN_MODULOS.md): una
 // variable/constante de nivel superior referenciada desde una función
 // definida a nivel superior no compilaba -- se declaraba como LOCAL de
@@ -276,6 +300,7 @@ int main() {
     prueba_repetir();
     prueba_elegir();
     prueba_asignacion_multiple();
+    prueba_retornos_multiplos();
     prueba_variable_de_nivel_superior_visible_en_funcion();
     prueba_global_mutable_dentro_de_funcion();
 

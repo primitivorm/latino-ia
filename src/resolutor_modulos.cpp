@@ -217,7 +217,10 @@ public:
         visitarExpr(n.condicionHasta);
     }
     void visitar(Romper&) override {}
-    void visitar(Retornar& n) override { visitarExpr(n.valor); }
+    void visitar(Retornar& n) override {
+        for (auto& v : n.valores)
+            visitarExpr(v);
+    }
     void visitar(LlamadaBase& n) override {
         for (auto& a : n.argumentos)
             visitarExpr(a);
@@ -702,7 +705,7 @@ void elevarDeFuncion(FuncionDef& f, std::vector<SentPtr>& destino) {
         if (auto* es = dynamic_cast<ExprSentencia*>(f.cuerpo.back().get())) {
             auto ret = std::make_unique<Retornar>();
             ret->linea = es->linea;
-            ret->valor = std::move(es->expr);
+            ret->valores.push_back(std::move(es->expr));
             f.cuerpo.back() = std::move(ret);
         }
     }
@@ -772,7 +775,8 @@ bool ResolutorModulos::adaptarIncluirComoModulo(Programa& programa) {
     if (sents.empty()) return ok;
     auto* ret = dynamic_cast<Retornar*>(sents.back().get());
     if (!ret) return ok;
-    auto* dic = dynamic_cast<DiccionarioLiteral*>(ret->valor.get());
+    if (ret->valores.size() != 1) return ok;
+    auto* dic = dynamic_cast<DiccionarioLiteral*>(ret->valores[0].get());
     if (!dic) return ok;  // 'retornar' de otro tipo: no es el estilo módulo, se deja intacto
 
     for (auto& par : dic->pares) {

@@ -884,6 +884,24 @@ void GeneradorLLVM::genAsignacion(
         return;
     }
 
+    // Asignación múltiple con una sola llamada que retorna varios valores
+    // (estilo Go): "a, b = f()" desempaqueta la lista retornada.
+    if (asign.destinos.size() > 1 && asign.valores.size() == 1 &&
+        dynamic_cast<Llamada*>(asign.valores[0].get())) {
+        llvm::Value* rCelda = genExpr(*asign.valores[0], builder, modulo, variables);
+        if (!rCelda) return;
+        for (size_t i = 0; i < asign.destinos.size(); i++) {
+            llvm::Value* elemCelda =
+                builder.CreateAlloca(tipoLatValor, nullptr, "desempaquetado_elem");
+            llvm::Function* fn = abi_->declarar(modulo, "lat_desempaquetar_elem");
+            builder.CreateCall(fn, {elemCelda, rCelda,
+                                    builder.getInt64(static_cast<int>(i))});
+            genAsignacionDestino(*asign.destinos[i], elemCelda, builder, modulo,
+                                 variables);
+        }
+        return;
+    }
+
     // Asignación múltiple: se evalúan TODOS los valores a celdas temporales
     // antes de asignar ningún destino -- igual que GeneradorC (que usa
     // temporales _tN) y no en el orden entrelazado que produciría reusar
@@ -1174,13 +1192,24 @@ void GeneradorLLVM::genSentencia(Sentencia& s, llvm::IRBuilder<>& builder, llvm:
     }
     if (auto* rt = dynamic_cast<Retornar*>(&s)) {
         if (!celdaRetorno_) return;  // sin función contenedora: ver Romper.
-        if (rt->valor) {
-            llvm::Value* val = genExpr(*rt->valor, builder, modulo, variables);
+        if (rt->valores.empty()) {
+            llvm::Function* fnNulo = abi_->declarar(modulo, "lat_nulo");
+            builder.CreateCall(fnNulo, {celdaRetorno_});
+        } else if (rt->valores.size() == 1) {
+            llvm::Value* val = genExpr(*rt->valores[0], builder, modulo, variables);
             if (!val) return;
             builder.CreateStore(builder.CreateLoad(tipoLatValor, val), celdaRetorno_);
         } else {
-            llvm::Function* fnNulo = abi_->declarar(modulo, "lat_nulo");
-            builder.CreateCall(fnNulo, {celdaRetorno_});
+            // Múltiples valores de retorno (estilo Go): empaquetar en una lista.
+            std::vector<llvm::Value*> vals;
+            for (auto& v : rt->valores) {
+                llvm::Value* val = genExpr(*v, builder, modulo, variables);
+                if (!val) return;
+                vals.push_back(val);
+            }
+            llvm::Value* arreglo = empaquetarLatValores(vals, builder, tipoLatValor);
+            llvm::Function* fnLista = abi_->declarar(modulo, "lat_lista_de_args");
+            builder.CreateCall(fnLista, {celdaRetorno_, builder.getInt64(vals.size()), arreglo});
         }
         builder.CreateRetVoid();
         return;
@@ -1399,7 +1428,8 @@ void GeneradorLLVM::recolectarAnonimasEnSentencia(Sentencia* s) {
         recolectarAnonimasLista(re->cuerpo);
         recolectarAnonimasEnExpresion(re->condicionHasta.get());
     } else if (auto* rt = dynamic_cast<Retornar*>(s)) {
-        recolectarAnonimasEnExpresion(rt->valor.get());
+        for (auto& v : rt->valores)
+            recolectarAnonimasEnExpresion(v.get());
     } else if (auto* inseguro = dynamic_cast<InseguroBloque*>(s)) {
         recolectarAnonimasLista(inseguro->cuerpo);
     } else if (auto* f = dynamic_cast<FuncionDef*>(s)) {

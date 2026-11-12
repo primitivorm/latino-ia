@@ -531,9 +531,11 @@ struct FuncionDef : Sentencia {
     LATINO_ACEPTAR
 };
 
-// regresar/retornar/ret  [valor]
+// regresar/retornar/ret  [valor1, valor2, ...]
+// Múltiples valores de retorno al estilo Go: se empaquetan en una lista que el
+// llamador puede desempaquetar en una asignación múltiple ("a, b = f()").
 struct Retornar : Sentencia {
-    ExprPtr valor;  // puede ser nulo (retornar sin valor)
+    std::vector<ExprPtr> valores;  // vacío == retornar sin valor (nulo)
     LATINO_ACEPTAR
 };
 

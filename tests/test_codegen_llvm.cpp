@@ -957,7 +957,7 @@ static void prueba_l5_si_anidado_en_mientras(GeneradorLLVM& gen) {
 
 static SentPtr retornar(ExprPtr valor) {
     auto r = std::make_unique<Retornar>();
-    r->valor = std::move(valor);
+    r->valores.push_back(std::move(valor));
     return r;
 }
 

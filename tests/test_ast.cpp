@@ -149,7 +149,7 @@ static void prueba_funcion() {
     f->nombre = "sumar";
     f->parametros = {ParamFuncion{"a"}, ParamFuncion{"b"}};
     auto r = std::make_unique<Retornar>();
-    r->valor = bin("+", id("a"), id("b"));
+    r->valores.push_back(bin("+", id("a"), id("b")));
     f->cuerpo.push_back(std::move(r));
 
     std::string t = volcar(*f);

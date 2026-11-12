@@ -628,11 +628,22 @@ ExprPtr Parser::parseFuncionAnonima() {
 
 SentPtr Parser::parseRetornar() {
     int l = actual.line;
-    avanzar();  // regresar / retornar / ret
+    avanzar();  // regresar / retornar / ret / retorno
     auto nodo = std::make_unique<Retornar>();
     nodo->linea = l;
-    if (!esFinDeLinea() && !esEOF() && !esTerminadorBloque())
-        nodo->valor = parseExpresion();
+    if (!esFinDeLinea() && !esEOF() && !esTerminadorBloque()) {
+        // Uno o más valores de retorno separados por coma (estilo Go).
+        for (;;) {
+            nodo->valores.push_back(parseExpresion());
+            if (esDelimitador(",")) {
+                avanzar();
+                if (esFinDeLinea() || esEOF() || esTerminadorBloque())
+                    error("se esperaba una expresión después de ',' en 'retornar'");
+                continue;
+            }
+            break;
+        }
+    }
     consumirFinDeSentencia();
     return nodo;
 }
