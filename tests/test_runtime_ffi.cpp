@@ -86,6 +86,7 @@ static void prueba_lat_tipo_y_a_cadena_puntero() {
     LatValor t = lat_tipo(p);
     CHECK(t.tipo == LAT_CADENA, "lat_tipo(puntero): devuelve una cadena");
     CHECK(std::strcmp(t.como.cadena, "puntero") == 0, "lat_tipo(puntero) == \"puntero\"");
+    lat_valor_liberar(t);
 
     char* s = lat_a_cadena(p);
     CHECK(std::strcmp(s, "<puntero>") == 0, "lat_a_cadena(puntero) == \"<puntero>\"");
@@ -109,6 +110,7 @@ static void prueba_lat_ffi_verificar_tipo_ok() {
     LatValor c = lat_cadena("hola");
     LatValor r3 = lat_ffi_verificar_tipo(c, LAT_CADENA, "strlen", 1);
     CHECK(r3.tipo == LAT_CADENA, "lat_ffi_verificar_tipo: acepta LAT_CADENA cuando se espera LAT_CADENA");
+    lat_valor_liberar(c);
 }
 
 int main() {

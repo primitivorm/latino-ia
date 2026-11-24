@@ -126,6 +126,7 @@ static LatCadenaBloque* cadena_bloque_nuevo(const char* buf, size_t len) {
     LatCadenaBloque* b = (LatCadenaBloque*)malloc(sizeof(LatCadenaBloque) + len + 1);
     if (!b) return NULL;
     b->refs = 1;
+    lat_registro_registrar(b, LAT_BLOQUE_CADENA);
     memcpy(b->datos, buf, len + 1);
     return b;
 }
@@ -289,6 +290,7 @@ static LatLista* lista_nueva(size_t capacidad) {
     l->longitud = 0;
     l->capacidad = capacidad ? capacidad : 4;
     l->datos = (LatValor*)malloc(sizeof(LatValor) * l->capacidad);
+    lat_registro_registrar(l, LAT_BLOQUE_LISTA);
     return l;
 }
 
@@ -327,6 +329,7 @@ static LatDic* dic_nuevo(size_t capacidad) {
     d->capacidad = capacidad ? capacidad : 4;
     d->claves = (char**)malloc(sizeof(char*) * d->capacidad);
     d->valores = (LatValor*)malloc(sizeof(LatValor) * d->capacidad);
+    lat_registro_registrar(d, LAT_BLOQUE_DIC);
     return d;
 }
 
@@ -391,6 +394,7 @@ static LatValor dic_obtener(LatDic* d, const char* clave) {
 
 static void liberar_dic(LatDic* d) {
     if (!d) return;
+    lat_registro_dar_de_baja(d);
     for (size_t i = 0; i < d->longitud; i++) {
         free(d->claves[i]);
         lat_valor_liberar(d->valores[i]);
@@ -413,6 +417,275 @@ struct LatObjeto {
     LatDic* metodos;  /* diccionario de "callables" (LatValor) */
 };
 
+/* ================================================================
+ * PLAN_PERF — Registro global de bloques y recolección por raíces.
+ *
+ * Cada constructor registra su bloque aquí. El código generado publica sus
+ * celdas vivas con lat_raices_empujar() y barre al final de cada sentencia.
+ * El barrido es shallow: libera cada bloque una sola vez sin dereferenciar
+ * hijos ya liberados, por lo que tolera ciclos y aliases.
+ * ================================================================ */
+typedef struct EntradaRegistro {
+    void* ptr;
+    LatBloqueTipo tipo;
+    int marcado;
+    struct EntradaRegistro* sig;
+} EntradaRegistro;
+
+typedef struct MarcoRaices {
+    LatValor** raices;
+    size_t cantidad;
+    size_t baseTemporales;
+    struct MarcoRaices* sig;
+} MarcoRaices;
+
+static EntradaRegistro* g_registro = NULL;
+static MarcoRaices* g_raices = NULL;
+static LatValor** g_temporales = NULL;
+static size_t g_numTemporales = 0;
+static size_t g_capTemporales = 0;
+static int g_registroInicializado = 0;
+static int g_limpiando = 0;
+
+static EntradaRegistro* entrada_de(void* ptr) {
+    if (!ptr) return NULL;
+    for (EntradaRegistro* e = g_registro; e; e = e->sig)
+        if (e->ptr == ptr) return e;
+    return NULL;
+}
+
+static void liberar_bloque_shallow(void* ptr, LatBloqueTipo tipo) {
+    if (!ptr) return;
+    switch (tipo) {
+        case LAT_BLOQUE_CADENA:
+            free(ptr);  /* se registró el encabezado, no b->datos */
+            break;
+        case LAT_BLOQUE_LISTA: {
+            LatLista* l = (LatLista*)ptr;
+            free(l->datos);
+            free(l);
+            break;
+        }
+        case LAT_BLOQUE_DIC: {
+            LatDic* d = (LatDic*)ptr;
+            for (size_t i = 0; i < d->longitud; i++) free(d->claves[i]);
+            free(d->claves);
+            free(d->valores);
+            free(d);
+            break;
+        }
+        case LAT_BLOQUE_OBJETO: {
+            LatObjeto* o = (LatObjeto*)ptr;
+            for (size_t i = 0; i < o->n_ascendencia; i++) free(o->ascendencia[i]);
+            free(o->ascendencia);
+            /* campos/metodos tienen entrada propia en el registro: no se
+             * liberan aquí para no liberar dos veces un diccionario vivo. */
+            free(o);
+            break;
+        }
+        case LAT_BLOQUE_MODULO:
+            /* No se cierra el handle dlopen/LoadLibrary: el módulo podría
+             * seguir ejecutando código durante el atexit. */
+            free(ptr);
+            break;
+    }
+}
+
+static void marcar_valor(LatValor v);
+
+/* Recorre los valores de un diccionario ya marcado por marcar_valor().
+ * No vuelve a comprobar la marca: hacerlo convertía cada diccionario en
+ * una hoja y liberaba prematuramente las cadenas/objetos guardados en él. */
+static void marcar_dic(LatDic* d) {
+    if (!d) return;
+    for (size_t i = 0; i < d->longitud; i++) marcar_valor(d->valores[i]);
+}
+
+static void marcar_valor(LatValor v) {
+    EntradaRegistro* e = NULL;
+    switch (v.tipo) {
+        case LAT_CADENA:
+            if (v.como.cadena) e = entrada_de(cadena_encabezado(v.como.cadena));
+            break;
+        case LAT_LISTA:
+            e = entrada_de(v.como.lista);
+            break;
+        case LAT_DICCIONARIO:
+            e = entrada_de(v.como.dic);
+            break;
+        case LAT_OBJETO:
+            e = entrada_de(v.como.objeto);
+            break;
+        case LAT_MODULO:
+            /* paquete.cargar registra el struct LatModulo: sin este caso el
+             * barrido lo liberaba aunque la variable del módulo siguiera viva
+             * y paquete.llamar desreferenciaba un handle colgante. */
+            e = entrada_de(v.como.modulo);
+            break;
+        default:
+            return;  /* LAT_RANGO, LAT_FUNCION, LAT_PUNTERO y escalares */
+    }
+    if (!e || e->marcado) return;
+    e->marcado = 1;
+
+    switch (e->tipo) {
+        case LAT_BLOQUE_LISTA: {
+            LatLista* l = (LatLista*)e->ptr;
+            for (size_t i = 0; i < l->longitud; i++) marcar_valor(l->datos[i]);
+            break;
+        }
+        case LAT_BLOQUE_DIC:
+            marcar_dic((LatDic*)e->ptr);
+            break;
+        case LAT_BLOQUE_OBJETO: {
+            LatObjeto* o = (LatObjeto*)e->ptr;
+            LatValor campos;
+            campos.tipo = LAT_DICCIONARIO;
+            campos.como.dic = o->campos;
+            marcar_valor(campos);
+            campos.como.dic = o->metodos;
+            marcar_valor(campos);
+            break;
+        }
+        default:
+            break;
+    }
+}
+
+void lat_registro_registrar(void* ptr, LatBloqueTipo tipo) {
+    if (!ptr || g_limpiando) return;
+    if (!g_registroInicializado) {
+        atexit(lat_liberar_todo);
+        g_registroInicializado = 1;
+    }
+    if (entrada_de(ptr)) return;
+    EntradaRegistro* e = (EntradaRegistro*)malloc(sizeof(EntradaRegistro));
+    if (!e) return;
+    e->ptr = ptr;
+    e->tipo = tipo;
+    e->marcado = 0;
+    e->sig = g_registro;
+    g_registro = e;
+}
+
+void lat_registro_dar_de_baja(void* ptr) {
+    if (!ptr) return;
+    EntradaRegistro* ant = NULL;
+    for (EntradaRegistro* e = g_registro; e; ant = e, e = e->sig) {
+        if (e->ptr == ptr) {
+            if (ant) ant->sig = e->sig;
+            else g_registro = e->sig;
+            free(e);
+            return;
+        }
+    }
+}
+
+size_t lat_registro_cantidad(void) {
+    size_t n = 0;
+    for (EntradaRegistro* e = g_registro; e; e = e->sig) n++;
+    return n;
+}
+
+void lat_raices_empujar(LatValor** raices, size_t cantidad) {
+    MarcoRaices* m = (MarcoRaices*)malloc(sizeof(MarcoRaices));
+    if (!m) return;
+    m->raices = raices;
+    m->cantidad = cantidad;
+    m->baseTemporales = g_numTemporales;
+    m->sig = g_raices;
+    g_raices = m;
+}
+
+void lat_raices_empujar_temporal(LatValor* celda) {
+    if (!celda) return;
+    if (g_numTemporales == g_capTemporales) {
+        size_t nueva = g_capTemporales ? g_capTemporales * 2 : 16;
+        LatValor** tmp = (LatValor**)realloc(g_temporales, nueva * sizeof(LatValor*));
+        if (!tmp) return;
+        g_temporales = tmp;
+        g_capTemporales = nueva;
+    }
+    g_temporales[g_numTemporales++] = celda;
+}
+
+void lat_raices_sacar_temporal(void) {
+    if (g_numTemporales > 0) g_numTemporales--;
+}
+
+void lat_raices_sacar(void) {
+    MarcoRaices* m = g_raices;
+    if (!m) return;
+    g_raices = m->sig;
+    g_numTemporales = m->baseTemporales;
+    free(m);
+}
+
+void lat_recoger(LatValor extra) {
+    if (g_limpiando) return;
+    /* Un barrido dentro de una llamada anidada no puede liberar temporales
+     * del llamador: p.ej. en f(g(), lat_cadena("x")) la cadena ya está
+     * evaluada pero no es raíz de ningún marco. Solo el marco más externo
+     * (main / sentencia de nivel superior) barre, y lo hace también en
+     * nombre de todos los marcos internos. */
+    if (!g_raices || g_raices->sig) return;
+    for (EntradaRegistro* e = g_registro; e; e = e->sig) e->marcado = 0;
+
+    for (MarcoRaices* m = g_raices; m; m = m->sig)
+        for (size_t i = 0; i < m->cantidad; i++)
+            if (m->raices[i]) marcar_valor(*m->raices[i]);
+
+    for (size_t i = 0; i < g_numTemporales; i++)
+        if (g_temporales[i]) marcar_valor(*g_temporales[i]);
+
+    marcar_valor(extra);
+
+    EntradaRegistro* supervivientes = NULL;
+    EntradaRegistro** cola = &supervivientes;
+    EntradaRegistro* e = g_registro;
+    while (e) {
+        EntradaRegistro* sig = e->sig;
+        if (e->marcado) {
+            *cola = e;
+            cola = &e->sig;
+        } else {
+            liberar_bloque_shallow(e->ptr, e->tipo);
+            free(e);
+        }
+        e = sig;
+    }
+    *cola = NULL;
+    g_registro = supervivientes;
+}
+
+void lat_liberar_todo(void) {
+    if (g_limpiando) return;
+    g_limpiando = 1;
+
+    /* Descolgar todo el registro antes de liberar: ninguna cascada puede
+     * reinsertar entradas y los ciclos no producen recursión infinita. */
+    EntradaRegistro* snapshot = g_registro;
+    g_registro = NULL;
+    while (snapshot) {
+        EntradaRegistro* e = snapshot;
+        snapshot = e->sig;
+        liberar_bloque_shallow(e->ptr, e->tipo);
+        free(e);
+    }
+
+    MarcoRaices* m = g_raices;
+    while (m) {
+        MarcoRaices* sig = m->sig;
+        free(m);
+        m = sig;
+    }
+    g_raices = NULL;
+    free(g_temporales);
+    g_temporales = NULL;
+    g_numTemporales = g_capTemporales = 0;
+    g_limpiando = 0;
+}
+
 LatValor lat_obj_nuevo(const char* clase) {
     LatObjeto* o = (LatObjeto*)malloc(sizeof(LatObjeto));
     if (!o) return lat_nulo();
@@ -423,6 +696,7 @@ LatValor lat_obj_nuevo(const char* clase) {
     o->clase = o->ascendencia[0];
     o->campos = dic_nuevo(0);
     o->metodos = dic_nuevo(0);
+    lat_registro_registrar(o, LAT_BLOQUE_OBJETO);
     LatValor v;
     v.tipo = LAT_OBJETO;
     v.como.objeto = o;
@@ -698,6 +972,7 @@ LatValor lat_concatenar(LatValor a, LatValor b) {
         sizeof(LatCadenaBloque) + na + nb + 1);
     if (!bloque) { free(sa); free(sb); return lat_nulo(); }
     bloque->refs = 1;
+    lat_registro_registrar(bloque, LAT_BLOQUE_CADENA);
     memcpy(bloque->datos, sa, na);
     memcpy(bloque->datos + na, sb, nb + 1);
     free(sa);
@@ -1285,7 +1560,10 @@ void lat_valor_liberar(LatValor v) {
             if (!v.como.cadena) break;
             LatCadenaBloque* b = cadena_encabezado(v.como.cadena);
             if (b->refs > 0) b->refs--;
-            if (b->refs == 0) free(b);
+            if (b->refs == 0) {
+                lat_registro_dar_de_baja(b);
+                free(b);
+            }
             break;
         }
         case LAT_LISTA: {
@@ -1295,6 +1573,7 @@ void lat_valor_liberar(LatValor v) {
             if (l->refs == 0) {
                 for (size_t i = 0; i < l->longitud; i++)
                     lat_valor_liberar(l->datos[i]);
+                lat_registro_dar_de_baja(l);
                 free(l->datos);
                 free(l);
             }
@@ -1309,6 +1588,7 @@ void lat_valor_liberar(LatValor v) {
                     free(d->claves[i]);
                     lat_valor_liberar(d->valores[i]);
                 }
+                lat_registro_dar_de_baja(d);
                 free(d->claves);
                 free(d->valores);
                 free(d);
@@ -1325,12 +1605,22 @@ void lat_valor_liberar(LatValor v) {
                 free(o->ascendencia);
                 liberar_dic(o->campos);
                 liberar_dic(o->metodos);
+                lat_registro_dar_de_baja(o);
                 free(o);
             }
             break;
         }
         case LAT_FUNCION:
             break;
+        case LAT_MODULO: {
+            LatModulo* mod = v.como.modulo;
+            if (!mod) break;
+            lat_registro_dar_de_baja(mod);
+            /* El handle dlopen/LoadLibrary no se cierra: descargar código que
+             * todavía puede ejecutarse durante el atexit es inseguro. */
+            free(mod);
+            break;
+        }
         default:
             break;
     }

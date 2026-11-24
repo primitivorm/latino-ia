@@ -33,6 +33,10 @@
 #include <llvm/IR/Module.h>
 #include <llvm/Support/raw_ostream.h>
 
+extern "C" {
+#include "latino.h"
+}
+
 #include "compiler_llvm.h"
 #include "invocador_llvm.h"
 #endif
@@ -373,6 +377,11 @@ int main(int argc, char** argv) {
             // los búferes de stdio, que _Exit (a diferencia de exit) no
             // vacía por sí solo -- en vez de dejar que continúe el
             // desenrollado normal de C++.
+            // PLAN_PERF: la ruta JIT sale con _Exit, que no ejecuta los
+            // handlers de atexit; liberar aquí los bloques supervivientes
+            // (idempotente, también cubre el caso de que ya se hiciera en
+            // el propio módulo JIT-eado).
+            lat_liberar_todo();
             std::fflush(nullptr);
             std::_Exit(codigoJit);
         }

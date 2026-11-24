@@ -1,0 +1,41 @@
+# Supresiones para tools/valgrind.sh.
+#
+# IMPORTANTE: estas supresiones SOLO cubren memoria "still reachable" de
+# bibliotecas de terceros (LLVM, glibc, loader). El gate usa
+# --errors-for-leak-kinds=definite,indirect, así que ninguna supresión puede
+# ocultar una fuga definite/indirect del runtime o del código generado.
+# No agregar supresiones para funciones lat_* ni para el compilador latino.
+
+{
+   llvm_estaticos_still_reachable
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   ...
+   fun:llvm::*
+}
+
+{
+   llvm_glibc_still_reachable
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   ...
+   fun:malloc
+   ...
+   fun:_ZN4llvm*
+}
+
+{
+   glibc_loader_still_reachable
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   ...
+   fun:_dl_init
+}
+
+{
+   glibc_tls_still_reachable
+   Memcheck:Leak
+   match-leak-kinds: reachable
+   ...
+   fun:__libc_setup_tls
+}

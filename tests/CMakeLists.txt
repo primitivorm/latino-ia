@@ -167,6 +167,25 @@ target_include_directories(test_runtime_ffi PRIVATE
 
 add_test(NAME test_runtime_ffi COMMAND test_runtime_ffi)
 
+# PLAN_PERF: contrato de memoria del runtime (registro, raices, temporales,
+# ciclos y lat_liberar_todo). Misma lista de fuentes que test_runtime_ffi: el
+# runtime completo, no solo runtime/latino.c.
+add_executable(test_runtime_memoria
+  test_runtime_memoria.cpp
+  ${CMAKE_SOURCE_DIR}/runtime/latino.c
+  ${CMAKE_SOURCE_DIR}/runtime/libs/cadena.c
+  ${CMAKE_SOURCE_DIR}/runtime/libs/dic.c
+  ${CMAKE_SOURCE_DIR}/runtime/libs/lista.c
+  ${CMAKE_SOURCE_DIR}/runtime/libs/paquete.c
+  ${CMAKE_SOURCE_DIR}/runtime/libs/mate.c
+  ${CMAKE_SOURCE_DIR}/runtime/libs/sis.c
+  ${CMAKE_SOURCE_DIR}/runtime/libs/archivo.c
+)
+target_include_directories(test_runtime_memoria PRIVATE
+  ${CMAKE_SOURCE_DIR}/runtime
+  ${CMAKE_SOURCE_DIR}/runtime/libs)
+add_test(NAME test_runtime_memoria COMMAND test_runtime_memoria)
+
 # Pruebas del runtime de rango y de su materialización en lista.
 add_executable(test_runtime_rango
   test_runtime_rango.cpp

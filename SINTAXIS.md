@@ -1063,3 +1063,32 @@ si
 sino
 osi
 ```
+
+## XIV. Apéndice: gestión automática de memoria
+
+El programador Latino **no libera memoria manualmente**. Cadenas, listas,
+diccionarios y objetos se asignan en el heap del runtime y se liberan de forma
+automática cuando dejan de ser alcanzables desde las variables vivas, los
+parámetros, los temporales de la sentencia en curso y el valor devuelto por un
+`retornar`. Los dos backends (C y LLVM) publican esas raíces al runtime y
+llaman a `lat_recoger` al final de cada sentencia y antes de cada retorno;
+`lat_liberar_todo` (registrado con `atexit`) actúa como red de seguridad al
+terminar el proceso, incluida la ruta `--jit`.
+
+La recolección es **shallow** (por bloque, sin cascada recursiva), por lo que
+tolera aliases y ciclos:
+
+```latino
+a = [nulo]
+b = [a]
+a[0] = b       # ciclo a -> b -> a: no produce recursión infinita
+```
+
+**Fuera de alcance en v1:** los ciclos no se recuperan mientras sus raíces
+sigan vivas (no hay un colector de ciclos); y `LAT_PUNTERO`, descrito en la
+sección XII, sigue siendo responsabilidad del programador porque es memoria
+nativa sin propiedad conocida por el runtime. Los valores `LAT_RANGO` son lazy
+y no poseen heap propio.
+
+Detalles, medición y gate reproducible en
+[input/PLAN_PERF.md](input/PLAN_PERF.md) y `tools/valgrind.sh`.

@@ -4,9 +4,12 @@
  * Define el tipo dinámico LatValor y las operaciones que el código generado por
  * el compilador (Fase 5) utiliza.
  *
- * Fase 19: El runtime usa conteo de referencias para cadenas, listas y
- * diccionarios.  Llama a lat_valor_retener/lat_valor_liberar al asignar o
- * descartar valores de heap para controlar el ciclo de vida de la memoria.
+ * Fase 19: El runtime incorporó conteo de referencias para cadenas, listas y
+ * diccionarios; PLAN_PERF conserva esas APIs para las bajas internas y las
+ * pruebas, pero el ciclo de vida del código generado se gestiona con el
+ * registro global de bloques y el barrido desde raíces descrito más abajo.
+ * lat_valor_retener no se usa en el código generado: no mezclar su propiedad
+ * con el barrido (este último ignora refs).
  */
 
 #ifndef LATINO_H
@@ -181,11 +184,55 @@ LatValor lat_limpiar(void);
 LatValor lat_error(LatValor v);
 LatValor lat_incluir(LatValor v);
 
-/* --- Gestión de memoria por conteo de referencias (Fase 19) --- */
+/* --- Gestión de memoria por conteo de referencias (Fase 19) ---
+ * APIs heredadas: lat_valor_liberar se usa en las bajas internas del runtime
+ * y en pruebas; lat_valor_retener queda por compatibilidad de ABI y no debe
+ * combinarse con el barrido de PLAN_PERF (que ignora el contador). */
 /* Incrementa el contador del valor heap; devuelve el mismo valor. */
 LatValor lat_valor_retener(LatValor v);
 /* Decrementa el contador; libera la memoria cuando llega a cero. */
 void     lat_valor_liberar(LatValor v);
+
+/* --- PLAN_PERF: registro global y recolección por raíces -------------
+ * El runtime registra aquí todo bloque heap que posee un LatValor. El código
+ * generado publica las celdas que siguen vivas (variables, parámetros y
+ * temporales de ámbito) y llama a lat_recoger al final de cada sentencia y
+ * antes de cada retorno. Los bloques inalcanzables se liberan de forma
+ * determinista; los supervivientes se liberan en lat_liberar_todo (atexit).
+ *
+ * No se registran LAT_RANGO (valor por copia), LAT_FUNCION (puntero a código)
+ * ni LAT_PUNTERO (memoria FFI, propiedad del programador). LAT_MODULO se
+ * registra solo para liberar el struct; el handle dlopen/LoadLibrary no se
+ * cierra automáticamente.
+ *
+ * Las funciones de raíces no son thread-safe: el runtime de Latino es de un
+ * solo hilo. Cada marco guarda un puntero al array de celdas que el código
+ * generado mantiene vivo mientras la función está en la pila.
+ */
+typedef enum {
+    LAT_BLOQUE_CADENA,
+    LAT_BLOQUE_LISTA,
+    LAT_BLOQUE_DIC,
+    LAT_BLOQUE_OBJETO,
+    LAT_BLOQUE_MODULO
+} LatBloqueTipo;
+
+void lat_registro_registrar(void* ptr, LatBloqueTipo tipo);
+void lat_registro_dar_de_baja(void* ptr);
+/* Solo para diagnóstico/pruebas: número de bloques vivos en el registro. */
+size_t lat_registro_cantidad(void);
+
+void lat_raices_empujar(LatValor** raices, size_t cantidad);
+void lat_raices_empujar_temporal(LatValor* celda);
+void lat_raices_sacar_temporal(void);
+void lat_raices_sacar(void);
+
+/* 'extra' es una referencia poseída por la sentencia que se está cerrando
+ * (normalmente el valor de un retorno). Puede ser lat_nulo(). */
+void lat_recoger(LatValor extra);
+
+/* Red de seguridad instalada con atexit; idempotente. */
+void lat_liberar_todo(void);
 
 /* --- Fase 26: argumentos de línea de comandos --- */
 extern int   lat_argc;

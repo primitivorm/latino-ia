@@ -211,6 +211,7 @@ LatValor lat_sis_args(void) {
     l->capacidad = (size_t)(n > 0 ? n : 1);
     l->datos     = (LatValor *)malloc(sizeof(LatValor) * l->capacidad);
     if (!l->datos) { free(l); return lat_nulo(); }
+    lat_registro_registrar(l, LAT_BLOQUE_LISTA);
     /* Omitir argv[0] (nombre del ejecutable); devolver solo los argumentos del usuario */
     for (int i = 1; i < n; i++)
         l->datos[l->longitud++] = lat_cadena(lat_argv[i]);

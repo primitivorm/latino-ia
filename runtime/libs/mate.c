@@ -34,6 +34,7 @@ static LatValor lista2(LatValor a, LatValor b) {
     l->longitud  = 2;
     l->datos = (LatValor *)malloc(sizeof(LatValor) * 2);
     if (!l->datos) { free(l); return lat_nulo(); }
+    lat_registro_registrar(l, LAT_BLOQUE_LISTA);
     l->datos[0] = a;
     l->datos[1] = b;
     LatValor v;

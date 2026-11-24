@@ -38,6 +38,7 @@ static LatLista *lista_nueva(size_t cap) {
     l->longitud  = 0;
     l->datos = (LatValor *)malloc(sizeof(LatValor) * l->capacidad);
     if (!l->datos) { free(l); return NULL; }
+    lat_registro_registrar(l, LAT_BLOQUE_LISTA);
     return l;
 }
 
@@ -297,6 +298,7 @@ LatValor lat_archivo_listar(LatValor ruta_v) {
     l->datos     = arr;
     l->longitud  = count;
     l->capacidad = cap;
+    lat_registro_registrar(l, LAT_BLOQUE_LISTA);
     LatValor v;
     v.tipo = LAT_LISTA;
     v.como.lista = l;

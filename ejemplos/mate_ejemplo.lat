@@ -45,7 +45,7 @@ escribir("mate.log(10) -> Logaritmo natural (base e): " .. mate.log(10))
 escribir("mate.log_base(100, 10) -> Logaritmo con base personalizada (base 10): " .. mate.log_base(100, 10))
 escribir("mate.log10(100) -> Logaritmo en base 10: " .. mate.log10(100))
 escribir("mate.log2(8) -> Logaritmo en base 2: " .. mate.log2(8))
-escribir("mate.log1p(0.000000000000001) -> Logaritmo natural de (1 + x) preciso para x cercana a 0: " .. mate.log1p(0.000000000000001))
+escribir("mate.log1p(0.01) -> Logaritmo natural de (1 + x) preciso para x cercana a 0: " .. mate.log1p(0.01))
 escribir("")
 
 escribir("--- 4. Funciones Trigonometricas y de Conversion ---")
@@ -122,7 +122,7 @@ escribir("mate.lgamma(5) -> Logaritmo natural del valor absoluto de Gamma: " .. 
 # mate.log_base(100, 10) -> Logaritmo con base personalizada (base 10): 2
 # mate.log10(100) -> Logaritmo en base 10: 2
 # mate.log2(8) -> Logaritmo en base 2: 3
-# mate.log1p(0.000000000000001) -> Logaritmo natural de (1 + x) preciso para x cercana a 0: 1e-15
+# mate.log1p(0.01) -> Logaritmo natural de (1 + x) preciso para x cercana a 0: 0.00995033085316808
 # --- 4. Funciones Trigonometricas y de Conversion ---
 # mate.radianes(180) -> Convierte grados a radianes: 3.14159265358979
 # mate.grados(mate.pi()) -> Convierte radianes a grados: 180

@@ -90,7 +90,19 @@ private:
     // Generación
     std::string genExpr(Expresion* e);
     void genSentencia(Sentencia* s);
+    void genSentenciaImpl(Sentencia* s);
     void genBloque(const ListaSent& cuerpo);
+
+    // PLAN_PERF: marco de raíces y cierre de ámbito con recolección.
+    // 'nombres' son variables C (ya con prefijo v_) que permanecen vivas
+    // durante toda la función; 'este' y 'lat_resto' se agregan si aplica.
+    // variablesGlobalesC contiene solo nombres con storage global real
+    // (globalesExplicitos también incluye nombres de función).
+    std::set<std::string> variablesGlobalesC;
+    void emitirMarcoRaices(const std::set<std::string>& nombres,
+                           bool conEste = false, bool conResto = false);
+    void emitirRetorno(const std::string& valorC);
+    void emitirRetornoNulo();
     void genFuncion(FuncionDef* f);
     void genClase(ClaseDef* c);
     void genEstructura(EstructuraDef* e);

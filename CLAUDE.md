@@ -69,11 +69,32 @@ escriben el objeto/`.c` temporal de cada compilación en una ruta fija
 el mismo archivo temporal entre sí y producen fallos aleatorios (hallazgo
 real de la Fase L11 de `PLAN_LLVM.md`).
 
+### Gate de memoria (Valgrind)
+
+`tools/valgrind.sh` compila ejemplos con los backends disponibles del build
+indicado y ejecuta cada binario bajo Valgrind con
+`--errors-for-leak-kinds=definite,indirect --error-exitcode=99`:
+
+```bash
+cmake -S . -B build-valgrind -DCMAKE_BUILD_TYPE=Debug -DLATINO_LLVM_BACKEND=OFF
+cmake --build build-valgrind -j 4
+tools/valgrind.sh                                   # ejemplos curados, backend C
+BUILD=build-llvm tools/valgrind.sh                  # C + LLVM (si está habilitado)
+BACKEND=llvm BUILD=build-llvm tools/valgrind.sh     # solo LLVM
+tools/valgrind.sh ejemplos/hola.lat --estres 10000  # caso concreto + estrés
+tools/valgrind.sh --build                           # configura/compila antes
+```
+
+El script no usa `--trace-children` (no instrumenta a `gcc`/`clang`) y carga
+las supresiones de `tests/valgrind.supp`, que cubren solo *still reachable* de
+LLVM/glibc, nunca fugas del runtime. Ver `input/PLAN_PERF.md`.
+
 Suites de prueba disponibles:
 
 | Suite | Qué cubre |
 |---|---|
 | `test_runtime_rango` | Valor runtime lazy `rango`, conversión `lista.a_lista` y errores de entrada/materialización |
+| `test_runtime_memoria` | Contrato de memoria del runtime (PLAN_PERF): registro de bloques, raíces, temporales, ciclos y `lat_liberar_todo` |
 | `test_lexer` | Tokenización |
 | `test_parser` | Árbol AST |
 | `test_ast` | Nodos del AST |
@@ -275,7 +296,8 @@ orden de descarga de la DLL) — mitigado con `fflush(nullptr)` +
 `std::_Exit()` inmediatamente después de `ejecutarJit`. Verificado con los
 27 ejemplos con `#salida:`: salida y código de salida idénticos a
 `--backend c`, sin archivos intermedios, sin crashes; 44 suites de CTest
-siguen pasando. L11 completa: la suite de CTest pasó de 44 a 80 pruebas —
+siguen pasando. L11 completa: la suite de CTest pasó de 44 a 80 pruebas en el build sin LLVM
+(140 con LLVM habilitado, que agrega las variantes `_llvm`) —
 `tests/test_e2e.cpp`/`tests/test_harness.h` aceptan un backend opcional
 (`c`/`llvm`) y `tests/CMakeLists.txt` registra una variante `_llvm` de cada
 prueba E2E y de cada suite de librería/POO/funciones base/módulos,
