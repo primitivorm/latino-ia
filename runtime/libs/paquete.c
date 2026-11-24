@@ -43,6 +43,7 @@ LatValor lat_paquete_cargar(LatValor ruta_v) {
 
     LatModulo* mod = (LatModulo*)malloc(sizeof(LatModulo));
     if (!mod) { cerrar_lib(h); return lat_nulo(); }
+    lat_registro_registrar(mod, LAT_BLOQUE_MODULO);
     mod->handle = (void*)h;
 
     LatValor v;

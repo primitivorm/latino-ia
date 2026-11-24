@@ -142,6 +142,47 @@ std::string GeneradorC::nuevoTemp() {
     return "_t" + std::to_string(contadorTemp++);
 }
 
+void GeneradorC::emitirMarcoRaices(const std::set<std::string>& nombres,
+                                   bool conEste, bool conResto) {
+    std::vector<std::string> raices;
+    for (const std::string& n : nombres) raices.push_back("&" + n);
+    if (conEste) raices.push_back("&este");
+    if (conResto) raices.push_back("&lat_resto");
+
+    if (raices.empty()) {
+        emitir("LatValor* _raices[1] = { 0 };");
+        emitir("lat_raices_empujar(_raices, 0);");
+        return;
+    }
+    std::string lista;
+    for (const std::string& r : raices) {
+        if (!lista.empty()) lista += ", ";
+        lista += r;
+    }
+    emitir("LatValor* _raices[] = { " + lista + " };");
+    emitir("lat_raices_empujar(_raices, " + std::to_string(raices.size()) + ");");
+}
+
+void GeneradorC::emitirRetorno(const std::string& valorC) {
+    std::string t = nuevoTemp();
+    emitir("LatValor " + t + " = " + valorC + ";");
+    emitir("lat_recoger(" + t + ");");
+    emitir("lat_raices_sacar();");
+    emitir("return " + t + ";");
+}
+
+void GeneradorC::emitirRetornoNulo() {
+    emitirRetorno("lat_nulo()");
+}
+
+void GeneradorC::genSentencia(Sentencia* s) {
+    genSentenciaImpl(s);
+    /* Un 'retornar' ya cerró su marco y emitió el return; cualquier otra
+     * sentencia cierra aquí la vida de sus temporales. */
+    if (!dynamic_cast<Retornar*>(s))
+        emitir("lat_recoger(lat_nulo());");
+}
+
 void GeneradorC::recolectarFunciones(Programa& programa) {
     for (auto& s : programa.sentencias)
         if (auto* f = dynamic_cast<FuncionDef*>(s.get()))
@@ -378,6 +419,13 @@ void GeneradorC::genFuncionAnonima(FuncionAnonima* f, const std::string& nombreC
     for (const std::string& v : vars)
         emitir("LatValor " + GeneradorC::varC(v) + " = lat_nulo();");
 
+    std::set<std::string> raices;
+    for (const auto& p : f->parametros) raices.insert(GeneradorC::varC(p.nombre));
+    if (f->variadico) raices.insert("lat_resto");
+    for (const std::string& v : vars) raices.insert(GeneradorC::varC(v));
+    for (const std::string& g : variablesGlobalesC) raices.insert(GeneradorC::varC(g));
+    emitirMarcoRaices(raices);
+
     // Chequeos de tipo de parámetros anotados.
     for (const auto& p : f->parametros) {
         if (p.tipo != TipoAnotado::Ninguno) {
@@ -388,7 +436,7 @@ void GeneradorC::genFuncionAnonima(FuncionAnonima* f, const std::string& nombreC
     }
 
     genBloque(f->cuerpo);
-    emitir("return lat_nulo();");
+    emitirRetornoNulo();
 
     --indentacion;
     emitir("}");
@@ -879,7 +927,7 @@ std::string GeneradorC::genAsignacionDestino(Expresion* destino,
     return "/* destino de asignacion no soportado */;";
 }
 
-void GeneradorC::genSentencia(Sentencia* s) {
+void GeneradorC::genSentenciaImpl(Sentencia* s) {
     // incluir "nombre" — registra la librería para que el preámbulo emita #include.
     // El archivo .lat ya fue expandido por main.cpp antes de llegar aquí.
     if (auto* inc = dynamic_cast<Incluir*>(s)) {
@@ -950,6 +998,7 @@ void GeneradorC::genSentencia(Sentencia* s) {
     if (auto* el = dynamic_cast<Elegir*>(s)) {
         std::string sw = nuevoTemp();
         emitir("LatValor " + sw + " = " + genExpr(el->opcion.get()) + ";");
+        emitir("lat_raices_empujar_temporal(&" + sw + ");");
         bool primero = true;
         for (auto& c : el->casos) {
             std::string cond =
@@ -975,6 +1024,7 @@ void GeneradorC::genSentencia(Sentencia* s) {
         } else {
             emitir("(void)" + sw + ";");
         }
+        emitir("lat_raices_sacar_temporal();");
         return;
     }
     if (auto* de = dynamic_cast<Desde*>(s)) {
@@ -992,6 +1042,8 @@ void GeneradorC::genSentencia(Sentencia* s) {
         std::string actual = nuevoTemp();
         emitir("LatValor " + rango + " = " + genExpr(pa->iterable.get()) + ";");
         emitir("LatValor " + actual + " = lat_rango_inicio(" + rango + ");");
+        emitir("lat_raices_empujar_temporal(&" + rango + ");");
+        emitir("lat_raices_empujar_temporal(&" + actual + ");");
         emitir("while (lat_rango_contiene(" + rango + ", " + actual + ")) {");
         ++indentacion;
         emitir(GeneradorC::varC(pa->variable) + " = " + actual + ";");
@@ -999,6 +1051,8 @@ void GeneradorC::genSentencia(Sentencia* s) {
         emitir(actual + " = lat_rango_siguiente(" + rango + ", " + actual + ");");
         --indentacion;
         emitir("}");
+        emitir("lat_raices_sacar_temporal();");
+        emitir("lat_raices_sacar_temporal();");
         return;
     }
     if (auto* mi = dynamic_cast<Mientras*>(s)) {
@@ -1041,16 +1095,17 @@ void GeneradorC::genSentencia(Sentencia* s) {
         return;
     }
     if (dynamic_cast<Romper*>(s)) {
+        emitir("lat_recoger(lat_nulo());");
         emitir("break;");
         return;
     }
     if (auto* rt = dynamic_cast<Retornar*>(s)) {
         if (rt->valores.empty()) {
-            emitir("return lat_nulo();");
+            emitirRetornoNulo();
             return;
         }
         if (rt->valores.size() == 1) {
-            emitir("return " + genExpr(rt->valores[0].get()) + ";");
+            emitirRetorno(genExpr(rt->valores[0].get()));
             return;
         }
         // Múltiples valores de retorno (estilo Go): empaquetar en una lista.
@@ -1064,8 +1119,8 @@ void GeneradorC::genSentencia(Sentencia* s) {
         emitir("LatValor " + arr + "[" + std::to_string(temps.size()) + "];");
         for (size_t i = 0; i < temps.size(); i++)
             emitir(arr + "[" + std::to_string(i) + "] = " + temps[i] + ";");
-        emitir("return lat_lista_de_args(" + std::to_string(temps.size()) + ", " +
-               arr + ");");
+        emitirRetorno("lat_lista_de_args(" + std::to_string(temps.size()) + ", " +
+                      arr + ")");
         return;
     }
     // PLAN_FFI.md (F5): "inseguro" es puramente un marcador estático (F4 ya
@@ -1102,6 +1157,13 @@ void GeneradorC::genFuncion(FuncionDef* f) {
     for (const std::string& v : vars)
         emitir("LatValor " + GeneradorC::varC(v) + " = lat_nulo();");
 
+    std::set<std::string> raices;
+    for (const auto& p : f->parametros) raices.insert(GeneradorC::varC(p.nombre));
+    if (f->variadico) raices.insert("lat_resto");
+    for (const std::string& v : vars) raices.insert(GeneradorC::varC(v));
+    for (const std::string& g : variablesGlobalesC) raices.insert(GeneradorC::varC(g));
+    emitirMarcoRaices(raices);
+
     std::set<std::string> genericosFn;
     for (const auto& g : f->genericos) genericosFn.insert(g.nombre);
 
@@ -1115,7 +1177,7 @@ void GeneradorC::genFuncion(FuncionDef* f) {
     }
 
     genBloque(f->cuerpo);
-    emitir("return lat_nulo();");
+    emitirRetornoNulo();
 
     --indentacion;
     emitir("}");
@@ -1138,6 +1200,12 @@ void GeneradorC::genFuncion(FuncionDef* f) {
         emitir("LatValor lat_resto = " + expr + ";");
     }
 
+    std::set<std::string> raicesWrapper;
+    for (const auto& p : f->parametros) raicesWrapper.insert(GeneradorC::varC(p.nombre));
+    if (f->variadico) raicesWrapper.insert("lat_resto");
+    for (const std::string& g : variablesGlobalesC) raicesWrapper.insert(GeneradorC::varC(g));
+    emitirMarcoRaices(raicesWrapper);
+
     std::string callArgs;
     for (size_t i = 0; i < f->parametros.size(); ++i) {
         if (!callArgs.empty()) callArgs += ", ";
@@ -1147,7 +1215,7 @@ void GeneradorC::genFuncion(FuncionDef* f) {
         if (!callArgs.empty()) callArgs += ", ";
         callArgs += "lat_resto";
     }
-    emitir("return " + directName + "(" + callArgs + ");");
+    emitirRetorno(directName + "(" + callArgs + ")");
     --indentacion;
     emitir("}");
     emitir("");
@@ -1181,6 +1249,12 @@ void GeneradorC::genMetodo(const std::string& claseNombre, MetodoDef* metodo,
     for (const std::string& v : vars)
         emitir("LatValor " + GeneradorC::varC(v) + " = lat_nulo();");
 
+    std::set<std::string> raices;
+    for (const auto& p : metodo->parametros) raices.insert(GeneradorC::varC(p.nombre));
+    for (const std::string& v : vars) raices.insert(GeneradorC::varC(v));
+    for (const std::string& g : variablesGlobalesC) raices.insert(GeneradorC::varC(g));
+    emitirMarcoRaices(raices, !metodo->esEstatico);
+
     std::set<std::string> genericosMetodo;
     for (const auto& g : metodo->genericos) genericosMetodo.insert(g.nombre);
     if (auto itClase = clases.find(claseNombre); itClase != clases.end())
@@ -1206,7 +1280,7 @@ void GeneradorC::genMetodo(const std::string& claseNombre, MetodoDef* metodo,
         actualClase = anteriorClase;
         actualPadre = anteriorPadre;
     }
-    emitir("return lat_nulo();");
+    emitirRetornoNulo();
 
     --indentacion;
     emitir("}");
@@ -1215,7 +1289,10 @@ void GeneradorC::genMetodo(const std::string& claseNombre, MetodoDef* metodo,
     emitir("static LatValor " + moduloName + "(int nargs, LatValor* args) {");
     ++indentacion;
     if (metodo->esEstatico) {
-        emitir("return " + directName + "(nargs, args);");
+        std::set<std::string> raicesWrapper;
+        for (const std::string& g : variablesGlobalesC) raicesWrapper.insert(GeneradorC::varC(g));
+        emitirMarcoRaices(raicesWrapper);
+        emitirRetorno(directName + "(nargs, args)");
     } else {
         emitir("LatValor este = (nargs > 0) ? args[0] : lat_nulo();");
         for (size_t i = 0; i < metodo->parametros.size(); ++i) {
@@ -1224,11 +1301,15 @@ void GeneradorC::genMetodo(const std::string& claseNombre, MetodoDef* metodo,
             std::string expr = "(nargs > " + idx + ") ? args[" + idx + "] : lat_nulo()";
             emitir("LatValor " + GeneradorC::varC(p.nombre) + " = " + expr + ";");
         }
+        std::set<std::string> raicesWrapper;
+        for (const auto& p : metodo->parametros) raicesWrapper.insert(GeneradorC::varC(p.nombre));
+        for (const std::string& g : variablesGlobalesC) raicesWrapper.insert(GeneradorC::varC(g));
+        emitirMarcoRaices(raicesWrapper, true);
         std::string callArgs = "este";
         for (size_t i = 0; i < metodo->parametros.size(); ++i) {
             callArgs += ", " + GeneradorC::varC(metodo->parametros[i].nombre);
         }
-        emitir("return " + directName + "(" + callArgs + ");");
+        emitirRetorno(directName + "(" + callArgs + ")");
     }
     --indentacion;
     emitir("}");
@@ -1294,14 +1375,18 @@ void GeneradorC::generarCuerpo(Programa& programa) {
     // Prototipos de métodos de clases y estructuras.
     for (auto& [nombre, c] : clases) {
         for (const MetodoDef& m : c->metodos) {
-            std::string firma = firmaPrototipoMetodo(!m.esEstatico, m.parametros);
+            std::string firma = m.esEstatico
+                                ? "int nargs, LatValor* args"
+                                : firmaPrototipoMetodo(true, m.parametros);
             emitir("static LatValor " + funC(nombre + "_" + m.nombre) + "(" + firma + ");");
             hayFunciones = true;
         }
     }
     for (auto& [nombre, e] : estructuras) {
         for (const MetodoDef& m : e->metodos) {
-            std::string firma = firmaPrototipoMetodo(!m.esEstatico, m.parametros);
+            std::string firma = m.esEstatico
+                                ? "int nargs, LatValor* args"
+                                : firmaPrototipoMetodo(true, m.parametros);
             emitir("static LatValor " + funC(nombre + "_" + m.nombre) + "(" + firma + ");");
             hayFunciones = true;
         }
@@ -1322,6 +1407,7 @@ void GeneradorC::generarCuerpo(Programa& programa) {
     // orden de sentencias que antes -- solo cambia dónde vive el storage.
     std::set<std::string> vars;
     recolectarVariables(programa.sentencias, vars, {});
+    variablesGlobalesC = vars;
     for (const std::string& v : vars)
         emitir("static LatValor " + GeneradorC::varC(v) + ";");
     if (!vars.empty()) emitir("");
@@ -1355,6 +1441,10 @@ void GeneradorC::generarCuerpo(Programa& programa) {
     ++indentacion;
     emitir("lat_set_args(argc, argv);");
 
+    std::set<std::string> raicesMain;
+    for (const std::string& v : vars) raicesMain.insert(GeneradorC::varC(v));
+    emitirMarcoRaices(raicesMain);
+
     for (auto& s : programa.sentencias)
         if (!dynamic_cast<FuncionDef*>(s.get()))
             genSentencia(s.get());  // genSentencia ignora Incluir internamente
@@ -1369,6 +1459,8 @@ void GeneradorC::generarCuerpo(Programa& programa) {
         }
     }
 
+    emitir("lat_recoger(lat_nulo());");
+    emitir("lat_raices_sacar();");
     emitir("return 0;");
     --indentacion;
     emitir("}");

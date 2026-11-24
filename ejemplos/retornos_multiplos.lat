@@ -35,3 +35,12 @@ escribir(v)         // nulo
 // Retornar sin valor da nulo
 n = sin_retorno()
 escribir(n)         // nulo
+
+#salida:
+#3.33333333333333
+#1
+#42
+#[3.33333333333333, 1]
+#14
+#nulo
+#nulo

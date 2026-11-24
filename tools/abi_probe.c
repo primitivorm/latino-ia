@@ -274,6 +274,14 @@ void lat_abi_referenciar_todo(void) {
     (void)lat_sis_usuario;
     (void)lat_sumar;
     (void)lat_tipo;
+    (void)lat_liberar_todo;
+    (void)lat_raices_empujar;
+    (void)lat_raices_empujar_temporal;
+    (void)lat_raices_sacar;
+    (void)lat_raices_sacar_temporal;
+    (void)lat_recoger;
+    (void)lat_registro_dar_de_baja;
+    (void)lat_registro_registrar;
     (void)lat_valor_liberar;
     (void)lat_valor_retener;
     (void)lat_verificar_tipo;

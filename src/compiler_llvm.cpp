@@ -943,12 +943,72 @@ bool bloqueTerminado(llvm::IRBuilder<>& builder) {
 }
 }  // namespace
 
+// PLAN_PERF: celda compartida por todas las llamadas a lat_recoger de una
+// función. Se crea en el entry block para que un bucle no apile allocas.
+llvm::Value* GeneradorLLVM::celdaRecogerNulo(llvm::Function* fn, llvm::Module& modulo) {
+    // Sin caché entre funciones: los módulos de prueba se destruyen y una
+    // Function nueva puede reutilizar la dirección de una anterior. Crear la
+    // celda siempre en el entry block (nunca dentro de un bucle) es seguro y
+    // barato: el compilador C hace exactamente lo mismo con un temporal.
+    llvm::BasicBlock& entrada = fn->getEntryBlock();
+    llvm::IRBuilder<> entryBuilder(&entrada, entrada.begin());
+    llvm::Value* celda = entryBuilder.CreateAlloca(abi_->tipoLatValor(), nullptr, "recoger_nulo");
+    llvm::Function* fnNulo = abi_->declarar(modulo, "lat_nulo");
+    entryBuilder.CreateCall(fnNulo, {celda});
+    return celda;
+}
+
+void GeneradorLLVM::emitirMarcoRaices(llvm::IRBuilder<>& builder, llvm::Module& modulo,
+                                      const std::vector<llvm::Value*>& celdas) {
+    llvm::PointerType* tipoPuntero = llvm::PointerType::get(*contexto_, 0);
+    size_t n = celdas.size();
+    llvm::Value* arreglo =
+        builder.CreateAlloca(tipoPuntero, builder.getInt64(n ? n : 1), "_raices");
+    for (size_t i = 0; i < n; ++i) {
+        llvm::Value* slot = builder.CreateGEP(tipoPuntero, arreglo, builder.getInt64(i), "raiz");
+        builder.CreateStore(celdas[i], slot);
+    }
+    if (n == 0) {
+        llvm::Value* slot = builder.CreateGEP(tipoPuntero, arreglo, builder.getInt64(0), "raiz");
+        builder.CreateStore(llvm::ConstantPointerNull::get(tipoPuntero), slot);
+    }
+    llvm::Function* fn = abi_->declarar(modulo, "lat_raices_empujar");
+    builder.CreateCall(fn, {arreglo, builder.getInt64(n)});
+}
+
+void GeneradorLLVM::emitirSacarRaices(llvm::IRBuilder<>& builder, llvm::Module& modulo) {
+    llvm::Function* fn = abi_->declarar(modulo, "lat_raices_sacar");
+    builder.CreateCall(fn, {});
+}
+
+void GeneradorLLVM::emitirRecoger(llvm::IRBuilder<>& builder, llvm::Module& modulo,
+                                  llvm::Value* celda) {
+    llvm::Function* fn = abi_->declarar(modulo, "lat_recoger");
+    builder.CreateCall(fn, {celda});
+}
+
+void GeneradorLLVM::emitirRecogerNulo(llvm::IRBuilder<>& builder, llvm::Module& modulo) {
+    emitirRecoger(builder, modulo, celdaRecogerNulo(builder.GetInsertBlock()->getParent(), modulo));
+}
+
+void GeneradorLLVM::emitirTemporal(llvm::IRBuilder<>& builder, llvm::Module& modulo,
+                                   llvm::Value* celda) {
+    llvm::Function* fn = abi_->declarar(modulo, "lat_raices_empujar_temporal");
+    builder.CreateCall(fn, {celda});
+}
+
+void GeneradorLLVM::emitirSacarTemporal(llvm::IRBuilder<>& builder, llvm::Module& modulo) {
+    llvm::Function* fn = abi_->declarar(modulo, "lat_raices_sacar_temporal");
+    builder.CreateCall(fn, {});
+}
+
 void GeneradorLLVM::genBloque(const ListaSent& cuerpo, llvm::IRBuilder<>& builder, llvm::Module& modulo,
                               const std::unordered_map<std::string, llvm::Value*>& variables) {
     for (const auto& s : cuerpo) {
         if (!s) continue;
         if (bloqueTerminado(builder)) break;
         genSentencia(*s, builder, modulo, variables);
+        if (!bloqueTerminado(builder)) emitirRecogerNulo(builder, modulo);
     }
 }
 
@@ -1014,6 +1074,7 @@ void GeneradorLLVM::genSentencia(Sentencia& s, llvm::IRBuilder<>& builder, llvm:
         // constantes de compilación.
         llvm::Value* opcion = genExpr(*el->opcion, builder, modulo, variables);
         if (!opcion) return;
+        emitirTemporal(builder, modulo, opcion);  // vive hasta el fin de elegir
 
         llvm::Function* fnActual = builder.GetInsertBlock()->getParent();
         llvm::BasicBlock* bloqueMerge = llvm::BasicBlock::Create(*contexto_, "elegir_fin", fnActual);
@@ -1050,6 +1111,7 @@ void GeneradorLLVM::genSentencia(Sentencia& s, llvm::IRBuilder<>& builder, llvm:
         if (!bloqueTerminado(builder)) builder.CreateBr(bloqueMerge);
 
         builder.SetInsertPoint(bloqueMerge);
+        emitirSacarTemporal(builder, modulo);
         return;
     }
     if (auto* mi = dynamic_cast<Mientras*>(&s)) {
@@ -1123,9 +1185,19 @@ void GeneradorLLVM::genSentencia(Sentencia& s, llvm::IRBuilder<>& builder, llvm:
         llvm::Function* fnSiguiente = abi_->declarar(modulo, "lat_rango_siguiente");
         if (!fnInicio || !fnContiene || !fnSiguiente) return;
 
+        // PLAN_PERF: estas celdas se publican como raíces temporales antes de
+        // que el bucle las escriba (siguiente solo se llena en el latch). Un
+        // LatValor sin inicializar hace que marcar_valor lea un tipo basura,
+        // detectado por Valgrind en ejemplos/rango.lat con --backend llvm.
+        llvm::Function* fnNulo = abi_->declarar(modulo, "lat_nulo");
         llvm::Value* actual = builder.CreateAlloca(tipoLatValor, nullptr, "para_actual");
         llvm::Value* siguiente = builder.CreateAlloca(tipoLatValor, nullptr, "para_incremento");
+        builder.CreateCall(fnNulo, {actual});
+        builder.CreateCall(fnNulo, {siguiente});
         builder.CreateCall(fnInicio, {actual, rango});
+        emitirTemporal(builder, modulo, rango);
+        emitirTemporal(builder, modulo, actual);
+        emitirTemporal(builder, modulo, siguiente);
 
         llvm::Function* fnActual = builder.GetInsertBlock()->getParent();
         llvm::BasicBlock* bloqueHeader =
@@ -1156,6 +1228,9 @@ void GeneradorLLVM::genSentencia(Sentencia& s, llvm::IRBuilder<>& builder, llvm:
         builder.CreateBr(bloqueHeader);
 
         builder.SetInsertPoint(bloqueSalida);
+        emitirSacarTemporal(builder, modulo);
+        emitirSacarTemporal(builder, modulo);
+        emitirSacarTemporal(builder, modulo);
         return;
     }
     if (auto* re = dynamic_cast<Repetir*>(&s)) {
@@ -1185,6 +1260,7 @@ void GeneradorLLVM::genSentencia(Sentencia& s, llvm::IRBuilder<>& builder, llvm:
         return;
     }
     if (dynamic_cast<Romper*>(&s)) {
+        emitirRecogerNulo(builder, modulo);
         if (!pilaSalidasBucle_.empty()) builder.CreateBr(pilaSalidasBucle_.back());
         // Sin bucle contenedor: no debería ocurrir (ver comentario en el
         // header); no hay nada seguro que emitir aquí.
@@ -1211,6 +1287,8 @@ void GeneradorLLVM::genSentencia(Sentencia& s, llvm::IRBuilder<>& builder, llvm:
             llvm::Function* fnLista = abi_->declarar(modulo, "lat_lista_de_args");
             builder.CreateCall(fnLista, {celdaRetorno_, builder.getInt64(vals.size()), arreglo});
         }
+        emitirRecoger(builder, modulo, celdaRetorno_);
+        emitirSacarRaices(builder, modulo);
         builder.CreateRetVoid();
         return;
     }
@@ -1345,6 +1423,14 @@ void GeneradorLLVM::genFuncion(FuncionDef& f, llvm::Module& modulo) {
     auto locales = declararLocales(nombresLocales, builder, modulo);
     for (auto& [nombre, celda] : locales) variables[nombre] = celda;  // sobrescribe, ver arriba
 
+    // PLAN_PERF: publicar todas las celdas vivas de esta invocación. Se
+    // incluyen las globales aunque estén sombreadas por un parámetro/local:
+    // una global puede ser la única referencia a un objeto.
+    std::vector<llvm::Value*> raices;
+    for (auto& [nombre, celda] : globales_) raices.push_back(celda);
+    for (auto& [nombre, celda] : variables) raices.push_back(celda);
+    emitirMarcoRaices(builder, modulo, raices);
+
     // Chequeos de tipo de parámetros anotados (tipado gradual, Fase 27) --
     // paridad con GeneradorC::genFuncion. PLAN_GENERICOS.md: un parámetro
     // tipado con el nombre de un genérico de 'f' (erasure) nunca recibe
@@ -1373,6 +1459,8 @@ void GeneradorLLVM::genFuncion(FuncionDef& f, llvm::Module& modulo) {
         // que siempre emite "return lat_nulo();" tras el cuerpo.
         llvm::Function* fnNulo = abi_->declarar(modulo, "lat_nulo");
         builder.CreateCall(fnNulo, {celdaRetorno});
+        emitirRecoger(builder, modulo, celdaRetorno);
+        emitirSacarRaices(builder, modulo);
         builder.CreateRetVoid();
     }
     celdaRetorno_ = anteriorRetorno;
@@ -1590,6 +1678,11 @@ void GeneradorLLVM::genFuncionAnonima(FuncionAnonima& f, llvm::Module& modulo) {
     auto locales = declararLocales(nombresLocales, builder, modulo);
     for (auto& [nombre, celda] : locales) variables[nombre] = celda;
 
+    std::vector<llvm::Value*> raices;
+    for (auto& [nombre, celda] : globales_) raices.push_back(celda);
+    for (auto& [nombre, celda] : variables) raices.push_back(celda);
+    emitirMarcoRaices(builder, modulo, raices);
+
     for (const auto& p : f.parametros) {
         if (p.tipo == TipoAnotado::Ninguno) continue;
         llvm::Function* fnVerificar = abi_->declarar(modulo, "lat_verificar_tipo");
@@ -1609,10 +1702,13 @@ void GeneradorLLVM::genFuncionAnonima(FuncionAnonima& f, llvm::Module& modulo) {
     if (!bloqueTerminado(builder)) {
         llvm::Function* fnNulo = abi_->declarar(modulo, "lat_nulo");
         if (!fnNulo) {
+            emitirSacarRaices(builder, modulo);
             celdaRetorno_ = anteriorRetorno;
             return;
         }
         builder.CreateCall(fnNulo, {celdaRetorno});
+        emitirRecoger(builder, modulo, celdaRetorno);
+        emitirSacarRaices(builder, modulo);
         builder.CreateRetVoid();
     }
     celdaRetorno_ = anteriorRetorno;
@@ -1649,6 +1745,10 @@ llvm::Function* GeneradorLLVM::obtenerWrapperFuncion(const std::string& nombre,
 
     llvm::StructType* tipoLatValor = abi_->tipoLatValor();
 
+    std::vector<llvm::Value*> raices;
+    for (auto& [nombre, celda] : globales_) raices.push_back(celda);
+    emitirMarcoRaices(builderWrapper, modulo, raices);
+
     // Preparar argumentos para la llamada a la función de usuario real.
     std::vector<llvm::Value*> argsUsuario{celdaRetorno};
 
@@ -1668,6 +1768,8 @@ llvm::Function* GeneradorLLVM::obtenerWrapperFuncion(const std::string& nombre,
     }
 
     builderWrapper.CreateCall(info.fn, argsUsuario);
+    emitirRecoger(builderWrapper, modulo, celdaRetorno);
+    emitirSacarRaices(builderWrapper, modulo);
     builderWrapper.CreateRetVoid();
 
     wrappersFuncion_[nombre] = wrapper;
@@ -1983,6 +2085,11 @@ void GeneradorLLVM::genMetodo(const std::string& claseNombre, MetodoDef& metodo,
     auto locales = declararLocales(nombresLocales, builder, modulo);
     for (auto& [nombre, celda] : locales) variables[nombre] = celda;  // sobrescribe, ver genFuncion
 
+    std::vector<llvm::Value*> raices;
+    for (auto& [nombre, celda] : globales_) raices.push_back(celda);
+    for (auto& [nombre, celda] : variables) raices.push_back(celda);  // incluye "este"
+    emitirMarcoRaices(builder, modulo, raices);
+
     // Chequeos de tipo de parámetros anotados -- paridad con
     // GeneradorC::genMetodo/genFuncion. PLAN_GENERICOS.md: erasure -- ver
     // comentario equivalente en GeneradorLLVM::genFuncion.
@@ -2016,6 +2123,8 @@ void GeneradorLLVM::genMetodo(const std::string& claseNombre, MetodoDef& metodo,
     if (!bloqueTerminado(builder)) {
         llvm::Function* fnNulo = abi_->declarar(modulo, "lat_nulo");
         builder.CreateCall(fnNulo, {celdaRetorno});
+        emitirRecoger(builder, modulo, celdaRetorno);
+        emitirSacarRaices(builder, modulo);
         builder.CreateRetVoid();
     }
     celdaRetorno_ = anteriorRetorno;
@@ -2144,6 +2253,10 @@ std::unique_ptr<llvm::Module> GeneradorLLVM::generar(Programa& programa) {
     // función/método), simplemente copiadas al 'variables' de este bloque.
     std::unordered_map<std::string, llvm::Value*> variables = globales_;
 
+    std::vector<llvm::Value*> raicesMain;
+    for (auto& [nombre, celda] : globales_) raicesMain.push_back(celda);
+    emitirMarcoRaices(builder, *modulo, raicesMain);
+
     genBloque(programa.sentencias, builder, *modulo, variables);
     if (!bloqueTerminado(builder) && funcionPrincipal) {
         auto itFuncion = funciones_.find(funcionPrincipal->nombre);
@@ -2175,8 +2288,13 @@ std::unique_ptr<llvm::Module> GeneradorLLVM::generar(Programa& programa) {
             builder.CreateCall(itFuncion->second.fn, argumentos);
         }
     }
-    if (!bloqueTerminado(builder))
+    if (!bloqueTerminado(builder)) {
+        emitirRecogerNulo(builder, *modulo);
+        emitirSacarRaices(builder, *modulo);
         builder.CreateRet(builder.getInt32(0));
+    }
+    // Si el programa terminó con un retornar en main (no debería: retornar
+    // solo es válido dentro de función), genSentencia ya cerró el marco.
 
     if (llvm::verifyModule(*modulo, &llvm::errs())) {
         // Indica un bug del propio generador -- los errores de sintaxis/

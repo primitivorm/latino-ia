@@ -177,6 +177,7 @@ LatValor lat_cadena_bytes(LatValor s) {
     lista->datos    = arr;
     lista->longitud = n;
     lista->capacidad = n;
+    lat_registro_registrar(lista, LAT_BLOQUE_LISTA);
     LatValor r;
     r.tipo = LAT_LISTA;
     r.como.lista = lista;
@@ -501,6 +502,7 @@ LatValor lat_cadena_separar(LatValor sv, LatValor delimv) {
     lista->datos    = arr;
     lista->longitud = count;
     lista->capacidad = count;
+    lat_registro_registrar(lista, LAT_BLOQUE_LISTA);
     LatValor r;
     r.tipo = LAT_LISTA;
     r.como.lista = lista;
@@ -631,6 +633,7 @@ LatValor lat_cadena_regexl(LatValor sv, LatValor patronv) {
     lista->datos    = arr;
     lista->longitud = count;
     lista->capacidad = cap;
+    lat_registro_registrar(lista, LAT_BLOQUE_LISTA);
     LatValor r;
     r.tipo = LAT_LISTA;
     r.como.lista = lista;
@@ -883,6 +886,7 @@ static char *plantilla_sustituir_interno(const char *plantilla, LatValor valores
                 lat_error(lat_cadena(msg)); /* termina el programa: no retorna */
             }
             free(nombre);
+            lat_valor_liberar(clave);
             p = q;
             continue;
         }

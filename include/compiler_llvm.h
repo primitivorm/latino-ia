@@ -496,6 +496,18 @@ private:
     // la global dentro de esa función/método, nunca la muta.
     std::unordered_map<std::string, llvm::Value*> globales_;
 
+    // PLAN_PERF: API de registro/raíces del runtime. Todas reciben el
+    // IRBuilder actual; el marco se empuja al entrar a una función y se saca
+    // en todos sus retornos (incluidos los implícitos).
+    llvm::Value* celdaRecogerNulo(llvm::Function* fn, llvm::Module& modulo);
+    void emitirMarcoRaices(llvm::IRBuilder<>& builder, llvm::Module& modulo,
+                           const std::vector<llvm::Value*>& celdas);
+    void emitirSacarRaices(llvm::IRBuilder<>& builder, llvm::Module& modulo);
+    void emitirRecoger(llvm::IRBuilder<>& builder, llvm::Module& modulo, llvm::Value* celda);
+    void emitirRecogerNulo(llvm::IRBuilder<>& builder, llvm::Module& modulo);
+    void emitirTemporal(llvm::IRBuilder<>& builder, llvm::Module& modulo, llvm::Value* celda);
+    void emitirSacarTemporal(llvm::IRBuilder<>& builder, llvm::Module& modulo);
+
     // Nombres declarados "global" a nivel superior (Asignacion::esGlobal,
     // ver recolectarGlobalesExplicitos) -- genFuncion/genMetodo los excluyen
     // del hoisting de locales (recolectarVariables) para que una asignación

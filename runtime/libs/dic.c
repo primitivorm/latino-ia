@@ -25,6 +25,7 @@ static LatLista *lista_nueva(size_t cap) {
     l->longitud  = 0;
     l->datos = (LatValor *)malloc(sizeof(LatValor) * l->capacidad);
     if (!l->datos) { free(l); return NULL; }
+    lat_registro_registrar(l, LAT_BLOQUE_LISTA);
     return l;
 }
 
@@ -125,6 +126,7 @@ static LatDic *dic_nuevo_local(size_t cap) {
     d->claves  = (char **)malloc(sizeof(char *) * d->capacidad);
     d->valores = (LatValor *)malloc(sizeof(LatValor) * d->capacidad);
     if (!d->claves || !d->valores) { free(d->claves); free(d->valores); free(d); return NULL; }
+    lat_registro_registrar(d, LAT_BLOQUE_DIC);
     return d;
 }
 

@@ -25,6 +25,32 @@ static int g_checks = 0;
         }                                                                      \
     } while (0)
 
+// El retorno ya no es "return expr;" directo: se materializa en un temporal
+// que se recoge antes de abandonar el marco de raíces. Comprueba ese patrón
+// sin depender del número de temporal asignado.
+static bool contieneRetornoDe(const std::string& c, const std::string& expr) {
+    const std::string agno = " = " + expr + ";";
+    size_t pos = c.find(agno);
+    while (pos != std::string::npos) {
+        size_t inicio = c.rfind('\n', pos) + 1;
+        size_t fin = c.find('\n', pos);
+        std::string linea = c.substr(inicio, fin - inicio);
+        size_t s = linea.find("LatValor ");
+        if (s != std::string::npos) {
+            s += 9;
+            size_t e = linea.find(" =", s);
+            if (e != std::string::npos) {
+                std::string tmp = linea.substr(s, e - s);
+                if (c.find("lat_recoger(" + tmp + ");") != std::string::npos &&
+                    c.find("return " + tmp + ";") != std::string::npos)
+                    return true;
+            }
+        }
+        pos = c.find(agno, pos + 1);
+    }
+    return false;
+}
+
 static std::string generar(const std::string& src) {
     Lexer lexer(src);
     Parser parser(lexer);
@@ -106,7 +132,7 @@ static void prueba_funcion() {
           "prototipo");
     CHECK(contiene(c, "static LatValor lat_fn_sumar(LatValor v_a, LatValor v_b) {"),
           "definicion");
-    CHECK(contiene(c, "return lat_sumar(v_a, v_b);"), "cuerpo del retorno");
+    CHECK(contieneRetornoDe(c, "lat_sumar(v_a, v_b)"), "cuerpo del retorno");
     CHECK(contiene(c, "v_r = lat_fn_sumar(lat_numero(2), lat_numero(3));"), "llamada");
 }
 
@@ -155,7 +181,7 @@ static void prueba_poo_gen_metodo() {
         "p = nuevo Persona()\n"
         "p.saludar()\n";
     std::string c = generar(src);
-    CHECK(contiene(c, "lat_obj_set_metodo(_t0, \"saludar\", lat_funcion_nueva(lat_fn_modulo_Persona_saludar));"),
+    CHECK(contiene(c, "\"saludar\", lat_funcion_nueva(lat_fn_modulo_Persona_saludar));"),
           "registro de método en la instancia");
     CHECK(contiene(c, "lat_obj_llamar_metodo(v_p, \"saludar\", 0)"),
           "llamada de método de objeto");
@@ -218,16 +244,17 @@ static void prueba_asignacion_multiple() {
 static void prueba_retornos_multiplos() {
     // Varios retornos: debe empaquetarse en lat_lista_de_args.
     std::string c = generar("funcion f()\n    retornar 1, 2\nfin\n");
-    CHECK(contiene(c, "return lat_lista_de_args(2,"), "varios retornos empaquetados");
+    CHECK(c.find(" = lat_lista_de_args(2,") != std::string::npos,
+          "varios retornos empaquetados");
 
     // Un solo retorno: no debe envolverse en una lista.
     c = generar("funcion g()\n    retornar 5\nfin\n");
-    CHECK(contiene(c, "return lat_numero(5);"), "un solo retorno sin envolver");
+    CHECK(contieneRetornoDe(c, "lat_numero(5)"), "un solo retorno sin envolver");
     CHECK(!contiene(c, "lat_lista_de_args"), "un solo retorno no usa lista");
 
     // Retornar sin valor: lat_nulo().
     c = generar("funcion h()\n    retornar\nfin\n");
-    CHECK(contiene(c, "return lat_nulo();"), "retornar sin valor");
+    CHECK(contieneRetornoDe(c, "lat_nulo()"), "retornar sin valor");
 
     // Asignación múltiple desde una llamada: se usa lat_desempaquetar_elem.
     c = generar("a, b = f()\n");

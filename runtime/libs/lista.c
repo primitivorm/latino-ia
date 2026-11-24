@@ -64,6 +64,7 @@ LatValor lat_lista_a_lista(LatValor valor) {
         free(lista);
         error_materializar_rango("no hay memoria para materializar el rango");
     }
+    lat_registro_registrar(lista, LAT_BLOQUE_LISTA);
 
     LatValor actual = lat_rango_inicio(valor);
     for (size_t i = 0; i < n; ++i) {
@@ -136,6 +137,7 @@ LatValor lat_lista_concatenar(LatValor l1v, LatValor l2v) {
     r->longitud  = total;
     r->datos     = (LatValor *)malloc(sizeof(LatValor) * r->capacidad);
     if (!r->datos) { free(r); return lat_nulo(); }
+    lat_registro_registrar(r, LAT_BLOQUE_LISTA);
 
     if (l1) memcpy(r->datos,      l1->datos, sizeof(LatValor) * n1);
     if (l2) memcpy(r->datos + n1, l2->datos, sizeof(LatValor) * n2);
@@ -172,6 +174,7 @@ LatValor lat_lista_crear(LatValor nv, LatValor v) {
     l->longitud  = (size_t)n;
     l->datos     = (LatValor *)malloc(sizeof(LatValor) * l->capacidad);
     if (!l->datos) { free(l); return lat_nulo(); }
+    lat_registro_registrar(l, LAT_BLOQUE_LISTA);
     for (int i = 0; i < n; i++) l->datos[i] = v;
 
     LatValor r;
@@ -321,6 +324,7 @@ LatValor lat_lista_unico(LatValor lv) {
     r->longitud  = 0;
     r->datos     = (LatValor *)malloc(sizeof(LatValor) * r->capacidad);
     if (!r->datos) { free(r); return lat_nulo(); }
+    lat_registro_registrar(r, LAT_BLOQUE_LISTA);
 
     for (size_t i = 0; i < n; i++) {
         int ya_esta = 0;
@@ -361,6 +365,7 @@ LatValor lat_lista_rebanada(LatValor lv, LatValor iniv, LatValor finv) {
     r->longitud  = tam;
     r->datos     = (LatValor *)malloc(sizeof(LatValor) * r->capacidad);
     if (!r->datos) { free(r); return lat_nulo(); }
+    lat_registro_registrar(r, LAT_BLOQUE_LISTA);
 
     if (tam > 0)
         memcpy(r->datos, src->datos + ini, sizeof(LatValor) * tam);
