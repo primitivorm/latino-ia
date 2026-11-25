@@ -263,12 +263,13 @@ void ImpresorAST::visitar(Romper&) {
 
 static std::string nombreTipoAst(TipoAnotado t) {
     switch (t) {
-        case TipoAnotado::Numero: return "numero";
-        case TipoAnotado::Cadena: return "cadena";
-        case TipoAnotado::Logico: return "logico";
-        case TipoAnotado::Lista:  return "lista";
-        case TipoAnotado::Dic:    return "dic";
-        case TipoAnotado::Nulo:   return "nulo";
+        case TipoAnotado::Numero:  return "numero";
+        case TipoAnotado::Cadena:  return "cadena";
+        case TipoAnotado::Logico:  return "logico";
+        case TipoAnotado::Lista:   return "lista";
+        case TipoAnotado::Dic:     return "dic";
+        case TipoAnotado::Nulo:    return "nulo";
+        case TipoAnotado::Arreglo: return "arreglo";
         default: return "";
     }
 }
@@ -349,15 +350,21 @@ static std::string accesoATexto(ModificadorAcceso a) {
 
 // Nombre del tipo anotado de un campo/retorno/parámetro POO, incluyendo el
 // nombre de clase cuando el tipo es un objeto definido por el usuario.
-static std::string tipoPooATexto(TipoAnotado t, const std::string& clase) {
+static std::string tipoPooATexto(TipoAnotado t, const std::string& clase,
+                                 TipoAnotado tipoElemento = TipoAnotado::Ninguno,
+                                 const std::string& claseElemento = "") {
     if (t == TipoAnotado::Objeto) return clase;
+    if (t == TipoAnotado::Arreglo) {
+        std::string el = tipoPooATexto(tipoElemento, claseElemento);
+        return el + "[]";
+    }
     return nombreTipoAst(t);
 }
 
 void ImpresorAST::campo(const CampoDef& c) {
     std::string firma = "Campo '" + c.nombre + "' [" + accesoATexto(c.acceso) + "]";
     if (c.esEstatico) firma += " [estatico]";
-    std::string tipo = tipoPooATexto(c.tipoAnotado, c.tipoClase);
+    std::string tipo = tipoPooATexto(c.tipoAnotado, c.tipoClase, c.tipoElemento, c.tipoElementoClase);
     if (!tipo.empty()) firma += ": " + tipo;
     linea(firma);
     if (c.valorDefecto) hijo(*c.valorDefecto);
@@ -368,11 +375,12 @@ void ImpresorAST::metodo(MetodoDef& m) {
     for (size_t i = 0; i < m.parametros.size(); ++i) {
         if (i) firma += ", ";
         firma += m.parametros[i].nombre;
-        std::string tipoParam = tipoPooATexto(m.parametros[i].tipo, m.parametros[i].tipoClase);
+        std::string tipoParam = tipoPooATexto(m.parametros[i].tipo, m.parametros[i].tipoClase,
+                                               m.parametros[i].tipoElemento, m.parametros[i].tipoElementoClase);
         if (!tipoParam.empty()) firma += ":" + tipoParam;
     }
     firma += ")";
-    std::string tipoRet = tipoPooATexto(m.tipoRetorno, m.tipoRetornoClase);
+    std::string tipoRet = tipoPooATexto(m.tipoRetorno, m.tipoRetornoClase, m.tipoRetornoElemento, m.tipoRetornoElementoClase);
     if (!tipoRet.empty()) firma += " -> " + tipoRet;
     if (m.esEstatico) firma += " [estatico]";
     if (m.esAbstracto) firma += " [abstracto]";

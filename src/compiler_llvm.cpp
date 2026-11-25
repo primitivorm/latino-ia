@@ -38,13 +38,14 @@ namespace {
 // de los valores de TipoAnotado tiene un LatTipo de runtime correspondiente.
 int tipoAnotadoALatTipo(TipoAnotado t) {
     switch (t) {
-        case TipoAnotado::Numero: return LAT_NUMERO;
-        case TipoAnotado::Cadena: return LAT_CADENA;
-        case TipoAnotado::Logico: return LAT_LOGICO;
-        case TipoAnotado::Lista:  return LAT_LISTA;
-        case TipoAnotado::Dic:    return LAT_DICCIONARIO;
-        case TipoAnotado::Nulo:   return LAT_NULO;
-        case TipoAnotado::Objeto: return LAT_OBJETO;
+        case TipoAnotado::Numero:  return LAT_NUMERO;
+        case TipoAnotado::Cadena:  return LAT_CADENA;
+        case TipoAnotado::Logico:  return LAT_LOGICO;
+        case TipoAnotado::Lista:   return LAT_LISTA;
+        case TipoAnotado::Dic:     return LAT_DICCIONARIO;
+        case TipoAnotado::Nulo:    return LAT_NULO;
+        case TipoAnotado::Objeto:  return LAT_OBJETO;
+        case TipoAnotado::Arreglo: return LAT_ARREGLO;
         default: return LAT_NULO;
     }
 }
@@ -633,6 +634,43 @@ llvm::Value* GeneradorLLVM::genExpr(Expresion& expr, llvm::IRBuilder<>& builder,
         return celda;
     }
     if (auto* n = dynamic_cast<NuevoExpr*>(&expr)) {
+        if (n->esArreglo) {
+            llvm::Function* fnArr = abi_->declarar(modulo, "lat_arreglo_nuevo");
+            llvm::Function* fnMulti = abi_->declarar(modulo, "lat_arreglo_nuevo_multi");
+            llvm::Function* fnAnum = abi_->declarar(modulo, "lat_anumero");
+            if (!fnArr || !fnAnum) return nullptr;
+            auto* i64Ty = llvm::Type::getInt64Ty(*contexto_);
+            auto tamAI64 = [&](Expresion* e) -> llvm::Value* {
+                llvm::Value* tamVal = genExpr(*e, builder, modulo, variables);
+                if (!tamVal) return llvm::ConstantInt::get(i64Ty, 0);
+                llvm::Value* tmpNum = builder.CreateAlloca(tipoLatValor, nullptr, "arreglo_tam");
+                builder.CreateCall(fnAnum, {tmpNum, tamVal});
+                llvm::Value* campoNum = builder.CreateStructGEP(tipoLatValor, tmpNum, 1, "arreglo_tam_union");
+                llvm::Value* dbl = builder.CreateLoad(llvm::Type::getDoubleTy(*contexto_), campoNum, "arreglo_tam_dbl");
+                return builder.CreateFPToUI(dbl, i64Ty, "arreglo_tam_i64");
+            };
+            llvm::Value* tipoEl = builder.getInt32(tipoAnotadoALatTipo(n->tipoElemento));
+            llvm::Value* claseC = builder.CreateGlobalStringPtr(
+                n->tipoElemento == TipoAnotado::Objeto ? n->tipoElementoClase : "", "arreglo_clase", 0, &modulo);
+            llvm::Value* celda = builder.CreateAlloca(tipoLatValor, nullptr, "arreglo_nuevo");
+            if (n->tamanosArreglo.size() > 1 && fnMulti) {
+                auto* arrTy = llvm::ArrayType::get(i64Ty, n->tamanosArreglo.size());
+                llvm::Value* dimsAlloca = builder.CreateAlloca(arrTy, nullptr, "dims_arr");
+                for (size_t i = 0; i < n->tamanosArreglo.size(); i++) {
+                    llvm::Value* slot = builder.CreateInBoundsGEP(arrTy, dimsAlloca,
+                        {llvm::ConstantInt::get(i64Ty, 0), llvm::ConstantInt::get(i64Ty, i)});
+                    builder.CreateStore(tamAI64(n->tamanosArreglo[i].get()), slot);
+                }
+                llvm::Value* dimsPtr = builder.CreateInBoundsGEP(arrTy, dimsAlloca,
+                    {llvm::ConstantInt::get(i64Ty, 0), llvm::ConstantInt::get(i64Ty, 0)});
+                builder.CreateCall(fnMulti, {celda, llvm::ConstantInt::get(i64Ty, n->tamanosArreglo.size()), dimsPtr, tipoEl, claseC});
+                return celda;
+            }
+            Expresion* tamExpr = !n->tamanosArreglo.empty() ? n->tamanosArreglo[0].get() : n->tamanoArreglo.get();
+            llvm::Value* tamI64 = tamAI64(tamExpr);
+            builder.CreateCall(fnArr, {celda, tamI64, tipoEl, claseC});
+            return celda;
+        }
         // (Fase L8) Mismo mapeo 1:1 que GeneradorC::genExpr(NuevoExpr) -- ver
         // el comentario de esta fase en compiler_llvm.h para el resumen del
         // algoritmo (ancestría + registro de campos/métodos + constructor).
@@ -874,9 +912,34 @@ void GeneradorLLVM::genAsignacion(
     };
 
     if (asign.destinos.size() == 1 && asign.valores.size() == 1) {
-        llvm::Value* val = genExpr(*asign.valores[0], builder, modulo, variables);
-        if (!val) return;
         TipoAnotado tipo = asign.tiposDestino.empty() ? TipoAnotado::Ninguno : asign.tiposDestino[0];
+        llvm::Value* val = nullptr;
+        // Azúcar: numero[] a = {1,2,3} -> lat_arreglo_de_args(...)
+        if (tipo == TipoAnotado::Arreglo) {
+            if (auto* lit = dynamic_cast<ListaLiteral*>(asign.valores[0].get())) {
+                TipoAnotado tipoEl = asign.tiposElementoDestino.empty() ? TipoAnotado::Ninguno : asign.tiposElementoDestino[0];
+                std::string claseEl = (tipoEl == TipoAnotado::Objeto && !asign.tiposElementoClaseDestino.empty())
+                                          ? asign.tiposElementoClaseDestino[0] : "";
+                llvm::Function* fnArrDe = abi_->declarar(modulo, "lat_arreglo_de_args");
+                if (fnArrDe) {
+                    std::vector<llvm::Value*> vals;
+                    for (auto& el : lit->elementos) {
+                        llvm::Value* v = genExpr(*el, builder, modulo, variables);
+                        if (!v) return;
+                        vals.push_back(v);
+                    }
+                    llvm::Value* arreglo = empaquetarLatValores(vals, builder, tipoLatValor);
+                    llvm::Value* celda = builder.CreateAlloca(tipoLatValor, nullptr, "arreglo_lit");
+                    llvm::Value* claseC = builder.CreateGlobalStringPtr(claseEl, "arreglo_clase", 0, &modulo);
+                    builder.CreateCall(fnArrDe, {celda, builder.getInt64(vals.size()),
+                                                 builder.getInt32(tipoAnotadoALatTipo(tipoEl)),
+                                                 claseC, arreglo});
+                    val = celda;
+                }
+            }
+        }
+        if (!val) val = genExpr(*asign.valores[0], builder, modulo, variables);
+        if (!val) return;
         std::string nombreVar;
         if (auto* id = dynamic_cast<Identificador*>(asign.destinos[0].get())) nombreVar = id->nombre;
         val = conVerificacionDeTipo(val, tipo, nombreVar, asign.linea);
@@ -1176,59 +1239,97 @@ void GeneradorLLVM::genSentencia(Sentencia& s, llvm::IRBuilder<>& builder, llvm:
         return;
     }
     if (auto* pa = dynamic_cast<Para*>(&s)) {
-        llvm::Value* rango = genExpr(*pa->iterable, builder, modulo, variables);
+        llvm::Value* iterable = genExpr(*pa->iterable, builder, modulo, variables);
         auto itVariable = variables.find(pa->variable);
-        if (!rango || itVariable == variables.end()) return;
+        if (!iterable || itVariable == variables.end()) return;
 
         llvm::Function* fnInicio = abi_->declarar(modulo, "lat_rango_inicio");
         llvm::Function* fnContiene = abi_->declarar(modulo, "lat_rango_contiene");
         llvm::Function* fnSiguiente = abi_->declarar(modulo, "lat_rango_siguiente");
-        if (!fnInicio || !fnContiene || !fnSiguiente) return;
-
-        // PLAN_PERF: estas celdas se publican como raíces temporales antes de
-        // que el bucle las escriba (siguiente solo se llena en el latch). Un
-        // LatValor sin inicializar hace que marcar_valor lea un tipo basura,
-        // detectado por Valgrind en ejemplos/rango.lat con --backend llvm.
+        llvm::Function* fnLongitud = abi_->declarar(modulo, "lat_longitud");
+        llvm::Function* fnObtenerIndice = abi_->declarar(modulo, "lat_obtener_indice");
         llvm::Function* fnNulo = abi_->declarar(modulo, "lat_nulo");
+        llvm::Function* fnNum = abi_->declarar(modulo, "lat_numero");
+        if (!fnInicio || !fnContiene || !fnSiguiente || !fnLongitud || !fnObtenerIndice || !fnNulo || !fnNum) return;
+
+        llvm::Function* fnActualFn = builder.GetInsertBlock()->getParent();
         llvm::Value* actual = builder.CreateAlloca(tipoLatValor, nullptr, "para_actual");
-        llvm::Value* siguiente = builder.CreateAlloca(tipoLatValor, nullptr, "para_incremento");
         builder.CreateCall(fnNulo, {actual});
-        builder.CreateCall(fnNulo, {siguiente});
-        builder.CreateCall(fnInicio, {actual, rango});
-        emitirTemporal(builder, modulo, rango);
+        emitirTemporal(builder, modulo, iterable);
         emitirTemporal(builder, modulo, actual);
-        emitirTemporal(builder, modulo, siguiente);
 
-        llvm::Function* fnActual = builder.GetInsertBlock()->getParent();
-        llvm::BasicBlock* bloqueHeader =
-            llvm::BasicBlock::Create(*contexto_, "para_header", fnActual);
-        llvm::BasicBlock* bloqueCuerpo =
-            llvm::BasicBlock::Create(*contexto_, "para_cuerpo", fnActual);
-        llvm::BasicBlock* bloqueLatch =
-            llvm::BasicBlock::Create(*contexto_, "para_siguiente", fnActual);
-        llvm::BasicBlock* bloqueSalida =
-            llvm::BasicBlock::Create(*contexto_, "para_fin", fnActual);
+        // Si es rango, usar protocolo de rango; si no, iterar por índice.
+        llvm::Value* tipoIterable = builder.CreateLoad(llvm::Type::getInt32Ty(*contexto_),
+                                                       builder.CreateStructGEP(tipoLatValor, iterable, 0));
+        llvm::Value* esRango = builder.CreateICmpEQ(tipoIterable, builder.getInt32(LAT_RANGO));
+        llvm::BasicBlock* bbRango = llvm::BasicBlock::Create(*contexto_, "para_rango", fnActualFn);
+        llvm::BasicBlock* bbIdx = llvm::BasicBlock::Create(*contexto_, "para_idx", fnActualFn);
+        llvm::BasicBlock* bbFin = llvm::BasicBlock::Create(*contexto_, "para_fin", fnActualFn);
+        builder.CreateCondBr(esRango, bbRango, bbIdx);
 
-        builder.CreateBr(bloqueHeader);
-        builder.SetInsertPoint(bloqueHeader);
-        llvm::Value* dentro = builder.CreateCall(fnContiene, {rango, actual}, "para_contiene");
-        builder.CreateCondBr(builder.CreateICmpNE(dentro, builder.getInt32(0)),
-                             bloqueCuerpo, bloqueSalida);
+        // --- Rango ---
+        builder.SetInsertPoint(bbRango);
+        {
+            llvm::Value* siguiente = builder.CreateAlloca(tipoLatValor, nullptr, "para_inc");
+            builder.CreateCall(fnNulo, {siguiente});
+            builder.CreateCall(fnInicio, {actual, iterable});
+            emitirTemporal(builder, modulo, siguiente);
+            llvm::BasicBlock* h = llvm::BasicBlock::Create(*contexto_, "para_header", fnActualFn);
+            llvm::BasicBlock* c = llvm::BasicBlock::Create(*contexto_, "para_cuerpo", fnActualFn);
+            llvm::BasicBlock* l = llvm::BasicBlock::Create(*contexto_, "para_siguiente", fnActualFn);
+            llvm::BasicBlock* rFin = llvm::BasicBlock::Create(*contexto_, "para_rfin", fnActualFn);
+            builder.CreateBr(h);
+            builder.SetInsertPoint(h);
+            llvm::Value* dentro = builder.CreateCall(fnContiene, {iterable, actual}, "para_contiene");
+            builder.CreateCondBr(builder.CreateICmpNE(dentro, builder.getInt32(0)), c, rFin);
+            builder.SetInsertPoint(c);
+            builder.CreateStore(builder.CreateLoad(tipoLatValor, actual), itVariable->second);
+            pilaSalidasBucle_.push_back(rFin);
+            genBloque(pa->cuerpo, builder, modulo, variables);
+            pilaSalidasBucle_.pop_back();
+            if (!bloqueTerminado(builder)) builder.CreateBr(l);
+            builder.SetInsertPoint(l);
+            builder.CreateCall(fnSiguiente, {siguiente, iterable, actual});
+            builder.CreateStore(builder.CreateLoad(tipoLatValor, siguiente), actual);
+            builder.CreateBr(h);
+            builder.SetInsertPoint(rFin);
+            emitirSacarTemporal(builder, modulo); // siguiente
+            builder.CreateBr(bbFin);
+        }
 
-        builder.SetInsertPoint(bloqueCuerpo);
-        builder.CreateStore(builder.CreateLoad(tipoLatValor, actual), itVariable->second);
-        pilaSalidasBucle_.push_back(bloqueSalida);
-        genBloque(pa->cuerpo, builder, modulo, variables);
-        pilaSalidasBucle_.pop_back();
-        if (!bloqueTerminado(builder)) builder.CreateBr(bloqueLatch);
+        // --- Índice (lista/arreglo/cadena/dic) ---
+        builder.SetInsertPoint(bbIdx);
+        {
+            llvm::Value* lenCelda = builder.CreateAlloca(tipoLatValor, nullptr, "para_len");
+            builder.CreateCall(fnLongitud, {lenCelda, iterable});
+            llvm::Value* lenDbl = builder.CreateLoad(llvm::Type::getDoubleTy(*contexto_),
+                                                     builder.CreateStructGEP(tipoLatValor, lenCelda, 1));
+            llvm::Value* lenI64 = builder.CreateFPToUI(lenDbl, llvm::Type::getInt64Ty(*contexto_), "para_len_i64");
+            llvm::Value* idx = builder.CreateAlloca(llvm::Type::getInt64Ty(*contexto_), nullptr, "para_i");
+            builder.CreateStore(llvm::ConstantInt::get(llvm::Type::getInt64Ty(*contexto_), 0), idx);
+            llvm::BasicBlock* h = llvm::BasicBlock::Create(*contexto_, "para_idx_h", fnActualFn);
+            llvm::BasicBlock* c = llvm::BasicBlock::Create(*contexto_, "para_idx_c", fnActualFn);
+            llvm::BasicBlock* l = llvm::BasicBlock::Create(*contexto_, "para_idx_l", fnActualFn);
+            builder.CreateBr(h);
+            builder.SetInsertPoint(h);
+            llvm::Value* iCur = builder.CreateLoad(llvm::Type::getInt64Ty(*contexto_), idx);
+            builder.CreateCondBr(builder.CreateICmpULT(iCur, lenI64), c, bbFin);
+            builder.SetInsertPoint(c);
+            llvm::Value* idxNum = builder.CreateAlloca(tipoLatValor, nullptr, "para_idx_num");
+            llvm::Value* iDbl = builder.CreateUIToFP(iCur, llvm::Type::getDoubleTy(*contexto_));
+            builder.CreateCall(fnNum, {idxNum, iDbl});
+            builder.CreateCall(fnObtenerIndice, {actual, iterable, idxNum});
+            builder.CreateStore(builder.CreateLoad(tipoLatValor, actual), itVariable->second);
+            pilaSalidasBucle_.push_back(bbFin);
+            genBloque(pa->cuerpo, builder, modulo, variables);
+            pilaSalidasBucle_.pop_back();
+            if (!bloqueTerminado(builder)) builder.CreateBr(l);
+            builder.SetInsertPoint(l);
+            builder.CreateStore(builder.CreateAdd(iCur, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*contexto_), 1)), idx);
+            builder.CreateBr(h);
+        }
 
-        builder.SetInsertPoint(bloqueLatch);
-        builder.CreateCall(fnSiguiente, {siguiente, rango, actual});
-        builder.CreateStore(builder.CreateLoad(tipoLatValor, siguiente), actual);
-        builder.CreateBr(bloqueHeader);
-
-        builder.SetInsertPoint(bloqueSalida);
-        emitirSacarTemporal(builder, modulo);
+        builder.SetInsertPoint(bbFin);
         emitirSacarTemporal(builder, modulo);
         emitirSacarTemporal(builder, modulo);
         return;

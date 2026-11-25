@@ -60,6 +60,15 @@ void Lexer::skipEspaciosYComentarios() {
     }
 }
 
+Token Lexer::verSiguiente() {
+    int pos = currentPosition;
+    int linea = currentLine;
+    Token t = getNextToken();
+    currentPosition = pos;
+    currentLine = linea;
+    return t;
+}
+
 Token Lexer::getNextToken() {
     skipEspaciosYComentarios();
 

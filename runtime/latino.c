@@ -322,6 +322,7 @@ LatValor lat_lista_de_args(size_t n, const LatValor* args) {
     return v;
 }
 
+
 static LatDic* dic_nuevo(size_t capacidad) {
     LatDic* d = (LatDic*)malloc(sizeof(LatDic));
     d->refs = 1;
@@ -466,6 +467,13 @@ static void liberar_bloque_shallow(void* ptr, LatBloqueTipo tipo) {
             free(l);
             break;
         }
+        case LAT_BLOQUE_ARREGLO: {
+            LatArreglo* a = (LatArreglo*)ptr;
+            free(a->datos);
+            free(a->clase_elemento);
+            free(a);
+            break;
+        }
         case LAT_BLOQUE_DIC: {
             LatDic* d = (LatDic*)ptr;
             for (size_t i = 0; i < d->longitud; i++) free(d->claves[i]);
@@ -510,6 +518,9 @@ static void marcar_valor(LatValor v) {
         case LAT_LISTA:
             e = entrada_de(v.como.lista);
             break;
+        case LAT_ARREGLO:
+            e = entrada_de(v.como.arreglo);
+            break;
         case LAT_DICCIONARIO:
             e = entrada_de(v.como.dic);
             break;
@@ -532,6 +543,11 @@ static void marcar_valor(LatValor v) {
         case LAT_BLOQUE_LISTA: {
             LatLista* l = (LatLista*)e->ptr;
             for (size_t i = 0; i < l->longitud; i++) marcar_valor(l->datos[i]);
+            break;
+        }
+        case LAT_BLOQUE_ARREGLO: {
+            LatArreglo* a = (LatArreglo*)e->ptr;
+            for (size_t i = 0; i < a->longitud; i++) marcar_valor(a->datos[i]);
             break;
         }
         case LAT_BLOQUE_DIC:
@@ -745,6 +761,11 @@ LatValor lat_obj_llamar_metodo_args(LatValor objeto, const char* nombre, int nar
         fprintf(stderr, "lista: el miembro '%s' no es invocable\n", nombre);
         return lat_nulo();
     }
+    if (objeto.tipo == LAT_ARREGLO) {
+        if (strcmp(nombre, "longitud") == 0) return lat_numero((double)objeto.como.arreglo->longitud);
+        fprintf(stderr, "arreglo: el miembro '%s' no es invocable\n", nombre);
+        return lat_nulo();
+    }
 
     if (objeto.tipo == LAT_DICCIONARIO) {
         LatValor miembro = dic_obtener(objeto.como.dic, nombre);
@@ -811,6 +832,10 @@ LatValor lat_obj_llamar_metodo_llvm_args(LatValor objeto, const char* nombre, in
                                          const LatValor* valores) {
     if (objeto.tipo == LAT_LISTA) {
         if (strcmp(nombre, "longitud") == 0) return lat_lista_longitud(objeto);
+        return lat_nulo();
+    }
+    if (objeto.tipo == LAT_ARREGLO) {
+        if (strcmp(nombre, "longitud") == 0) return lat_numero((double)objeto.como.arreglo->longitud);
         return lat_nulo();
     }
     if (objeto.tipo == LAT_DICCIONARIO) {
@@ -932,6 +957,8 @@ static double num(LatValor v) {
         advertir("Operación aritmética con cadena: se convierte a 0");
     } else if (v.tipo == LAT_LISTA) {
         advertir("Operación aritmética con lista: se convierte a 0");
+    } else if (v.tipo == LAT_ARREGLO) {
+        advertir("Operación aritmética con arreglo: se convierte a 0");
     } else if (v.tipo == LAT_DICCIONARIO) {
         advertir("Operación aritmética con diccionario: se convierte a 0");
     } else if (v.tipo == LAT_OBJETO) {
@@ -1036,6 +1063,7 @@ int lat_es_verdadero(LatValor v) {
         case LAT_NUMERO:      return v.como.numero != 0;
         case LAT_CADENA:      return v.como.cadena[0] != '\0';
         case LAT_LISTA:       return v.como.lista->longitud > 0;
+        case LAT_ARREGLO:     return v.como.arreglo->longitud > 0;
         case LAT_DICCIONARIO: return v.como.dic->longitud > 0;
         case LAT_RANGO:       return v.como.rango.paso > 0
                                      ? v.como.rango.inicio < v.como.rango.fin
@@ -1118,9 +1146,21 @@ static void cadena_ubicar_caracter(const char* s, size_t char_index, size_t* off
     *tam = utf8_tamano_caracter(*p);
 }
 
+static void verificar_elemento_arreglo(LatValor elem, int tipo_esperado,
+                                       const char* clase_esperada, size_t indice);
+
 LatValor lat_obtener_indice(LatValor cont, LatValor indice) {
     if (cont.tipo == LAT_LISTA) {
         return cont.como.lista->datos[indice_lista(cont.como.lista, indice)];
+    }
+    if (cont.tipo == LAT_ARREGLO) {
+        LatArreglo* a = cont.como.arreglo;
+        long i;
+        if (indice.tipo != LAT_NUMERO) abortar("índice de arreglo no numérico");
+        i = (long)indice.como.numero;
+        if (i < 0) i += (long)a->longitud;
+        if (i < 0 || (size_t)i >= a->longitud) abortar("índice de arreglo fuera de rango");
+        return a->datos[i];
     }
     if (cont.tipo == LAT_DICCIONARIO) {
         char* k = lat_a_cadena(indice);
@@ -1183,6 +1223,14 @@ LatValor lat_obtener_miembro(LatValor cont, LatValor indice) {
         }
         free(k);
     }
+    if (cont.tipo == LAT_ARREGLO) {
+        char* k = lat_a_cadena(indice);
+        if (strcmp(k, "longitud") == 0) {
+            free(k);
+            return lat_numero((double)cont.como.arreglo->longitud);
+        }
+        free(k);
+    }
     return lat_obtener_indice(cont, indice);
 }
 
@@ -1196,6 +1244,17 @@ void lat_asignar_indice(LatValor cont, LatValor indice, LatValor valor) {
         if (i == (long)l->longitud) { lista_agregar(l, valor); return; }
         if (i < 0 || (size_t)i >= l->longitud) abortar("índice de lista fuera de rango");
         l->datos[i] = valor;
+        return;
+    }
+    if (cont.tipo == LAT_ARREGLO) {
+        LatArreglo* a = cont.como.arreglo;
+        long i;
+        if (indice.tipo != LAT_NUMERO) abortar("índice de arreglo no numérico");
+        i = (long)indice.como.numero;
+        if (i < 0) i += (long)a->longitud;
+        if (i < 0 || (size_t)i >= a->longitud) abortar("índice de arreglo fuera de rango");
+        verificar_elemento_arreglo(valor, a->tipo_elemento, a->clase_elemento, (size_t)i);
+        a->datos[i] = valor;
         return;
     }
     if (cont.tipo == LAT_DICCIONARIO) {
@@ -1291,6 +1350,47 @@ char* lat_a_cadena(LatValor v) {
                                 APPEND(caracter);
                                 break;
                             }
+                        }
+                    }
+                    APPEND("\"");
+                } else {
+                    APPEND(e);
+                }
+                free(e);
+            }
+            APPEND("]");
+            return r;
+        }
+        case LAT_ARREGLO: {
+            LatArreglo* a = v.como.arreglo;
+            size_t i;
+            size_t cap = 2, len = 0;
+            char* r = (char*)malloc(cap);
+            r[0] = '\0';
+            #ifndef APPEND
+            #define APPEND(str)                                              \
+                do {                                                         \
+                    const char* _s = (str);                                 \
+                    size_t _n = strlen(_s);                                  \
+                    while (len + _n + 1 > cap) { cap *= 2; r = (char*)realloc(r, cap); } \
+                    memcpy(r + len, _s, _n + 1);                            \
+                    len += _n;                                               \
+                } while (0)
+            #endif
+            APPEND("[");
+            for (i = 0; i < a->longitud; i++) {
+                char* e = lat_a_cadena(a->datos[i]);
+                if (i) APPEND(", ");
+                if (a->datos[i].tipo == LAT_CADENA) {
+                    APPEND("\"");
+                    for (const char* p = e; *p; p++) {
+                        switch (*p) {
+                            case '\\': APPEND("\\\\"); break;
+                            case '"':  APPEND("\\\""); break;
+                            case '\n': APPEND("\\n"); break;
+                            case '\r': APPEND("\\r"); break;
+                            case '\t': APPEND("\\t"); break;
+                            default: { char c[2] = {*p, '\0'}; APPEND(c); break; }
                         }
                     }
                     APPEND("\"");
@@ -1418,6 +1518,7 @@ LatValor lat_tipo(LatValor v) {
         case LAT_LISTA:       return lat_cadena("lista");
         case LAT_DICCIONARIO: return lat_cadena("dic");
         case LAT_RANGO:       return lat_cadena("rango");
+        case LAT_ARREGLO:     return lat_cadena("arreglo");
         case LAT_OBJETO:      return lat_cadena(v.como.objeto && v.como.objeto->clase ? v.como.objeto->clase : "objeto");
         case LAT_FUNCION:     return lat_cadena("funcion");
         case LAT_MODULO:      return lat_cadena("modulo");
@@ -1648,8 +1749,107 @@ static const char *_nombre_latipo(LatTipo t) {
         case LAT_MODULO:      return "modulo";
         case LAT_PUNTERO:     return "puntero";
         case LAT_RANGO:       return "rango";
+        case LAT_ARREGLO:     return "arreglo";
         default:              return "desconocido";
     }
+}
+
+
+/* --- Arreglos fijos tipados (estilo C#) --- */
+
+static LatValor valor_defecto_arreglo(int tipo_elemento) {
+    switch ((LatTipo)tipo_elemento) {
+        case LAT_NUMERO: return lat_numero(0.0);
+        case LAT_LOGICO: return lat_logico(0);
+        case LAT_CADENA: return lat_cadena("");
+        case LAT_LISTA:  return lat_lista_de(0);
+        case LAT_DICCIONARIO: return lat_dic_de(0);
+        default: return lat_nulo();
+    }
+}
+
+static void verificar_elemento_arreglo(LatValor elem, int tipo_esperado,
+                                       const char* clase_esperada, size_t indice) {
+    if (elem.tipo != (LatTipo)tipo_esperado) {
+        fprintf(stderr,
+                "Error de tipo: el elemento %zu del arreglo se esperaba de tipo '%s' "
+                "pero recibió '%s'\n",
+                indice, _nombre_latipo((LatTipo)tipo_esperado), _nombre_latipo(elem.tipo));
+        exit(1);
+    }
+    if (tipo_esperado == LAT_OBJETO && clase_esperada && clase_esperada[0]) {
+        if (elem.tipo != LAT_OBJETO || !lat_obj_es_instancia(elem, clase_esperada)) {
+            const char* got = (elem.tipo == LAT_OBJETO && elem.como.objeto && elem.como.objeto->clase)
+                                  ? elem.como.objeto->clase
+                                  : _nombre_latipo(elem.tipo);
+            fprintf(stderr,
+                    "Error de tipo: el elemento %zu del arreglo se esperaba de tipo '%s' "
+                    "pero recibió '%s'\n",
+                    indice, clase_esperada, got);
+            exit(1);
+        }
+    }
+}
+
+LatValor lat_arreglo_nuevo(size_t longitud, int tipo_elemento, const char* clase_elemento) {
+    LatArreglo* a = (LatArreglo*)malloc(sizeof(LatArreglo));
+    if (!a) return lat_nulo();
+    a->refs = 1;
+    a->longitud = longitud;
+    a->tipo_elemento = tipo_elemento;
+    a->clase_elemento = dup_cadena(clase_elemento ? clase_elemento : "");
+    a->datos = (LatValor*)malloc(sizeof(LatValor) * (longitud ? longitud : 1));
+    for (size_t i = 0; i < longitud; i++) a->datos[i] = valor_defecto_arreglo(tipo_elemento);
+    lat_registro_registrar(a, LAT_BLOQUE_ARREGLO);
+    LatValor v;
+    v.tipo = LAT_ARREGLO;
+    v.como.arreglo = a;
+    return v;
+}
+
+LatValor lat_arreglo_de_args(size_t n, int tipo_elemento, const char* clase_elemento,
+                             const LatValor* args) {
+    LatValor arr = lat_arreglo_nuevo(n, tipo_elemento, clase_elemento);
+    if (arr.tipo != LAT_ARREGLO || !arr.como.arreglo) return arr;
+    for (size_t i = 0; i < n; i++) {
+        verificar_elemento_arreglo(args[i], tipo_elemento, clase_elemento, i);
+        arr.como.arreglo->datos[i] = args[i];
+    }
+    return arr;
+}
+
+LatValor lat_arreglo_de(size_t n, int tipo_elemento, const char* clase_elemento, ...) {
+    LatValor* args = (LatValor*)malloc(sizeof(LatValor) * (n ? n : 1));
+    va_list ap;
+    va_start(ap, clase_elemento);
+    for (size_t i = 0; i < n; i++) args[i] = va_arg(ap, LatValor);
+    va_end(ap);
+    LatValor v = lat_arreglo_de_args(n, tipo_elemento, clase_elemento, args);
+    free(args);
+    return v;
+}
+
+LatValor lat_arreglo_nuevo_multi(size_t ndims, const size_t* dims, int tipo_elemento_hoja,
+                                 const char* clase_elemento_hoja) {
+    if (ndims == 0) return lat_nulo();
+    if (ndims == 1)
+        return lat_arreglo_nuevo(dims[0], tipo_elemento_hoja, clase_elemento_hoja);
+    LatValor arr = lat_arreglo_nuevo(dims[0], LAT_ARREGLO, NULL);
+    LatArreglo* a = arr.como.arreglo;
+    for (size_t i = 0; i < dims[0]; i++) {
+        LatValor sub = lat_arreglo_nuevo_multi(ndims - 1, dims + 1, tipo_elemento_hoja, clase_elemento_hoja);
+        a->datos[i] = sub;
+        lat_valor_retener(sub);
+    }
+    return arr;
+}
+
+LatValor lat_longitud(LatValor v) {
+    if (v.tipo == LAT_LISTA) return lat_numero((double)v.como.lista->longitud);
+    if (v.tipo == LAT_ARREGLO) return lat_numero((double)v.como.arreglo->longitud);
+    if (v.tipo == LAT_DICCIONARIO) return lat_numero((double)v.como.dic->longitud);
+    if (v.tipo == LAT_CADENA) return lat_numero((double)cadena_contar_caracteres(v.como.cadena));
+    return lat_numero(0);
 }
 
 LatValor lat_verificar_tipo(LatValor v, int tipo_esperado,

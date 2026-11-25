@@ -55,6 +55,8 @@ bool AnalizadorSemantico::analizar(Programa& programa) {
 void AnalizadorSemantico::entrarAmbito() {
     ambitos.emplace_back();
     clasesVariable.emplace_back();  // PLAN_POO.md (Reto 6): misma pila que ambitos
+    tiposElementoVariable.emplace_back();
+    clasesElementoVariable.emplace_back();
 }
 
 void AnalizadorSemantico::salirAmbito() {
@@ -62,10 +64,16 @@ void AnalizadorSemantico::salirAmbito() {
         ambitos.pop_back();
     if (!clasesVariable.empty())
         clasesVariable.pop_back();
+    if (!tiposElementoVariable.empty())
+        tiposElementoVariable.pop_back();
+    if (!clasesElementoVariable.empty())
+        clasesElementoVariable.pop_back();
 }
 
 void AnalizadorSemantico::declararVariable(const std::string& nombre,
-                                           TipoAnotado tipo, int linea, bool esConst) {
+                                           TipoAnotado tipo, int linea, bool esConst,
+                                           TipoAnotado tipoElemento,
+                                           const std::string& claseElemento) {
     if (constantes.count(nombre)) {
         agregarError(linea, "no se puede reasignar la constante '" + nombre + "'");
         return;
@@ -75,6 +83,7 @@ void AnalizadorSemantico::declararVariable(const std::string& nombre,
     }
     if (!ambitos.empty())
         ambitos.back()[nombre] = tipo;
+    registrarElementoVariable(nombre, tipoElemento, claseElemento);
 }
 
 bool AnalizadorSemantico::estaDeclarada(const std::string& nombre) const {
@@ -108,15 +117,44 @@ TipoAnotado AnalizadorSemantico::tipoDeVariable(const std::string& nombre) const
     return TipoAnotado::Ninguno;
 }
 
+TipoAnotado AnalizadorSemantico::tipoElementoDeVariable(const std::string& nombre) const {
+    for (auto it = tiposElementoVariable.rbegin(); it != tiposElementoVariable.rend(); ++it) {
+        auto enc = it->find(nombre);
+        if (enc != it->end()) return enc->second;
+    }
+    return TipoAnotado::Ninguno;
+}
+
+std::string AnalizadorSemantico::claseElementoDeVariable(const std::string& nombre) const {
+    for (auto it = clasesElementoVariable.rbegin(); it != clasesElementoVariable.rend(); ++it) {
+        auto enc = it->find(nombre);
+        if (enc != it->end()) return enc->second;
+    }
+    return "";
+}
+
+void AnalizadorSemantico::registrarElementoVariable(const std::string& nombre, TipoAnotado tipoElemento,
+                                                    const std::string& claseElemento) {
+    if (tiposElementoVariable.empty() || clasesElementoVariable.empty()) return;
+    if (tipoElemento == TipoAnotado::Ninguno) {
+        tiposElementoVariable.back().erase(nombre);
+        clasesElementoVariable.back().erase(nombre);
+    } else {
+        tiposElementoVariable.back()[nombre] = tipoElemento;
+        clasesElementoVariable.back()[nombre] = claseElemento;
+    }
+}
+
 namespace {
 static std::string nombreTipoAnotado(TipoAnotado t) {
     switch (t) {
-        case TipoAnotado::Numero: return "numero";
-        case TipoAnotado::Cadena: return "cadena";
-        case TipoAnotado::Logico: return "logico";
-        case TipoAnotado::Lista:  return "lista";
-        case TipoAnotado::Dic:    return "dic";
-        case TipoAnotado::Nulo:   return "nulo";
+        case TipoAnotado::Numero:  return "numero";
+        case TipoAnotado::Cadena:  return "cadena";
+        case TipoAnotado::Logico:  return "logico";
+        case TipoAnotado::Lista:   return "lista";
+        case TipoAnotado::Dic:     return "dic";
+        case TipoAnotado::Nulo:    return "nulo";
+        case TipoAnotado::Arreglo: return "arreglo";
         default: return "desconocido";
     }
 }
@@ -130,6 +168,8 @@ static TipoAnotado tipoDelLiteral(Expresion* e) {
     if (dynamic_cast<LitNulo*>(e))            return TipoAnotado::Nulo;
     if (dynamic_cast<ListaLiteral*>(e))       return TipoAnotado::Lista;
     if (dynamic_cast<DiccionarioLiteral*>(e)) return TipoAnotado::Dic;
+    if (auto* n = dynamic_cast<NuevoExpr*>(e))
+        if (n->esArreglo) return TipoAnotado::Arreglo;
     return TipoAnotado::Ninguno;
 }
 
@@ -300,8 +340,8 @@ void AnalizadorSemantico::analizarMetodo(MetodoDef& metodo) {
         if (!vistos.insert(p.nombre).second)
             agregarError(metodo.linea,
                          "parámetro duplicado '" + p.nombre + "' en el método '" + metodo.nombre + "'");
-        validarTipoObjeto(p.tipo, p.tipoClase, metodo.linea);
-        declararVariable(p.nombre, p.tipo, metodo.linea);
+        validarTipoAnotadoCompleto(p.tipo, p.tipoClase, p.tipoElemento, p.tipoElementoClase, metodo.linea);
+        declararVariable(p.nombre, p.tipo, metodo.linea, false, p.tipoElemento, p.tipoElementoClase);
         // PLAN_POO.md (Reto 6): un parámetro "p: Perro" tiene tipo estático
         // conocido durante todo el cuerpo del método -- habilita el control
         // de acceso para "p.campo" sin necesitar ningún "nuevo" inline.
@@ -333,10 +373,19 @@ const AnalizadorSemantico::InfoTipo* AnalizadorSemantico::obtenerTipo(
 void AnalizadorSemantico::validarTipoObjeto(TipoAnotado tipo,
                                             const std::string& clase,
                                             int linea) {
+    if (tipo == TipoAnotado::Arreglo) return; // elemento validado aparte
     if (tipo != TipoAnotado::Objeto) return;
     if (esGenericoActivo(clase)) return;  // PLAN_GENERICOS.md: "T" en su propio ámbito
     if (!estaTipoDefinido(clase))
         agregarError(linea, "tipo de objeto desconocido '" + clase + "'");
+}
+
+void AnalizadorSemantico::validarTipoAnotadoCompleto(TipoAnotado tipo, const std::string& tipoClase,
+                                                     TipoAnotado tipoElemento, const std::string& tipoElementoClase,
+                                                     int linea) {
+    validarTipoObjeto(tipo, tipoClase, linea);
+    if (tipo == TipoAnotado::Arreglo)
+        validarTipoObjeto(tipoElemento, tipoElementoClase, linea);
 }
 
 // ---------------------------------------------------------------------------
@@ -657,6 +706,23 @@ void AnalizadorSemantico::visitar(Ternaria& n) {
 void AnalizadorSemantico::visitar(AccesoIndice& n) {
     if (n.objeto) n.objeto->aceptar(*this);
     if (n.indice) n.indice->aceptar(*this);
+
+    // Chequeo estático de elemento de arreglo: a[i] = x / lectura en contexto tipado.
+    if (auto* id = dynamic_cast<Identificador*>(n.objeto.get())) {
+        TipoAnotado t = tipoDeVariable(id->nombre);
+        if (t == TipoAnotado::Arreglo) {
+            // índice numérico literal fuera de rango no se puede comprobar sin tamaño conocido;
+            // el tamaño solo se conoce para nuevo tipo[N] literal en algunos casos - omitido por ahora.
+            (void)id;
+        }
+    }
+}
+
+static bool esLiteralEntero(Expresion* e, long& out) {
+    if (auto* n = dynamic_cast<LitNumero*>(e)) {
+        if (n->esEntero) { out = (long)n->valor; return true; }
+    }
+    return false;
 }
 
 void AnalizadorSemantico::visitar(AccesoMiembro& n) {
@@ -833,6 +899,23 @@ void AnalizadorSemantico::visitar(Llamada& n) {
 }
 
 void AnalizadorSemantico::visitar(NuevoExpr& n) {
+    if (n.esArreglo) {
+        for (auto& t : n.tamanosArreglo) if (t) t->aceptar(*this);
+        if (n.tamanoArreglo && n.tamanosArreglo.empty()) n.tamanoArreglo->aceptar(*this);
+        if (n.tipoElemento == TipoAnotado::Objeto && !n.tipoElementoClase.empty()) {
+            if (!esGenericoActivo(n.tipoElementoClase) && !estaTipoDefinido(n.tipoElementoClase))
+                agregarError(n.linea, "tipo de objeto desconocido '" + n.tipoElementoClase + "' en arreglo");
+        }
+        auto validarTam = [&](Expresion* e) {
+            long tam = -1;
+            if (e && esLiteralEntero(e, tam) && tam < 0)
+                agregarError(n.linea, "el tamaño del arreglo debe ser >= 0");
+        };
+        for (auto& t : n.tamanosArreglo) validarTam(t.get());
+        if (n.tamanoArreglo && n.tamanosArreglo.empty()) validarTam(n.tamanoArreglo.get());
+        return;
+    }
+
     for (auto& a : n.argumentos)
         if (a) a->aceptar(*this);
 
@@ -1021,7 +1104,7 @@ void AnalizadorSemantico::visitar(ClaseDef& n) {
     entrarGenericos(n.genericos);  // PLAN_GENERICOS.md: <T> visible en campos y métodos
 
     for (const CampoDef& campo : n.campos) {
-        validarTipoObjeto(campo.tipoAnotado, campo.tipoClase, campo.linea);
+        validarTipoAnotadoCompleto(campo.tipoAnotado, campo.tipoClase, campo.tipoElemento, campo.tipoElementoClase, campo.linea);
         if (campo.valorDefecto) campo.valorDefecto->aceptar(*this);
     }
 
@@ -1053,7 +1136,7 @@ void AnalizadorSemantico::visitar(EstructuraDef& n) {
     entrarGenericos(n.genericos);  // PLAN_GENERICOS.md: <T> visible en campos y métodos
 
     for (const CampoDef& campo : n.campos) {
-        validarTipoObjeto(campo.tipoAnotado, campo.tipoClase, campo.linea);
+        validarTipoAnotadoCompleto(campo.tipoAnotado, campo.tipoClase, campo.tipoElemento, campo.tipoElementoClase, campo.linea);
         if (campo.valorDefecto) campo.valorDefecto->aceptar(*this);
     }
 
@@ -1093,9 +1176,9 @@ void AnalizadorSemantico::visitar(InterfazDef& n) {
         if (!metodo.cuerpo.empty())
             agregarError(metodo.linea,
                          "los métodos de una interfaz no pueden tener implementación");
-        validarTipoObjeto(metodo.tipoRetorno, metodo.tipoRetornoClase, metodo.linea);
+        validarTipoAnotadoCompleto(metodo.tipoRetorno, metodo.tipoRetornoClase, metodo.tipoRetornoElemento, metodo.tipoRetornoElementoClase, metodo.linea);
         for (const ParamFuncion& parametro : metodo.parametros)
-            validarTipoObjeto(parametro.tipo, parametro.tipoClase, metodo.linea);
+            validarTipoAnotadoCompleto(parametro.tipo, parametro.tipoClase, parametro.tipoElemento, parametro.tipoElementoClase, metodo.linea);
     }
     salirGenericos();
 }
@@ -1132,14 +1215,58 @@ void AnalizadorSemantico::visitar(Asignacion& n) {
             // detectar la incompatibilidad en compilación.
             if (tipo != TipoAnotado::Ninguno && i < n.valores.size() && n.valores[i]) {
                 TipoAnotado real = tipoDelLiteral(n.valores[i].get());
-                if (real != TipoAnotado::Ninguno && real != tipo)
+                bool compatible = (real == TipoAnotado::Ninguno || real == tipo);
+                if (!compatible && tipo == TipoAnotado::Arreglo && real == TipoAnotado::Lista)
+                    compatible = true;
+                if (!compatible)
                     agregarError(id->linea,
                                  "tipo incompatible: se declaró '" +
                                      nombreTipoAnotado(tipo) +
                                      "' pero el valor es '" +
                                      nombreTipoAnotado(real) + "'");
+                // Validar elementos de inicializador de arreglo tipado: numero[] a = {1,2,3}
+                if (tipo == TipoAnotado::Arreglo && real == TipoAnotado::Lista) {
+                    if (auto* lit = dynamic_cast<ListaLiteral*>(n.valores[i].get())) {
+                        TipoAnotado tipoEl = (i < n.tiposElementoDestino.size()) ? n.tiposElementoDestino[i] : TipoAnotado::Ninguno;
+                        std::string claseEl = (i < n.tiposElementoClaseDestino.size()) ? n.tiposElementoClaseDestino[i] : "";
+                        for (size_t k = 0; k < lit->elementos.size(); k++) {
+                            TipoAnotado tk = tipoDelLiteral(lit->elementos[k].get());
+                            if (tipoEl != TipoAnotado::Ninguno && tk != TipoAnotado::Ninguno && tk != tipoEl) {
+                                agregarError(id->linea,
+                                             "tipo incompatible: el elemento " + std::to_string(k) +
+                                             " del arreglo se esperaba de tipo '" +
+                                             nombreTipoAnotado(tipoEl) +
+                                             "' pero recibió '" + nombreTipoAnotado(tk) + "'");
+                            }
+                            if (tipoEl == TipoAnotado::Objeto && !claseEl.empty()) {
+                                if (auto* ne = dynamic_cast<NuevoExpr*>(lit->elementos[k].get())) {
+                                    if (!ne->esArreglo && ne->clase != claseEl)
+                                        agregarError(id->linea,
+                                                     "tipo incompatible: el elemento " + std::to_string(k) +
+                                                     " del arreglo se esperaba de tipo '" + claseEl +
+                                                     "' pero recibió '" + ne->clase + "'");
+                                }
+                            }
+                        }
+                    }
+                }
             }
-            declararVariable(id->nombre, tipo, id->linea, n.esConst);
+            TipoAnotado tipoElem = (i < n.tiposElementoDestino.size()) ? n.tiposElementoDestino[i] : TipoAnotado::Ninguno;
+            std::string claseElem = (i < n.tiposElementoClaseDestino.size()) ? n.tiposElementoClaseDestino[i] : "";
+            std::vector<long long> dimsDest = (i < n.tamanosDestinoArreglo.size()) ? n.tamanosDestinoArreglo[i] : std::vector<long long>{};
+            if (tipo == TipoAnotado::Arreglo && dimsDest.size() > 1) {
+                // multidim: elemento inmediato es arreglo; hoja es tipoElem/claseElem
+                // mantenemos tipoElem hoja para chequeos de asignación profunda no implementados, pero registro elem inmediato como Arreglo
+            }
+            if (tipo == TipoAnotado::Arreglo && tipoElem == TipoAnotado::Ninguno && i < n.valores.size() && n.valores[i]) {
+                if (auto* nv = dynamic_cast<NuevoExpr*>(n.valores[i].get())) {
+                    if (nv->esArreglo) { tipoElem = nv->tipoElemento; claseElem = nv->tipoElementoClase; if (dimsDest.empty()) dimsDest = {}; }
+                } else if (auto* idv = dynamic_cast<Identificador*>(n.valores[i].get())) {
+                    tipoElem = tipoElementoDeVariable(idv->nombre);
+                    claseElem = claseElementoDeVariable(idv->nombre);
+                }
+            }
+            declararVariable(id->nombre, tipo, id->linea, n.esConst, tipoElem, claseElem);
             // PLAN_POO.md (Reto 6): rastreo "mejor esfuerzo" del tipo estático
             // de una variable a partir de su última asignación vista --
             // "p = nuevo Perro(...)" habilita el control de acceso para
@@ -1147,12 +1274,50 @@ void AnalizadorSemantico::visitar(Asignacion& n) {
             // asignación (incluida una anotación de tipo sin valor "nuevo")
             // borra el dato en vez de arriesgar un hint incorrecto.
             std::string claseValor;
-            if (i < n.valores.size())
-                if (auto* nuevo = dynamic_cast<NuevoExpr*>(n.valores[i].get()))
-                    claseValor = nuevo->clase;
+            if (i < n.valores.size()) {
+                if (auto* nuevo = dynamic_cast<NuevoExpr*>(n.valores[i].get())) {
+                    if (!nuevo->esArreglo) claseValor = nuevo->clase;
+                } else if (auto* idv = dynamic_cast<Identificador*>(n.valores[i].get())) {
+                    claseValor = tipoClaseDeVariable(idv->nombre);
+                }
+            }
             registrarClaseVariable(id->nombre, claseValor);
         } else if (n.destinos[i]) {
-            // destino tipo numeros[0] u obj.campo: se valida el objeto base.
+            // Chequeo estático de asignación a elemento de arreglo tipado: arr[i] = x
+            if (auto* acc = dynamic_cast<AccesoIndice*>(n.destinos[i].get())) {
+                if (auto* idObj = dynamic_cast<Identificador*>(acc->objeto.get())) {
+                    TipoAnotado tArr = tipoDeVariable(idObj->nombre);
+                    if (tArr == TipoAnotado::Arreglo) {
+                        TipoAnotado tEl = tipoElementoDeVariable(idObj->nombre);
+                        std::string cEl = claseElementoDeVariable(idObj->nombre);
+                        if (i < n.valores.size() && n.valores[i] && tEl != TipoAnotado::Ninguno) {
+                            TipoAnotado tVal = tipoDelLiteral(n.valores[i].get());
+                            if (tVal != TipoAnotado::Ninguno && tVal != tEl) {
+                                agregarError(n.linea,
+                                             "tipo incompatible: el arreglo '" + idObj->nombre +
+                                             "' espera elementos de tipo '" + nombreTipoAnotado(tEl) +
+                                             "' pero recibió '" + nombreTipoAnotado(tVal) + "'");
+                            }
+                            if (tEl == TipoAnotado::Objeto && !cEl.empty()) {
+                                if (auto* nv = dynamic_cast<NuevoExpr*>(n.valores[i].get())) {
+                                    if (!nv->esArreglo && nv->clase != cEl)
+                                        agregarError(n.linea,
+                                                     "tipo incompatible: el arreglo '" + idObj->nombre +
+                                                     "' espera elementos de tipo '" + cEl +
+                                                     "' pero recibió '" + nv->clase + "'");
+                                } else if (auto* idv = dynamic_cast<Identificador*>(n.valores[i].get())) {
+                                    std::string cv = tipoClaseDeVariable(idv->nombre);
+                                    if (!cv.empty() && cv != cEl)
+                                        agregarError(n.linea,
+                                                     "tipo incompatible: el arreglo '" + idObj->nombre +
+                                                     "' espera elementos de tipo '" + cEl +
+                                                     "' pero recibió '" + cv + "'");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             n.destinos[i]->aceptar(*this);
         }
     }
@@ -1229,7 +1394,7 @@ void AnalizadorSemantico::visitar(FuncionDef& n) {
                      "no dentro de una función o método");
 
     entrarGenericos(n.genericos);  // PLAN_GENERICOS.md
-    validarTipoObjeto(n.tipoRetorno, n.tipoRetornoClase, n.linea);
+    validarTipoAnotadoCompleto(n.tipoRetorno, n.tipoRetornoClase, n.tipoRetornoElemento, n.tipoRetornoElementoClase, n.linea);
     entrarAmbito();
 
     std::unordered_set<std::string> vistos;
@@ -1237,8 +1402,8 @@ void AnalizadorSemantico::visitar(FuncionDef& n) {
         if (!vistos.insert(p.nombre).second)
             agregarError(n.linea, "parámetro duplicado '" + p.nombre + "' en la función '" +
                                       n.nombre + "'");
-        validarTipoObjeto(p.tipo, p.tipoClase, n.linea);
-        declararVariable(p.nombre, p.tipo, n.linea);
+        validarTipoAnotadoCompleto(p.tipo, p.tipoClase, p.tipoElemento, p.tipoElementoClase, n.linea);
+        declararVariable(p.nombre, p.tipo, n.linea, false, p.tipoElemento, p.tipoElementoClase);
         if (p.tipo == TipoAnotado::Objeto) registrarClaseVariable(p.nombre, p.tipoClase);  // PLAN_POO.md (Reto 6)
     }
 
@@ -1261,8 +1426,8 @@ void AnalizadorSemantico::visitar(FuncionAnonima& n) {
     for (const ParamFuncion& p : n.parametros) {
         if (!vistos.insert(p.nombre).second)
             agregarError(n.linea, "parámetro duplicado '" + p.nombre + "' en una función anónima");
-        validarTipoObjeto(p.tipo, p.tipoClase, n.linea);
-        declararVariable(p.nombre, p.tipo, n.linea);
+        validarTipoAnotadoCompleto(p.tipo, p.tipoClase, p.tipoElemento, p.tipoElementoClase, n.linea);
+        declararVariable(p.nombre, p.tipo, n.linea, false, p.tipoElemento, p.tipoElementoClase);
         if (p.tipo == TipoAnotado::Objeto) registrarClaseVariable(p.nombre, p.tipoClase);
     }
 

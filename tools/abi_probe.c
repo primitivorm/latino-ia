@@ -142,6 +142,11 @@ void lat_abi_referenciar_todo(void) {
     (void)lat_lista_crear;
     (void)lat_lista_de;
     (void)lat_lista_de_args;
+    (void)lat_arreglo_nuevo;
+    (void)lat_arreglo_de;
+    (void)lat_arreglo_de_args;
+    (void)lat_longitud;
+    (void)lat_arreglo_nuevo_multi;
     (void)lat_lista_eliminar;
     (void)lat_lista_eliminar_indice;
     (void)lat_lista_encontrar;

@@ -1,0 +1,8 @@
+m: numero[][] = nuevo numero[2][3]
+m[0][1] = 7
+m[1][2] = 8
+imprimir(m[0][1])
+imprimir(m[1][2])
+imprimir(m.longitud())
+
+#salida: 7 8 2

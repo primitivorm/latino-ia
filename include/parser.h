@@ -55,6 +55,17 @@ private:
     // TipoAnotado. Devuelve TipoAnotado::Ninguno si no es un tipo reconocido.
     static TipoAnotado mapearNombreTipo(const std::string& nombre);
 
+    // Parsea una anotación de tipo: "numero", "MiClase", "numero[]", "MiClase[]".
+    // Asume que actual es el identificador del tipo. Rellena tipo/tipoClase/tipoArgs
+    // y, si es arreglo, tipoElemento/tipoElementoClase. Consume los tokens del tipo.
+    void parseTipoAnotado(TipoAnotado& tipo, std::string& tipoClase,
+                          std::vector<std::string>& tipoArgs,
+                          TipoAnotado& tipoElemento, std::string& tipoElementoClase);
+    void parseTipoAnotado(TipoAnotado& tipo, std::string& tipoClase,
+                          std::vector<std::string>& tipoArgs,
+                          TipoAnotado& tipoElemento, std::string& tipoElementoClase,
+                          std::vector<long long>& tamanosArreglo);
+
     // Nombre de tipo/clase posiblemente calificado por namespace de módulo
     // (PLAN_MODULOS.md M6: "ns.Clase", ver "importar * como ns"). Asume que
     // `actual` ya es el Identificador base (verificado por el llamador);
