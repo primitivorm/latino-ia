@@ -74,6 +74,69 @@ std::string Parser::parseNombreTipoCalificado() {
     return nombre;
 }
 
+void Parser::parseTipoAnotado(TipoAnotado& tipo, std::string& tipoClase,
+                              std::vector<std::string>& tipoArgs,
+                              TipoAnotado& tipoElemento, std::string& tipoElementoClase) {
+    std::vector<long long> tamanos;
+    parseTipoAnotado(tipo, tipoClase, tipoArgs, tipoElemento, tipoElementoClase, tamanos);
+}
+
+void Parser::parseTipoAnotado(TipoAnotado& tipo, std::string& tipoClase,
+                              std::vector<std::string>& tipoArgs,
+                              TipoAnotado& tipoElemento, std::string& tipoElementoClase,
+                              std::vector<long long>& tamanosArreglo) {
+    tipo = TipoAnotado::Ninguno;
+    tipoClase.clear();
+    tipoArgs.clear();
+    tipoElemento = TipoAnotado::Ninguno;
+    tipoElementoClase.clear();
+    tamanosArreglo.clear();
+
+    if (actual.type != TokenType::Identificador)
+        error("se esperaba un tipo válido");
+    TipoAnotado base = mapearNombreTipo(actual.lexeme);
+    if (base == TipoAnotado::Ninguno)
+        error("tipo no reconocido '" + actual.lexeme + "'");
+
+    std::string baseClase;
+    if (base == TipoAnotado::Objeto) {
+        baseClase = parseNombreTipoCalificado();
+    } else {
+        avanzar();
+    }
+    tipoArgs = parseArgsTipoGenericos();
+
+    if (esDelimitador("[")) {
+        std::vector<long long> dims;
+        while (esDelimitador("[")) {
+            avanzar();
+            long long tam = -1;
+            if (!esDelimitador("]")) {
+                ExprPtr tamExpr = parseExpresion();
+                if (auto* ln = dynamic_cast<LitNumero*>(tamExpr.get())) {
+                    if (ln->esEntero && ln->valor >= 0) tam = (long long)ln->valor;
+                }
+            }
+            if (!esDelimitador("]"))
+                error("se esperaba ']' en declaración de tipo arreglo");
+            avanzar();
+            dims.push_back(tam);
+        }
+        tipo = TipoAnotado::Arreglo;
+        tamanosArreglo = dims;
+        // tipoElemento/tipoElementoClase siempre refieren al elemento hoja/base.
+        // tamanosArreglo.size() > 1 indica multidimensional.
+        tipoElemento = base;
+        tipoElementoClase = baseClase;
+        tipoClase.clear();
+        tipoArgs.clear();
+        return;
+    }
+
+    tipo = base;
+    tipoClase = baseClase;
+}
+
 // --- Genéricos (PLAN_GENERICOS.md) ------------------------------------------
 
 void Parser::cerrarAngulo() {
@@ -308,6 +371,80 @@ SentPtr Parser::parseSentencia() {
 SentPtr Parser::parseAsignacionOExpr() {
     int l = actual.line;
 
+    // Declaración C#-style: "tipo[] nombre = ..." / "Tipo[] nombre = ..."
+    if (actual.type == TokenType::Identificador) {
+        auto posLexer = lexer.guardar();
+        Token guardadoActual = actual;
+        bool guardadoTiene = tieneTokenDevuelto_;
+        Token guardadoDev = tokenDevuelto_;
+        TipoAnotado tipoBaseLook = mapearNombreTipo(actual.lexeme);
+        std::string nombreTipo0 = actual.lexeme;
+        avanzar();
+        parseArgsTipoGenericos();
+        bool esDeclArreglo = false;
+        std::vector<long long> dimsLook;
+        while (esDelimitador("[")) {
+            avanzar(); // '['
+            long long tam = -1;
+            if (!esDelimitador("]")) {
+                ExprPtr tamExpr = parseExpresion();
+                if (auto* ln = dynamic_cast<LitNumero*>(tamExpr.get())) {
+                    if (ln->esEntero && ln->valor >= 0) tam = (long long)ln->valor;
+                }
+            }
+            if (!esDelimitador("]")) break;
+            avanzar(); // ']'
+            dimsLook.push_back(tam);
+        }
+        if (!dimsLook.empty() && actual.type == TokenType::Identificador) {
+            Token nombreVar = actual;
+            avanzar();
+            if (esOperador("=")) {
+                esDeclArreglo = true;
+                TipoAnotado tipoEl = tipoBaseLook;
+                std::string tipoElClase;
+                if (tipoEl == TipoAnotado::Objeto) tipoElClase = nombreTipo0;
+                esperarOperador("=");
+                std::vector<ExprPtr> valores;
+                if (esDelimitador("{")) {
+                    avanzar();
+                    auto lista = std::make_unique<ListaLiteral>();
+                    saltarNuevasLineas();
+                    if (!esDelimitador("}")) {
+                        for (;;) {
+                            lista->elementos.push_back(parseExpresion());
+                            saltarNuevasLineas();
+                            if (esDelimitador(",")) { avanzar(); saltarNuevasLineas(); continue; }
+                            break;
+                        }
+                    }
+                    esperarDelimitador("}");
+                    valores.push_back(std::move(lista));
+                } else {
+                    valores = parseListaExpresiones();
+                }
+                auto id = std::make_unique<Identificador>();
+                id->nombre = nombreVar.lexeme;
+                id->linea = nombreVar.line;
+                auto a = std::make_unique<Asignacion>();
+                a->linea = l;
+                a->destinos.push_back(std::move(id));
+                a->valores = std::move(valores);
+                a->tiposDestino.push_back(TipoAnotado::Arreglo);
+                a->tiposElementoDestino.push_back(tipoEl);
+                a->tiposElementoClaseDestino.push_back(tipoElClase);
+                a->tamanosDestinoArreglo.push_back(dimsLook);
+                return a;
+            }
+        }
+        if (!esDeclArreglo) {
+            lexer.restaurar(posLexer);
+            tieneTokenDevuelto_ = guardadoTiene;
+            tokenDevuelto_ = guardadoDev;
+            actual = guardadoActual;
+        }
+    }
+
     // Detección de anotación de tipo: "identificador : tipo = valor"
     // Solo se intenta cuando la sentencia comienza con un identificador simple.
     if (actual.type == TokenType::Identificador) {
@@ -319,17 +456,33 @@ SentPtr Parser::parseAsignacionOExpr() {
             if (actual.type == TokenType::Identificador)
                 tipo = mapearNombreTipo(actual.lexeme);
             if (tipo != TipoAnotado::Ninguno) {
-                avanzar();  // consume nombre del tipo
-                // PLAN_GENERICOS.md: "p: Pila<numero> = ..." / "lst: lista<numero> = ...".
-                // Nota: igual que ya ocurría con "p: Pila = ..." antes de este plan,
-                // Asignacion no guarda el nombre de clase de un destino Objeto, así
-                // que los argumentos de tipo se aceptan sintácticamente y se
-                // descartan (no hay verificación semántica de variables anotadas
-                // como tipo de objeto a nivel de sentencia; ver CampoDef/ParamFuncion
-                // para los casos que sí se verifican).
-                parseArgsTipoGenericos();
+                TipoAnotado tipoBase = TipoAnotado::Ninguno;
+                std::string tipoClase;
+                std::vector<std::string> tipoArgs;
+                TipoAnotado tipoEl = TipoAnotado::Ninguno;
+                std::string tipoElClase;
+                std::vector<long long> tamanosTipo;
+                parseTipoAnotado(tipoBase, tipoClase, tipoArgs, tipoEl, tipoElClase, tamanosTipo);
+
                 esperarOperador("=");
-                auto valores = parseListaExpresiones();
+                std::vector<ExprPtr> valores;
+                if (tipoBase == TipoAnotado::Arreglo && esDelimitador("{")) {
+                    avanzar();
+                    auto lista = std::make_unique<ListaLiteral>();
+                    saltarNuevasLineas();
+                    if (!esDelimitador("}")) {
+                        for (;;) {
+                            lista->elementos.push_back(parseExpresion());
+                            saltarNuevasLineas();
+                            if (esDelimitador(",")) { avanzar(); saltarNuevasLineas(); continue; }
+                            break;
+                        }
+                    }
+                    esperarDelimitador("}");
+                    valores.push_back(std::move(lista));
+                } else {
+                    valores = parseListaExpresiones();
+                }
                 auto id = std::make_unique<Identificador>();
                 id->nombre = tk.lexeme;
                 id->linea  = tk.line;
@@ -337,7 +490,10 @@ SentPtr Parser::parseAsignacionOExpr() {
                 a->linea = l;
                 a->destinos.push_back(std::move(id));
                 a->valores = std::move(valores);
-                a->tiposDestino.push_back(tipo);
+                a->tiposDestino.push_back(tipoBase);
+                a->tiposElementoDestino.push_back(tipoEl);
+                a->tiposElementoClaseDestino.push_back(tipoElClase);
+                a->tamanosDestinoArreglo.push_back(tamanosTipo);
                 return a;
             }
             // ":" existe pero lo que sigue no es un tipo válido.
@@ -564,14 +720,8 @@ SentPtr Parser::parseFuncion() {
         avanzar();
         if (actual.type != TokenType::Identificador)
             error("se esperaba un tipo de retorno válido");
-        nodo->tipoRetorno = mapearNombreTipo(actual.lexeme);
-        if (nodo->tipoRetorno == TipoAnotado::Ninguno)
-            error("tipo de retorno no reconocido '" + actual.lexeme + "'");
-        if (nodo->tipoRetorno == TipoAnotado::Objeto)
-            nodo->tipoRetornoClase = parseNombreTipoCalificado();
-        else
-            avanzar();
-        nodo->tipoRetornoArgs = parseArgsTipoGenericos();
+        parseTipoAnotado(nodo->tipoRetorno, nodo->tipoRetornoClase, nodo->tipoRetornoArgs,
+                         nodo->tipoRetornoElemento, nodo->tipoRetornoElementoClase, nodo->tamanosRetornoArreglo);
     }
     parseClausulaDonde(nodo->genericos);
 
@@ -605,14 +755,8 @@ ExprPtr Parser::parseFuncionAnonima() {
                 avanzar();
                 if (actual.type != TokenType::Identificador)
                     error("se esperaba un tipo válido después de ':'");
-                param.tipo = mapearNombreTipo(actual.lexeme);
-                if (param.tipo == TipoAnotado::Ninguno)
-                    error("tipo no reconocido '" + actual.lexeme + "'");
-                if (param.tipo == TipoAnotado::Objeto)
-                    param.tipoClase = parseNombreTipoCalificado();
-                else
-                    avanzar();
-                param.tipoArgs = parseArgsTipoGenericos();
+                parseTipoAnotado(param.tipo, param.tipoClase, param.tipoArgs,
+                                 param.tipoElemento, param.tipoElementoClase, param.tamanosArreglo);
             }
             nodo->parametros.push_back(std::move(param));
             if (esDelimitador(",")) { avanzar(); continue; }
@@ -1402,10 +1546,37 @@ ExprPtr Parser::parseNuevo() {
     avanzar(); // consume 'nuevo'
     if (actual.type != TokenType::Identificador)
         error("se esperaba el nombre de la clase después de 'nuevo'");
+
     auto nodo = std::make_unique<NuevoExpr>();
     nodo->linea = l;
-    nodo->clase = parseNombreTipoCalificado();
-    nodo->tipoArgs = parseArgsTipoGenericos();
+
+    // Detectar "nuevo tipo[tamano]" (arreglo fijo) vs "nuevo Clase(...)".
+    TipoAnotado base = mapearNombreTipo(actual.lexeme);
+    std::string nombreTipo;
+    if (base == TipoAnotado::Objeto)
+        nombreTipo = parseNombreTipoCalificado();
+    else {
+        nombreTipo = actual.lexeme;
+        avanzar();
+    }
+    std::vector<std::string> tipoArgs = parseArgsTipoGenericos();
+
+    if (esDelimitador("[")) {
+        nodo->esArreglo = true;
+        nodo->clase = nombreTipo;
+        nodo->tipoArgs = tipoArgs;
+        nodo->tipoElemento = base;
+        nodo->tipoElementoClase = (base == TipoAnotado::Objeto) ? nombreTipo : "";
+        while (esDelimitador("[")) {
+            avanzar(); // consume '['
+            nodo->tamanosArreglo.push_back(parseExpresion());
+            esperarDelimitador("]");
+        }
+        return nodo;
+    }
+
+    nodo->clase = nombreTipo;
+    nodo->tipoArgs = tipoArgs;
     esperarDelimitador("(");
     saltarNuevasLineas();
     if (!esDelimitador(")")) {
@@ -1448,17 +1619,9 @@ CampoDef Parser::parseCampoDef() {
     c.linea = actual.line;
     avanzar();
     esperarOperador(":");
-    // Leer tipo: puede ser nombre de tipo primitivo o nombre de clase
     if (actual.type != TokenType::Identificador)
         error("se esperaba un tipo después de ':' en la declaración de campo");
-    std::string tipoLex = actual.lexeme;
-    c.tipoAnotado = mapearNombreTipo(tipoLex);
-    if (c.tipoAnotado == TipoAnotado::Objeto)
-        c.tipoClase = parseNombreTipoCalificado();
-    else
-        avanzar();
-    // PLAN_GENERICOS.md: azúcar "lista<T>"/"dic<K, V>" además de "Clase<T>".
-    c.tipoArgs = parseArgsTipoGenericos();
+    parseTipoAnotado(c.tipoAnotado, c.tipoClase, c.tipoArgs, c.tipoElemento, c.tipoElementoClase, c.tamanosArreglo);
     if (esOperador("=")) {
         avanzar();
         c.valorDefecto = parseExpresion();
@@ -1500,15 +1663,8 @@ MetodoDef Parser::parseMetodoDef(const std::string& nombreClase, bool fuerzaAbst
                 avanzar();
                 if (actual.type != TokenType::Identificador)
                     error("se esperaba un tipo de parámetro válido");
-                param.tipo = mapearNombreTipo(actual.lexeme);
-                if (param.tipo == TipoAnotado::Ninguno)
-                    error("tipo no reconocido '" + actual.lexeme + "'");
-                if (param.tipo == TipoAnotado::Objeto)
-                    param.tipoClase = parseNombreTipoCalificado();
-                else
-                    avanzar();
-                // PLAN_GENERICOS.md: azúcar "lista<T>"/"dic<K, V>" además de "Clase<T>".
-                param.tipoArgs = parseArgsTipoGenericos();
+                parseTipoAnotado(param.tipo, param.tipoClase, param.tipoArgs,
+                                 param.tipoElemento, param.tipoElementoClase, param.tamanosArreglo);
             }
             m.parametros.push_back(std::move(param));
             if (esDelimitador(",")) { avanzar(); continue; }
@@ -1522,12 +1678,8 @@ MetodoDef Parser::parseMetodoDef(const std::string& nombreClase, bool fuerzaAbst
         avanzar();
         if (actual.type != TokenType::Identificador)
             error("se esperaba un tipo de retorno válido");
-        m.tipoRetorno = mapearNombreTipo(actual.lexeme);
-        if (m.tipoRetorno == TipoAnotado::Objeto)
-            m.tipoRetornoClase = parseNombreTipoCalificado();
-        else
-            avanzar();
-        m.tipoRetornoArgs = parseArgsTipoGenericos();
+        parseTipoAnotado(m.tipoRetorno, m.tipoRetornoClase, m.tipoRetornoArgs,
+                         m.tipoRetornoElemento, m.tipoRetornoElementoClase, m.tamanosRetornoArreglo);
     }
     parseClausulaDonde(m.genericos);
 

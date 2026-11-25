@@ -28,7 +28,8 @@ typedef enum {
     LAT_FUNCION,
     LAT_MODULO,
     LAT_PUNTERO, /* PLAN_FFI.md (F3): puntero nativo opaco (void*) */
-    LAT_RANGO    /* Rango entero lazy (no materializa sus elementos). */
+    LAT_RANGO,   /* Rango entero lazy (no materializa sus elementos). */
+    LAT_ARREGLO  /* Arreglo de tamaño fijo tipado (estilo C#). */
 } LatTipo;
 
 typedef struct LatValor LatValor;
@@ -36,6 +37,7 @@ typedef struct LatLista LatLista;
 typedef struct LatDic LatDic;
 typedef struct LatObjeto LatObjeto;
 typedef struct LatModulo LatModulo;
+typedef struct LatArreglo LatArreglo;
 typedef struct {
     double inicio;
     double fin;
@@ -58,6 +60,7 @@ struct LatValor {
         LatModulo* modulo;
         void* puntero;  /* PLAN_FFI.md (F3): opaco, sin ref-conteo */
         LatRango rango;
+        LatArreglo* arreglo;
     } como;
 };
 
@@ -74,6 +77,17 @@ struct LatLista {
     LatValor* datos;
     size_t longitud;
     size_t capacidad;
+};
+
+/* Arreglo de tamaño fijo tipado (estilo C#). tipo_elemento guarda el LatTipo
+ * esperado para cada elemento; clase_elemento se usa cuando tipo_elemento es
+ * LAT_OBJETO. longitud es fija: no hay append ni redimensionado. */
+struct LatArreglo {
+    size_t refs;
+    LatValor* datos;
+    size_t longitud;
+    int tipo_elemento;
+    char* clase_elemento;
 };
 
 struct LatDic {
@@ -107,6 +121,17 @@ LatValor lat_rango(size_t nargs, const LatValor* args);
 LatValor lat_rango_inicio(LatValor rango);
 int lat_rango_contiene(LatValor rango, LatValor actual);
 LatValor lat_rango_siguiente(LatValor rango, LatValor actual);
+
+/* --- Arreglos fijos tipados (estilo C#) --- */
+LatValor lat_arreglo_nuevo(size_t longitud, int tipo_elemento, const char* clase_elemento);
+LatValor lat_arreglo_de(size_t n, int tipo_elemento, const char* clase_elemento, ...);
+LatValor lat_arreglo_de_args(size_t n, int tipo_elemento, const char* clase_elemento,
+                             const LatValor* args);
+/* Multidimensional: dims[0] es la dimensión más externa. tipo_elemento/clase_elemento
+ * describen el elemento hoja. */
+LatValor lat_arreglo_nuevo_multi(size_t ndims, const size_t* dims, int tipo_elemento_hoja,
+                                 const char* clase_elemento_hoja);
+LatValor lat_longitud(LatValor v);
 
 /* --- Objetos (POO) --- */
 /* Nota: API mínima para soporte POO en el runtime. El compilador usará estas
@@ -214,7 +239,8 @@ typedef enum {
     LAT_BLOQUE_LISTA,
     LAT_BLOQUE_DIC,
     LAT_BLOQUE_OBJETO,
-    LAT_BLOQUE_MODULO
+    LAT_BLOQUE_MODULO,
+    LAT_BLOQUE_ARREGLO
 } LatBloqueTipo;
 
 void lat_registro_registrar(void* ptr, LatBloqueTipo tipo);

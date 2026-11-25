@@ -19,6 +19,7 @@
 // Tipos de anotación que el usuario puede escribir junto a una variable o
 // parámetro de función (p.ej.  n: numero = 42  ó  funcion f(a: cadena): logico).
 // Ninguno == sin anotación; la variable sigue siendo completamente dinámica.
+// Arreglo == arreglo de tamaño fijo tipado (estilo C#): numero[] / MiClase[].
 enum class TipoAnotado {
     Ninguno,
     Numero,
@@ -27,7 +28,8 @@ enum class TipoAnotado {
     Lista,
     Dic,
     Nulo,
-    Objeto  // NUEVO: tipo personalizado (clase/estructura/interfaz)
+    Objeto,  // NUEVO: tipo personalizado (clase/estructura/interfaz)
+    Arreglo  // Arreglo fijo tipado: numero[], cadena[], MiClase[], etc.
 };
 
 // Parámetro de función con anotación de tipo opcional.
@@ -36,6 +38,9 @@ struct ParamFuncion {
     TipoAnotado tipo = TipoAnotado::Ninguno;
     std::string tipoClase;        // nombre de clase si tipo == Objeto
     std::vector<std::string> tipoArgs;  // PLAN_GENERICOS.md: argumentos entre <> de tipoClase (p.ej. "Pila<numero>")
+    TipoAnotado tipoElemento = TipoAnotado::Ninguno;  // tipo de elemento si tipo == Arreglo
+    std::string tipoElementoClase;  // nombre de clase si tipoElemento == Objeto
+    std::vector<long long> tamanosArreglo; // [5], [3,4] para multidimensional; vacío si no especificado
 };
 
 // --- FFI con C al estilo de Rust (PLAN_FFI.md) -----------------------------
@@ -237,6 +242,9 @@ struct CampoDef {
     TipoAnotado tipoAnotado = TipoAnotado::Ninguno;
     std::string tipoClase;        // nombre de clase si tipoAnotado == Objeto
     std::vector<std::string> tipoArgs;  // PLAN_GENERICOS.md: argumentos entre <> de tipoClase
+    TipoAnotado tipoElemento = TipoAnotado::Ninguno;  // tipo de elemento si tipoAnotado == Arreglo
+    std::string tipoElementoClase;  // nombre de clase si tipoElemento == Objeto
+    std::vector<long long> tamanosArreglo;
     ModificadorAcceso acceso = ModificadorAcceso::Publico;
     bool esEstatico = false;
     ExprPtr valorDefecto;         // valor por defecto (opcional)
@@ -250,6 +258,9 @@ struct MetodoDef {
     TipoAnotado tipoRetorno = TipoAnotado::Ninguno;
     std::string tipoRetornoClase;  // nombre de clase como tipo retorno
     std::vector<std::string> tipoRetornoArgs;  // PLAN_GENERICOS.md: argumentos entre <> de tipoRetornoClase
+    TipoAnotado tipoRetornoElemento = TipoAnotado::Ninguno;  // elemento si tipoRetorno == Arreglo
+    std::string tipoRetornoElementoClase;
+    std::vector<long long> tamanosRetornoArreglo;
     std::vector<ParametroGenerico> genericos;  // PLAN_GENERICOS.md: <T, U: Bound> propio del método
     ModificadorAcceso acceso = ModificadorAcceso::Publico;
     bool esEstatico = false;
@@ -426,6 +437,9 @@ struct Asignacion : Sentencia {
     std::vector<ExprPtr> destinos;
     std::vector<ExprPtr> valores;
     std::vector<TipoAnotado> tiposDestino;
+    std::vector<TipoAnotado> tiposElementoDestino;  // elemento si tiposDestino[i] == Arreglo
+    std::vector<std::string> tiposElementoClaseDestino;  // clase de elemento si Objeto
+    std::vector<std::vector<long long>> tamanosDestinoArreglo; // dims por destino
     bool esVar = false;
     bool esConst = false;
     bool exportado = false;  // PLAN_MODULOS.md: prefijo "exportar" en nivel superior
@@ -522,6 +536,9 @@ struct FuncionDef : Sentencia {
     TipoAnotado tipoRetorno = TipoAnotado::Ninguno;
     std::string tipoRetornoClase;  // nombre de clase si tipoRetorno == Objeto
     std::vector<std::string> tipoRetornoArgs;  // PLAN_GENERICOS.md: argumentos entre <> de tipoRetornoClase
+    TipoAnotado tipoRetornoElemento = TipoAnotado::Ninguno;  // elemento si tipoRetorno == Arreglo
+    std::string tipoRetornoElementoClase;
+    std::vector<long long> tamanosRetornoArreglo;
     bool variadico = false;  // true si el último parámetro es "..."
     ListaSent cuerpo;
     bool exportado = false;  // PLAN_MODULOS.md: prefijo "exportar"
@@ -586,10 +603,16 @@ struct InterfazDef : Sentencia {
 
 // nuevo NombreClase(arg1, arg2, ...)
 // nuevo NombreClase<TipoArg, ...>(arg1, arg2, ...)  (PLAN_GENERICOS.md)
+// nuevo numero[5] / nuevo MiClase[n]  (arreglo fijo tipado, estilo C#)
 struct NuevoExpr : Expresion {
     std::string clase;
     std::vector<std::string> tipoArgs;  // PLAN_GENERICOS.md: argumentos entre <> tras el nombre de clase
     std::vector<ExprPtr> argumentos;
+    bool esArreglo = false;  // true para "nuevo Tipo[tamano]"
+    TipoAnotado tipoElemento = TipoAnotado::Ninguno;  // tipo de elemento del arreglo
+    std::string tipoElementoClase;  // nombre de clase si tipoElemento == Objeto
+    ExprPtr tamanoArreglo;  // compat: primera dimensión
+    std::vector<ExprPtr> tamanosArreglo; // todas las dimensiones [d1,d2,...]
     LATINO_ACEPTAR
 };
 

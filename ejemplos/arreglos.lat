@@ -1,0 +1,25 @@
+# Arreglos fijos tipados
+
+# Declaración con nuevo y tamaño fijo
+a: numero[] = nuevo numero[3]
+a[0] = 10
+a[1] = 20
+a[2] = 30
+imprimir(a[0])
+imprimir(a[1])
+imprimir(a[2])
+imprimir(a.longitud())
+
+# Inicializador
+b: numero[] = {4, 5, 6}
+imprimir(b[0])
+imprimir(b.longitud())
+
+# Iteración con para
+suma = 0
+para x en a
+  suma = suma + x
+fin
+imprimir(suma)
+
+#salida: 10 20 30 3 4 3 60

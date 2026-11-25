@@ -28,6 +28,11 @@ public:
     Lexer(const std::string& sourceCode);
 
     Token getNextToken();
+    // Mira el siguiente token sin consumirlo (guarda/restaura estado interno).
+    Token verSiguiente();
+    struct Posicion { int pos; int linea; };
+    Posicion guardar() const { return {currentPosition, currentLine}; }
+    void restaurar(Posicion p) { currentPosition = p.pos; currentLine = p.linea; }
 
 private:
     // Devuelve el carácter en currentPosition y avanza. '\0' al final.

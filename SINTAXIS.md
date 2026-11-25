@@ -118,7 +118,8 @@ posiciones. Los tipos básicos y los usados por FFI/genéricos se manejan así:
 | `logico` | valor booleano (`cierto`/`falso`) |
 | `numero` | numérico de punto flotante (`double`) |
 | `cadena` | texto |
-| `lista` | colección ordenada |
+| `lista` | colección ordenada dinámica |
+| `arreglo` / `tipo[]` | arreglo de tamaño fijo y tipo tipado |
 | `dic` / `diccionario` | colección asociativa |
 | `nulo` | valor nulo |
 | `entero8`…`entero64` | enteros con signo en FFI |
@@ -127,8 +128,9 @@ posiciones. Los tipos básicos y los usados por FFI/genéricos se manejan así:
 | `NombreClase` / `ns.NombreClase` | tipo de objeto definido por el usuario |
 | `lista<T>` / `dic<T>` | formularios genéricos documentados/estáticos |
 
-En C, el runtime usa `LatValor` con tipo dinámico; los tipos de usuario y los
-genéricos se compilan a ese mismo sistema, sin un tipo de runtime separado.
+En C, el runtime usa `LatValor` con tipo dinámico; los tipos de usuario, los
+genéricos y los arreglos fijos tipados se compilan sobre ese mismo sistema. Los
+arreglos fijos usan el tipo runtime `LAT_ARREGLO` (distinto de `LAT_LISTA`).
 
 <a name="opds"></a>
 ## V. Operadores:
@@ -297,8 +299,7 @@ fin
 
 ### para ... en ... (recorrido de rangos)
 
-`para` recorre únicamente valores `rango`; no recorre listas, cadenas ni
-diccionarios. `rango(fin)` comienza en 0, `rango(inicio, fin)` usa paso 1 y
+`para` recorre valores `rango`, listas y arreglos fijos tipados. `rango(fin)` comienza en 0, `rango(inicio, fin)` usa paso 1 y
 `rango(inicio, fin, paso)` permite indicar un paso entero. El límite final
 siempre es exclusivo y un paso negativo recorre hacia atrás. El valor
 `rango` es lazy; para crear una lista explícita se usa
@@ -505,7 +506,7 @@ programa no define `principal` ni `inicio`.
 
 <a name="lista"></a>
 ## VIII. Listas
-Una lista es un tipo de colección. Es equivalente a lo que en otros lenguajes se conoce por arreglos o vectores.
+Una lista es un tipo de colección dinámica. Es equivalente a lo que en otros lenguajes se conoce por arreglos dinámicos o vectores.
 
 Las listas pueden contener cualquier tipo de dato: lógico, númerico, literal, cadena, listas, diccionarios.
 
@@ -548,6 +549,43 @@ Como acceso miembro, cualquier lista también responde a `.longitud()`:
 l = [1, 2, 3]
 escribir(l.longitud())   # 3
 ```
+
+### Arreglos fijos tipados
+
+Además de las listas dinámicas, Latino soporta **arreglos de tamaño fijo y tipo tipado**. Son distintos de `lista`: tienen longitud fija, no se redimensionan y verifican el tipo de sus elementos.
+
+La sintaxis de declaración usa anotación de tipo con `[]`:
+
+```latino
+# Declaración con nuevo y tamaño fijo
+a: numero[] = nuevo numero[3]
+a[0] = 10
+a[1] = 20
+a[2] = 30
+escribir(a[0])          # 10
+escribir(a.longitud())  # 3
+
+# Inicializador
+b: numero[] = {1, 2, 3}
+escribir(b[1])          # 2
+```
+
+También se pueden declarar arreglos multidimensionales con varias dimensiones:
+
+```latino
+m: numero[][] = nuevo numero[2][3]
+m[0][1] = 7
+escribir(m[0][1])       # 7
+escribir(m.longitud())  # 2
+```
+
+Notas:
+
+- El tamaño del arreglo es **fijo**; acceder fuera de rango produce un error de ejecución.
+- La asignación a un elemento verifica el tipo en runtime (`LAT_ARREGLO` guarda el tipo de elemento).
+- El compilador también realiza chequeos estáticos best-effort cuando el tipo del valor es conocido (por ejemplo, asignar una cadena a un `numero[]` se detecta en compilación).
+- Los arreglos soportan `.longitud()` e iteración con `para x en arreglo`.
+- `lista` y `arreglo` son tipos distintos: `lista` es dinámica (`LAT_LISTA`), `arreglo` es fijo tipado (`LAT_ARREGLO`).
 
 ### Indexación de cadenas
 Una cadena es, internamente, un arreglo de caracteres, así que admite el mismo operador `[]` que las listas, tanto para leer como para modificar un carácter en una posición dada. El índice también puede ser negativo, con el mismo significado que en las listas.

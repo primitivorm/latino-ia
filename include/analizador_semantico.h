@@ -111,6 +111,9 @@ private:
     // de acceso del Reto 6 solo cuando hay certeza razonable, nunca inventar
     // un tipo. Se empuja/saca junto con 'ambitos' en entrarAmbito/salirAmbito.
     std::vector<std::unordered_map<std::string, std::string>> clasesVariable;
+    // Arreglos fijos tipados: tipo/clase de elemento por variable (mejor esfuerzo).
+    std::vector<std::unordered_map<std::string, TipoAnotado>> tiposElementoVariable;
+    std::vector<std::unordered_map<std::string, std::string>> clasesElementoVariable;
     std::unordered_map<std::string, InfoFuncion> funciones;
     // PLAN_FFI.md (F4): tabla separada de funciones "externo" -- un nombre no
     // puede estar a la vez en `funciones` y en `funcionesExternas` (ver
@@ -176,7 +179,9 @@ private:
 
     void entrarAmbito();
     void salirAmbito();
-    void declararVariable(const std::string& nombre, TipoAnotado tipo, int linea, bool esConst = false);
+    void declararVariable(const std::string& nombre, TipoAnotado tipo, int linea, bool esConst = false,
+                          TipoAnotado tipoElemento = TipoAnotado::Ninguno,
+                          const std::string& claseElemento = "");
     bool estaDeclarada(const std::string& nombre) const;
     void usarIdentificador(const std::string& nombre, int linea);
     bool esIncorporada(const std::string& nombre) const;
@@ -186,6 +191,9 @@ private:
     void analizarBloque(ListaSent& cuerpo);
     void analizarMetodo(MetodoDef& metodo);
     void validarTipoObjeto(TipoAnotado tipo, const std::string& clase, int linea);
+    void validarTipoAnotadoCompleto(TipoAnotado tipo, const std::string& tipoClase,
+                                    TipoAnotado tipoElemento, const std::string& tipoElementoClase,
+                                    int linea);
     bool estaTipoDefinido(const std::string& nombre) const;
     const InfoTipo* obtenerTipo(const std::string& nombre) const;
     void agregarError(int linea, const std::string& mensaje);
@@ -197,6 +205,9 @@ private:
     void entrarGenericos(const std::vector<ParametroGenerico>& genericos);
     void salirGenericos();
     bool esGenericoActivo(const std::string& nombre) const;
+    TipoAnotado tipoElementoDeVariable(const std::string& nombre) const;
+    std::string claseElementoDeVariable(const std::string& nombre) const;
+    void registrarElementoVariable(const std::string& nombre, TipoAnotado tipoElemento, const std::string& claseElemento);
 
     // Verifica que el tipo concreto `concreto` (nombre de tipo primitivo o de
     // clase/estructura) satisfaga los bounds de `g`. No hace nada si `g` no

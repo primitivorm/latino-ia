@@ -11,13 +11,14 @@ namespace {
 
 const char* tipoALatTipo(TipoAnotado t) {
     switch (t) {
-        case TipoAnotado::Numero: return "LAT_NUMERO";
-        case TipoAnotado::Cadena: return "LAT_CADENA";
-        case TipoAnotado::Logico: return "LAT_LOGICO";
-        case TipoAnotado::Lista:  return "LAT_LISTA";
-        case TipoAnotado::Dic:    return "LAT_DICCIONARIO";
-        case TipoAnotado::Nulo:   return "LAT_NULO";
-        case TipoAnotado::Objeto: return "LAT_OBJETO";
+        case TipoAnotado::Numero:  return "LAT_NUMERO";
+        case TipoAnotado::Cadena:  return "LAT_CADENA";
+        case TipoAnotado::Logico:  return "LAT_LOGICO";
+        case TipoAnotado::Lista:   return "LAT_LISTA";
+        case TipoAnotado::Dic:     return "LAT_DICCIONARIO";
+        case TipoAnotado::Nulo:    return "LAT_NULO";
+        case TipoAnotado::Objeto:  return "LAT_OBJETO";
+        case TipoAnotado::Arreglo: return "LAT_ARREGLO";
         default: return nullptr;
     }
 }
@@ -503,6 +504,22 @@ std::string GeneradorC::genExpr(Expresion* e) {
         return genLlamada(n);
     }
     if (auto* n = dynamic_cast<NuevoExpr*>(e)) {
+        if (n->esArreglo) {
+            const char* ct = tipoALatTipo(n->tipoElemento);
+            std::string claseEl = (n->tipoElemento == TipoAnotado::Objeto)
+                                      ? "\"" + escaparCadena(n->tipoElementoClase) + "\""
+                                      : "\"\"";
+            if (n->tamanosArreglo.size() > 1) {
+                std::string dims = nuevoTemp();
+                emitir("size_t " + dims + "[" + std::to_string(n->tamanosArreglo.size()) + "];");
+                for (size_t i = 0; i < n->tamanosArreglo.size(); i++)
+                    emitir(dims + "[" + std::to_string(i) + "] = (size_t)lat_anumero(" + genExpr(n->tamanosArreglo[i].get()) + ").como.numero;");
+                return "lat_arreglo_nuevo_multi(" + std::to_string(n->tamanosArreglo.size()) + ", " + dims + ", " + ct + ", " + claseEl + ")";
+            }
+            Expresion* tamExpr = !n->tamanosArreglo.empty() ? n->tamanosArreglo[0].get() : n->tamanoArreglo.get();
+            std::string tam = genExpr(tamExpr);
+            return "lat_arreglo_nuevo((size_t)lat_anumero(" + tam + ").como.numero, " + ct + ", " + claseEl + ")";
+        }
         std::string obj = nuevoTemp();
 
         auto itC = clases.find(n->clase);
@@ -942,7 +959,27 @@ void GeneradorC::genSentenciaImpl(Sentencia* s) {
             TipoAnotado tipo = a->tiposDestino.empty()
                                    ? TipoAnotado::Ninguno
                                    : a->tiposDestino[0];
-            std::string val = genExpr(a->valores[0].get());
+            std::string val;
+            // Azúcar: numero[] a = {1,2,3} -> lat_arreglo_de_args(...)
+            if (tipo == TipoAnotado::Arreglo) {
+                if (auto* lit = dynamic_cast<ListaLiteral*>(a->valores[0].get())) {
+                    TipoAnotado tipoEl = a->tiposElementoDestino.empty() ? TipoAnotado::Ninguno : a->tiposElementoDestino[0];
+                    const char* ctEl = tipoALatTipo(tipoEl);
+                    std::string claseEl = (tipoEl == TipoAnotado::Objeto && !a->tiposElementoClaseDestino.empty())
+                                              ? "\"" + escaparCadena(a->tiposElementoClaseDestino[0]) + "\""
+                                              : "\"\"";
+                    std::string arr = nuevoTemp();
+                    size_t n = lit->elementos.size();
+                    emitir("LatValor " + arr + "[" + std::to_string(n ? n : 1) + "];");
+                    for (size_t i = 0; i < n; i++)
+                        emitir(arr + "[" + std::to_string(i) + "] = " + genExpr(lit->elementos[i].get()) + ";");
+                    val = "lat_arreglo_de_args(" + std::to_string(n) + ", " + ctEl + ", " + claseEl + ", " + arr + ")";
+                } else {
+                    val = genExpr(a->valores[0].get());
+                }
+            } else {
+                val = genExpr(a->valores[0].get());
+            }
             if (tipo != TipoAnotado::Ninguno) {
                 const char* ct = tipoALatTipo(tipo);
                 std::string nombreVar;
@@ -1038,20 +1075,46 @@ void GeneradorC::genSentenciaImpl(Sentencia* s) {
         return;
     }
     if (auto* pa = dynamic_cast<Para*>(s)) {
-        std::string rango = nuevoTemp();
+        std::string iter = nuevoTemp();
+        std::string idx = nuevoTemp();
+        std::string len = nuevoTemp();
         std::string actual = nuevoTemp();
-        emitir("LatValor " + rango + " = " + genExpr(pa->iterable.get()) + ";");
-        emitir("LatValor " + actual + " = lat_rango_inicio(" + rango + ");");
-        emitir("lat_raices_empujar_temporal(&" + rango + ");");
+        emitir("LatValor " + iter + " = " + genExpr(pa->iterable.get()) + ";");
+        emitir("lat_raices_empujar_temporal(&" + iter + ");");
+        emitir("if (" + iter + ".tipo == LAT_ARREGLO) {");
+        ++indentacion;
+        emitir("for (size_t " + idx + " = 0; " + idx + " < " + iter + ".como.arreglo->longitud; " + idx + "++) {");
+        ++indentacion;
+        emitir("LatValor " + actual + " = " + iter + ".como.arreglo->datos[" + idx + "];");
+        emitir(GeneradorC::varC(pa->variable) + " = " + actual + ";");
+        genBloque(pa->cuerpo);
+        --indentacion;
+        emitir("}");
+        --indentacion;
+        emitir("} else if (" + iter + ".tipo == LAT_LISTA) {");
+        ++indentacion;
+        emitir("for (size_t " + idx + " = 0; " + idx + " < " + iter + ".como.lista->longitud; " + idx + "++) {");
+        ++indentacion;
+        emitir("LatValor " + actual + " = " + iter + ".como.lista->datos[" + idx + "];");
+        emitir(GeneradorC::varC(pa->variable) + " = " + actual + ";");
+        genBloque(pa->cuerpo);
+        --indentacion;
+        emitir("}");
+        --indentacion;
+        emitir("} else {");
+        ++indentacion;
+        emitir("LatValor " + actual + " = lat_rango_inicio(" + iter + ");");
         emitir("lat_raices_empujar_temporal(&" + actual + ");");
-        emitir("while (lat_rango_contiene(" + rango + ", " + actual + ")) {");
+        emitir("while (lat_rango_contiene(" + iter + ", " + actual + ")) {");
         ++indentacion;
         emitir(GeneradorC::varC(pa->variable) + " = " + actual + ";");
         genBloque(pa->cuerpo);
-        emitir(actual + " = lat_rango_siguiente(" + rango + ", " + actual + ");");
+        emitir(actual + " = lat_rango_siguiente(" + iter + ", " + actual + ");");
         --indentacion;
         emitir("}");
         emitir("lat_raices_sacar_temporal();");
+        --indentacion;
+        emitir("}");
         emitir("lat_raices_sacar_temporal();");
         return;
     }
