@@ -486,8 +486,13 @@ int main(int argc, char** argv) {
 #endif
     }
 
-    // Escribir el C generado a un archivo temporal.
-    fs::path archivoC = fs::temp_directory_path() / (fs::path(ruta).stem().string() + ".c");
+    // Escribir el C generado a un archivo temporal. Se nombra a partir de la
+    // ruta de salida (no del archivo de entrada) para que nunca colisione con
+    // los fuentes de runtime/libs/*.c: un programa "hilos.lat" antes generaba
+    // temp/hilos.c, que al compilarse junto con runtime/libs/hilos.c producía
+    // dos hilos.obj en el mismo directorio de objetos (LNK4042) y el enlace
+    // fallaba con símbolo externo sin resolver (LNK1120).
+    fs::path archivoC = fs::temp_directory_path() / (fs::path(salida).stem().string() + ".c");
     {
         std::ofstream f(archivoC, std::ios::binary);
         if (!f) {
