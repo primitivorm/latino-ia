@@ -101,7 +101,7 @@ done
 if (( ${#CASOS[@]} == 0 )); then
     CASOS=(
         hola cadena_ejemplo lista_ejemplo diccionarios mate_ejemplo
-        herencia interfaces funciones genericos alcance_variables
+        herencia interfaces funciones genericos alcance_variables hilos
     )
 fi
 
@@ -122,6 +122,11 @@ TOTALES=0
 for caso in "${CASOS[@]}"; do
     ruta="$caso"
     [[ "$ruta" == /* ]] || ruta="$RAIZ/$caso"
+    # La lista curada usa nombres cortos ("hola"); los ejemplos viven en
+    # ejemplos/<nombre>.lat. Sin esta resolución el gate los omitía todos.
+    if [[ ! -f "$ruta" && "$caso" != */* && "$caso" != *.lat ]]; then
+        ruta="$RAIZ/ejemplos/$caso.lat"
+    fi
     if [[ ! -f "$ruta" ]]; then
         echo "  OMITIDO (no existe): $caso" >&2
         continue

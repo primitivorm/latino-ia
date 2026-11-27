@@ -127,6 +127,7 @@ Suites de prueba disponibles:
 | `test_ffi_e2e` | Programas completos con `externo`/`inseguro` llamando símbolos ya enlazados por defecto (Fase F7 de `PLAN_FFI.md`) |
 | `test_macros` | Parser, impresor de fuente, expandedor/intérprete compile-time y generación C tras expansión (`PLAN_MACROS.md`) |
 | `test_macros_e2e` | Programas completos con macros (incluidas `@mostrar`/`@afirmar`/`@tiempo`/`@expandir_macro`), en C y LLVM |
+| `test_hilos_e2e` | Programas completos con `hilo`/`esperar`/`bloquear` y la API `hilos.*`, en C y LLVM |
 
 ## Convenciones del código
 
@@ -588,6 +589,55 @@ Hallazgos de la implementación que conviene recordar:
 Fuera de alcance de v1: macros exportadas/importadas entre módulos, macros
 variádicas, bloques multi-sentencia como valor de expresión y sustitución de
 tipos en genéricos.
+
+## Hilos estilo C# (en desarrollo)
+
+Plan completo en [input/PLAN_HILOS.md](input/PLAN_HILOS.md). Palabras
+reservadas nuevas: `hilo`, `esperar`, `bloquear`. Sintaxis:
+`hilo t(x: expr, ...) ... fin`, `esperar t`, `bloquear(cerrojo) ... fin`,
+más la API explícita `hilos.crear/esperar/dormir/rendir/cerrojo/entrar/salir/
+cerrojo_liberar`.
+
+Hallazgos importantes de la implementación:
+
+- Los argumentos de un `hilo` se capturan por valor; `Parser::parseHilo`
+  guarda la expresión en `ParamFuncion::valorInicial` (un `shared_ptr` para
+  que el struct siga siendo copiable). El `:` de la captura es un
+  **operador**, no un delimitador — usar `esperarOperador(":")`.
+- Solo los cuerpos de `hilo` generan un trampolín con firma nativa
+  (`void*(void*)` en C, `ptr(ptr)` en LLVM); las anónimas normales siguen
+  siendo `LatFnModulo`. Un `retornar` dentro del hilo se baja a `goto` (C) o
+  a un branch al bloque de salida (LLVM).
+- El trampolín debe excluir los nombres `global` al recolectar locales, o
+  una variable global compartida queda sombreada por una local y cada hilo
+  incrementa su propia copia.
+- `lat_hilo_iniciar` incrementa `g_marcosActivos` **antes** de crear el hilo
+  nativo y `lat_hilo_esperar` lo decrementa tras el join. Sin eso, el creador
+  puede barrer los argumentos capturados en la ventana entre
+  `pthread_create` y la publicación del marco de raíces del hilo (una cadena
+  capturada llegaba corrupta).
+- `g_raices`/`g_temporales` son TLS; `g_registro` y `g_marcosActivos` son
+  globales protegidos por `g_gcMutex`. `lat_recoger` solo barre si
+  `g_marcosActivos == 1`.
+- CMake usa `find_package(Threads)` y los invocadores GNU/Clang agregan
+  `-pthread`; Windows usa `CRITICAL_SECTION`/`CreateThread` directamente.
+- `tools/abi_probe.c` debe referenciar `lat_hilo_*`/`lat_hilos_*` para que
+  `RuntimeAbiLLVM` pueda declararlos en el backend LLVM.
+- `bloquear` se baja a un bloque simple en C (no a `do { } while (0)`, o un
+  `romper` rompería el bloque en vez del bucle contenedor). `romper` libera
+  solo los cerrojos tomados dentro del bucle que abandona; `retornar` libera
+  todos los de la función.
+
+- El arreglo TLS de temporales se realloca por hilo: cada trampolín debe
+  llamar `lat_hilo_liberar_recursos()` al terminar (incluido el de
+  `hilos.crear`), o el bloque escapa al morir el hilo.
+- `tools/valgrind.sh` incluye `ejemplos/hilos.lat` en su gate curado. Verificado
+  con Valgrind en 10 programas × 2 backends: 20/20 sin fugas (`definite` e
+  `indirect` = 0); los cerrojos no liberados explícitamente son *still
+  reachable*, no fuga.
+
+Verificado con LLVM 18 real: `ctest` completo en serie, 153/153 en verde, con
+`test_hilos_e2e` y sus variantes C/LLVM, `e2e_hilos` y modo `--jit`.
 
 ## Ramas y PRs
 

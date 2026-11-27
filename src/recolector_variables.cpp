@@ -61,6 +61,18 @@ void colectar(Sentencia* s, std::set<std::string>& out, const Filtro& filtro) {
         colectarLista(ib->cuerpo, out, filtro);
         return;
     }
+    // PLAN_HILOS.md: "bloquear" también es transparente; "hilo" declara su
+    // variable manejar en el ámbito creador, pero su cuerpo es una función
+    // independiente (no se desciende, igual que con FuncionDef).
+    if (auto* bl = dynamic_cast<Bloquear*>(s)) {
+        colectarLista(bl->cuerpo, out, filtro);
+        return;
+    }
+    if (auto* h = dynamic_cast<HiloDef*>(s)) {
+        Asignacion asignacionImplicita;
+        if (filtro(asignacionImplicita)) out.insert(h->nombre);
+        return;
+    }
     // FuncionDef: no se desciende. ExprSentencia/Romper/Retornar: nada que declarar.
 }
 
@@ -124,6 +136,10 @@ void recolectarGlobalesExplicitos(const ListaSent& cuerpo, std::set<std::string>
         }
         if (auto* ib = dynamic_cast<InseguroBloque*>(s.get())) {
             recolectarGlobalesExplicitos(ib->cuerpo, destino);
+            continue;
+        }
+        if (auto* bl = dynamic_cast<Bloquear*>(s.get())) {
+            recolectarGlobalesExplicitos(bl->cuerpo, destino);
         }
     }
 }

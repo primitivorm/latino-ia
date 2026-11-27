@@ -275,8 +275,18 @@ public:
     void recolectarAnonimasLista(const ListaSent& cuerpo);
     void recolectarAnonimasEnSentencia(Sentencia* s);
     void recolectarAnonimasEnExpresion(Expresion* e);
+    void registrarAnonima(FuncionAnonima* f);
     llvm::Function* declararFuncionAnonima(FuncionAnonima& f, llvm::Module& modulo);
     void genFuncionAnonima(FuncionAnonima& f, llvm::Module& modulo);
+
+    // PLAN_HILOS.md: trampolín `ptr @..._hilo(ptr %args)` con la firma que
+    // espera lat_hilo_crear. Copia los LatValor de LatHiloArgs a las celdas
+    // de los parámetros de la anónima y ejecuta su cuerpo con un marco de
+    // raíces propio, igual que GeneradorC::genFuncionAnonima_hilo.
+    llvm::Function* declararTrampolinHilo(FuncionAnonima& f, llvm::Module& modulo);
+    void genTrampolinHilo(FuncionAnonima& f, llvm::Module& modulo);
+    void genHilo(HiloDef& h, llvm::IRBuilder<>& builder, llvm::Module& modulo,
+                 const std::unordered_map<std::string, llvm::Value*>& variables);
 
     // (Fase L8) Registra en las tablas internas clases_/estructuras_/
     // interfaces_ cada ClaseDef/EstructuraDef/InterfazDef de nivel superior
@@ -486,6 +496,27 @@ private:
     std::vector<FuncionAnonima*> anonimas_;
     std::unordered_map<FuncionAnonima*, size_t> indicesAnonimas_;
     std::unordered_map<FuncionAnonima*, llvm::Function*> funcionesAnonimas_;
+
+    // PLAN_HILOS.md: trampolines con firma nativa de hilo (ptr(ptr)) para cada
+    // cuerpo de `hilo nombre(...) ... fin`. Se declaran en la misma pasada que
+    // las anónimas, porque el main puede crear hilos antes de definirlas.
+    std::unordered_map<FuncionAnonima*, llvm::Function*> trampolinesHilo_;
+    std::set<FuncionAnonima*> cuerposHilo_;
+    // PLAN_HILOS: bloque de salida del trampolín en construcción, usado por
+    // `retornar` dentro de un cuerpo de hilo.
+    llvm::BasicBlock* finTrampolinHilo_ = nullptr;
+
+    // PLAN_HILOS: celdas de los cerrojos tomados por `bloquear`, para soltarlos
+    // también en las rutas de `retornar`.
+    std::vector<llvm::Value*> bloqueosActivos_;
+    // Número de cerrojos activos al entrar en cada bucle (ver GeneradorC).
+    std::vector<size_t> bloqueosPorBucle_;
+    void emitirLiberarBloqueos(llvm::IRBuilder<>& builder, llvm::Module& modulo,
+                              size_t desde = 0);
+    // Registra la entrada/salida de un bucle junto con su bloque de salida:
+    // un `romper` libera solo los cerrojos tomados dentro del bucle actual.
+    void entrarBucle(llvm::BasicBlock* salida);
+    void salirBucle();
 
     // Nombre de variable de nivel superior -> celda global real (ver
     // declararGlobales arriba). genFuncion/genMetodo/generar() insertan

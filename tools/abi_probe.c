@@ -19,6 +19,7 @@
 #include "libs/archivo.h"
 #include "libs/cadena.h"
 #include "libs/dic.h"
+#include "libs/hilos.h"
 #include "libs/lista.h"
 #include "libs/mate.h"
 #include "libs/paquete.h"
@@ -122,6 +123,23 @@ void lat_abi_referenciar_todo(void) {
     (void)lat_error;
     (void)lat_es_verdadero;
     (void)lat_escribir;
+    (void)lat_hilo_crear;
+    (void)lat_hilo_iniciar;
+    (void)lat_hilo_esperar;
+    (void)lat_hilo_dormir;
+    (void)lat_hilo_liberar_recursos;
+    (void)lat_hilo_cerrojo;
+    (void)lat_hilo_entrar;
+    (void)lat_hilo_salir;
+    (void)lat_hilo_cerrojo_liberar;
+    (void)lat_hilos_crear;
+    (void)lat_hilos_esperar;
+    (void)lat_hilos_dormir;
+    (void)lat_hilos_rendir;
+    (void)lat_hilos_cerrojo;
+    (void)lat_hilos_entrar;
+    (void)lat_hilos_salir;
+    (void)lat_hilos_cerrojo_liberar;
     (void)lat_ffi_verificar_tipo;
     (void)lat_funcion_nueva;
     (void)lat_funcion_nueva_llvm;

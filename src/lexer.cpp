@@ -255,7 +255,9 @@ bool Lexer::esPalabraReservada(const std::string& palabra) const {
         // Nuevas palabras reservadas para FFI con C (PLAN_FFI.md)
         "externo", "enlazar", "inseguro",
         // Nuevas palabras reservadas para macros (PLAN_MACROS.md)
-        "macro", "quote"
+        "macro", "quote",
+        // Nuevas palabras reservadas para hilos (PLAN_HILOS.md)
+        "hilo", "esperar", "bloquear"
     };
 
     return palabrasReservadas.count(palabra) > 0;

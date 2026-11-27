@@ -220,6 +220,34 @@ LatValor lat_valor_retener(LatValor v);
 /* Decrementa el contador; libera la memoria cuando llega a cero. */
 void     lat_valor_liberar(LatValor v);
 
+/* --- PLAN_HILOS: cerrojos y manejar de hilo ------------------------
+ * `lat_hilo_crear` devuelve un LAT_PUNTERO opaco. La función `fn` debe tener
+ * la firma `void* (*)(void*)` (pthread/qthreads) y recibe un `LatHiloArgs*`
+ * con la copia privada de los argumentos. Los cerrojos se crean con
+ * lat_hilo_cerrojo();
+ * lat_hilo_entrar/salir son anidables sobre el mismo cerrojo desde un mismo
+ * hilo (como lock/Monitor de C#).
+ */
+typedef void* (*LatFnHilo)(void*);
+typedef struct {
+    LatFnHilo fn;
+    size_t nargs;
+    LatValor* args;
+} LatHiloArgs;
+
+LatValor lat_hilo_crear(LatFnHilo fn, LatHiloArgs args);
+void lat_hilo_iniciar(LatValor hilo);
+void lat_hilo_esperar(LatValor hilo);
+void lat_hilo_dormir(double segundos);
+/* Libera los recursos TLS del hilo que abandona el código Latino (arreglo de
+ * temporales). Lo llama el trampolín al terminar; también lo usa lat_liberar_todo
+ * para el hilo principal. */
+void lat_hilo_liberar_recursos(void);
+LatValor lat_hilo_cerrojo(void);
+void lat_hilo_entrar(LatValor cerrojo);
+void lat_hilo_salir(LatValor cerrojo);
+void lat_hilo_cerrojo_liberar(LatValor cerrojo);
+
 /* --- PLAN_PERF: registro global y recolección por raíces -------------
  * El runtime registra aquí todo bloque heap que posee un LatValor. El código
  * generado publica las celdas que siguen vivas (variables, parámetros y
@@ -232,9 +260,12 @@ void     lat_valor_liberar(LatValor v);
  * registra solo para liberar el struct; el handle dlopen/LoadLibrary no se
  * cierra automáticamente.
  *
- * Las funciones de raíces no son thread-safe: el runtime de Latino es de un
- * solo hilo. Cada marco guarda un puntero al array de celdas que el código
- * generado mantiene vivo mientras la función está en la pila.
+ * Con hilos (PLAN_HILOS.md), la pila de marcos y los temporales son propios
+ * de cada hilo (TLS) y el registro global de bloques está protegido por un
+ * mutex. `lat_recoger` solo barre cuando no hay otro hilo Latino activo, para
+ * no liberar raíces que otro hilo todavía está usando. Cada marco guarda un
+ * puntero al array de celdas que el código generado mantiene vivo mientras la
+ * función está en la pila.
  */
 typedef enum {
     LAT_BLOQUE_CADENA,

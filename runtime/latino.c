@@ -1,7 +1,7 @@
 /* latino.c — implementación del runtime de Latino. Ver latino.h. */
 
 #if !defined(_WIN32) && !defined(_POSIX_C_SOURCE)
-#define _POSIX_C_SOURCE 199309L  /* clock_gettime(), usado por lat_tiempo_ns */
+#define _POSIX_C_SOURCE 200809L  /* clock_gettime(), pthread_*, nanosleep */
 #endif
 
 #include "latino.h"
@@ -18,6 +18,10 @@
 #include <time.h>
 #ifdef _WIN32
 #include <windows.h>
+#else
+#include <errno.h>
+#include <pthread.h>
+#include <time.h>
 #endif
 
 /* ================================================================
@@ -430,10 +434,23 @@ struct LatObjeto {
  * PLAN_PERF — Registro global de bloques y recolección por raíces.
  *
  * Cada constructor registra su bloque aquí. El código generado publica sus
+ * PLAN_HILOS: el registro, la pila de raíces y los temporales son estado
+ * global compartido por todos los hilos Latino; se protegen con un mutex
+ * recursivo (`g_gc_mutex`). Cada marco guarda un puntero al array de celdas
+ * que el código generado mantiene vivo mientras la función está en la pila.
  * celdas vivas con lat_raices_empujar() y barre al final de cada sentencia.
+ * PLAN_HILOS: la pila de raices y los temporales son Thread-Local Storage --
+ * cada hilo tiene su propia pila (sus celdas viven en su propia pila nativa).
+ * Un contador GLOBAL de marcos activos impide barrer mientras otro hilo tenga
+ * un marco publicado, porque el registro de bloques sí es compartido.
  * El barrido es shallow: libera cada bloque una sola vez sin dereferenciar
  * hijos ya liberados, por lo que tolera ciclos y aliases.
  * ================================================================ */
+#ifdef _WIN32
+#define LAT_THREAD_LOCAL __declspec(thread)
+#else
+#define LAT_THREAD_LOCAL __thread
+#endif
 typedef struct EntradaRegistro {
     void* ptr;
     LatBloqueTipo tipo;
@@ -449,12 +466,35 @@ typedef struct MarcoRaices {
 } MarcoRaices;
 
 static EntradaRegistro* g_registro = NULL;
-static MarcoRaices* g_raices = NULL;
-static LatValor** g_temporales = NULL;
-static size_t g_numTemporales = 0;
-static size_t g_capTemporales = 0;
+static LAT_THREAD_LOCAL MarcoRaices* g_raices = NULL;
+static LAT_THREAD_LOCAL LatValor** g_temporales = NULL;
+static LAT_THREAD_LOCAL size_t g_numTemporales = 0;
+static LAT_THREAD_LOCAL size_t g_capTemporales = 0;
+static size_t g_marcosActivos = 0;  /* global, protegido por g_gcMutex */
 static int g_registroInicializado = 0;
 static int g_limpiando = 0;
+
+/* PLAN_HILOS: el GC es global; todas las API públicas que lo tocan adquieren
+ * este mutex. Las funciones que lo toman no se anidan entre sí (lat_recoger
+ * marca y libera sin volver a llamar a ninguna API de raíces), así que basta
+ * con una SRWLOCK en Windows y un mutex normal en Unix. */
+#ifdef _WIN32
+static SRWLOCK g_gcMutex = SRWLOCK_INIT;
+static void gc_bloquear(void)   { AcquireSRWLockExclusive(&g_gcMutex); }
+static void gc_desbloquear(void) { ReleaseSRWLockExclusive(&g_gcMutex); }
+#else
+static pthread_mutex_t g_gcMutex;
+static pthread_once_t g_gcMutexOnce = PTHREAD_ONCE_INIT;
+static void gc_inicializar_mutex(void) {
+    pthread_mutexattr_t a;
+    pthread_mutexattr_init(&a);
+    pthread_mutexattr_settype(&a, PTHREAD_MUTEX_RECURSIVE);
+    pthread_mutex_init(&g_gcMutex, &a);
+    pthread_mutexattr_destroy(&a);
+}
+static void gc_bloquear(void)   { pthread_once(&g_gcMutexOnce, gc_inicializar_mutex); pthread_mutex_lock(&g_gcMutex); }
+static void gc_desbloquear(void) { pthread_mutex_unlock(&g_gcMutex); }
+#endif
 
 static EntradaRegistro* entrada_de(void* ptr) {
     if (!ptr) return NULL;
@@ -577,82 +617,104 @@ static void marcar_valor(LatValor v) {
 }
 
 void lat_registro_registrar(void* ptr, LatBloqueTipo tipo) {
-    if (!ptr || g_limpiando) return;
+    if (!ptr) return;
+    gc_bloquear();
+    if (g_limpiando) { gc_desbloquear(); return; }
     if (!g_registroInicializado) {
         atexit(lat_liberar_todo);
         g_registroInicializado = 1;
     }
-    if (entrada_de(ptr)) return;
+    if (entrada_de(ptr)) { gc_desbloquear(); return; }
     EntradaRegistro* e = (EntradaRegistro*)malloc(sizeof(EntradaRegistro));
-    if (!e) return;
+    if (!e) { gc_desbloquear(); return; }
     e->ptr = ptr;
     e->tipo = tipo;
     e->marcado = 0;
     e->sig = g_registro;
     g_registro = e;
+    gc_desbloquear();
 }
 
 void lat_registro_dar_de_baja(void* ptr) {
     if (!ptr) return;
+    gc_bloquear();
     EntradaRegistro* ant = NULL;
     for (EntradaRegistro* e = g_registro; e; ant = e, e = e->sig) {
         if (e->ptr == ptr) {
             if (ant) ant->sig = e->sig;
             else g_registro = e->sig;
             free(e);
+            gc_desbloquear();
             return;
         }
     }
+    gc_desbloquear();
 }
 
 size_t lat_registro_cantidad(void) {
     size_t n = 0;
+    gc_bloquear();
     for (EntradaRegistro* e = g_registro; e; e = e->sig) n++;
+    gc_desbloquear();
     return n;
 }
 
 void lat_raices_empujar(LatValor** raices, size_t cantidad) {
     MarcoRaices* m = (MarcoRaices*)malloc(sizeof(MarcoRaices));
     if (!m) return;
+    gc_bloquear();
     m->raices = raices;
     m->cantidad = cantidad;
     m->baseTemporales = g_numTemporales;
     m->sig = g_raices;
     g_raices = m;
+    g_marcosActivos++;
+    gc_desbloquear();
 }
 
 void lat_raices_empujar_temporal(LatValor* celda) {
     if (!celda) return;
+    gc_bloquear();
     if (g_numTemporales == g_capTemporales) {
         size_t nueva = g_capTemporales ? g_capTemporales * 2 : 16;
         LatValor** tmp = (LatValor**)realloc(g_temporales, nueva * sizeof(LatValor*));
-        if (!tmp) return;
+        if (!tmp) { gc_desbloquear(); return; }
         g_temporales = tmp;
         g_capTemporales = nueva;
     }
     g_temporales[g_numTemporales++] = celda;
+    gc_desbloquear();
 }
 
 void lat_raices_sacar_temporal(void) {
+    gc_bloquear();
     if (g_numTemporales > 0) g_numTemporales--;
+    gc_desbloquear();
 }
 
 void lat_raices_sacar(void) {
+    gc_bloquear();
     MarcoRaices* m = g_raices;
-    if (!m) return;
+    if (!m) { gc_desbloquear(); return; }
     g_raices = m->sig;
     g_numTemporales = m->baseTemporales;
+    if (g_marcosActivos > 0) g_marcosActivos--;
     free(m);
+    gc_desbloquear();
 }
 
 void lat_recoger(LatValor extra) {
-    if (g_limpiando) return;
+    gc_bloquear();
+    if (g_limpiando) { gc_desbloquear(); return; }
     /* Un barrido dentro de una llamada anidada no puede liberar temporales
      * del llamador: p.ej. en f(g(), lat_cadena("x")) la cadena ya está
      * evaluada pero no es raíz de ningún marco. Solo el marco más externo
      * (main / sentencia de nivel superior) barre, y lo hace también en
      * nombre de todos los marcos internos. */
-    if (!g_raices || g_raices->sig) return;
+    /* PLAN_HILOS: solo barre el hilo que es dueno del unico marco activo;
+     * si otro hilo Latino esta ejecutando, sus raices (TLS) no son visibles
+     * aca y barrer podria liberar valores que todavia usa. */
+    if (!g_raices || g_raices->sig || g_marcosActivos != 1) { gc_desbloquear(); return; }
     for (EntradaRegistro* e = g_registro; e; e = e->sig) e->marcado = 0;
 
     for (MarcoRaices* m = g_raices; m; m = m->sig)
@@ -680,10 +742,12 @@ void lat_recoger(LatValor extra) {
     }
     *cola = NULL;
     g_registro = supervivientes;
+    gc_desbloquear();
 }
 
 void lat_liberar_todo(void) {
-    if (g_limpiando) return;
+    gc_bloquear();
+    if (g_limpiando) { gc_desbloquear(); return; }
     g_limpiando = 1;
 
     /* Descolgar todo el registro antes de liberar: ninguna cascada puede
@@ -708,6 +772,181 @@ void lat_liberar_todo(void) {
     g_temporales = NULL;
     g_numTemporales = g_capTemporales = 0;
     g_limpiando = 0;
+    gc_desbloquear();
+}
+
+/* ================================================================
+ * PLAN_HILOS — hilos estilo C# sobre pthreads/Win32.
+ * El manejar de un hilo es un LAT_PUNTERO opaco con una pequeña struct
+ * cabecera. No se registra en el GC (es memoria nativa sin ref-conteo),
+ * pero lat_hilo_esperar() lo libera automáticamente al hacer join, igual
+ * que Thread.Join() deja el objeto listo para liberarse en C#.
+ * ================================================================ */
+#ifdef _WIN32
+typedef HANDLE LatHiloNativo;
+typedef CRITICAL_SECTION LatCerrojoNativo;
+#define LAT_HILO_NULO NULL
+static void lat_hilo_nativo_iniciar(LatHiloNativo* h, LatFnHilo fn, void* arg) {
+    *h = CreateThread(NULL, 0, (LPTHREAD_START_ROUTINE)fn, arg, 0, NULL);
+}
+static void lat_hilo_nativo_esperar(LatHiloNativo h) {
+    if (h == LAT_HILO_NULO) return;
+    WaitForSingleObject(h, INFINITE);
+    CloseHandle(h);
+}
+static void lat_cerrojo_inicializar(LatCerrojoNativo* c) { InitializeCriticalSection(c); }
+static void lat_cerrojo_entrar(LatCerrojoNativo* c) { EnterCriticalSection(c); }
+static void lat_cerrojo_salir(LatCerrojoNativo* c) { LeaveCriticalSection(c); }
+static void lat_cerrojo_destruir(LatCerrojoNativo* c) { DeleteCriticalSection(c); }
+#else
+typedef pthread_t LatHiloNativo;
+typedef pthread_mutex_t LatCerrojoNativo;
+#define LAT_HILO_NULO ((pthread_t)0)
+static void lat_hilo_nativo_iniciar(LatHiloNativo* h, LatFnHilo fn, void* arg) {
+    pthread_create(h, NULL, fn, arg);
+}
+static void lat_hilo_nativo_esperar(LatHiloNativo h) {
+    if (h != LAT_HILO_NULO) pthread_join(h, NULL);
+}
+static void lat_cerrojo_inicializar(LatCerrojoNativo* c) {
+    pthread_mutexattr_t a;
+    pthread_mutexattr_init(&a);
+    pthread_mutexattr_settype(&a, PTHREAD_MUTEX_RECURSIVE);
+    pthread_mutex_init(c, &a);
+    pthread_mutexattr_destroy(&a);
+}
+static void lat_cerrojo_entrar(LatCerrojoNativo* c) { pthread_mutex_lock(c); }
+static void lat_cerrojo_salir(LatCerrojoNativo* c) { pthread_mutex_unlock(c); }
+static void lat_cerrojo_destruir(LatCerrojoNativo* c) { pthread_mutex_destroy(c); }
+#endif
+
+typedef struct {
+    LatHiloNativo nativo;
+    LatFnHilo fn;
+    LatHiloArgs args;       /* copia profunda de args y args.args */
+    LatValor* argsCopia;
+    int iniciado;
+    int esperado;
+    int contabilizadoGC;  // mantiene g_marcosActivos alto hasta el join
+} LatHilo;
+
+typedef struct {
+    LatCerrojoNativo nativo;
+    int destruido;
+} LatCerrojo;
+
+static LatValor lat_hilo_error(const char* mensaje) {
+    fprintf(stderr, "Error de hilo: %s\n", mensaje);
+    exit(1);
+}
+
+LatValor lat_hilo_crear(LatFnHilo fn, LatHiloArgs args) {
+    if (!fn) lat_hilo_error("se intentó crear un hilo sin función");
+    LatHilo* h = (LatHilo*)calloc(1, sizeof(LatHilo));
+    if (!h) lat_hilo_error("sin memoria para crear el hilo");
+    h->fn = fn;
+    h->args = args;
+    h->nativo = LAT_HILO_NULO;
+    if (args.nargs > 0) {
+        h->argsCopia = (LatValor*)malloc(args.nargs * sizeof(LatValor));
+        if (!h->argsCopia) lat_hilo_error("sin memoria para los argumentos del hilo");
+        memcpy(h->argsCopia, args.args, args.nargs * sizeof(LatValor));
+        h->args.args = h->argsCopia;
+    }
+    return lat_puntero(h);
+}
+
+/* Arranca el hilo con la copia de argumentos ya hecha. Separar crear/iniciar
+ * permite al generador publicar el manejar como raíz antes de que el hilo
+ * empiece a ejecutar código (y por tanto a tocar el GC). */
+void lat_hilo_iniciar(LatValor v) {
+    if (v.tipo != LAT_PUNTERO || !v.como.puntero) return;
+    LatHilo* h = (LatHilo*)v.como.puntero;
+    if (h->iniciado) return;
+    h->iniciado = 1;
+    /* El hilo puede empezar a usar argumentos capturados ANTES de publicar
+     * su propio marco de raíces. Contarlo desde aquí evita que el creador
+     * barra esos valores mientras tanto. */
+    gc_bloquear();
+    g_marcosActivos++;
+    h->contabilizadoGC = 1;
+    gc_desbloquear();
+    lat_hilo_nativo_iniciar(&h->nativo, h->fn, &h->args);
+}
+
+void lat_hilo_esperar(LatValor v) {
+    if (v.tipo != LAT_PUNTERO || !v.como.puntero) {
+        lat_hilo_error("esperar necesita un manejar de hilo");
+        return;
+    }
+    LatHilo* h = (LatHilo*)v.como.puntero;
+    if (h->esperado) return;
+    h->esperado = 1;
+    if (h->iniciado) lat_hilo_nativo_esperar(h->nativo);
+    if (h->contabilizadoGC) {
+        gc_bloquear();
+        if (g_marcosActivos > 0) g_marcosActivos--;
+        h->contabilizadoGC = 0;
+        gc_desbloquear();
+    }
+    free(h->argsCopia);
+    free(h);
+}
+
+void lat_hilo_liberar_recursos(void) {
+    /* El arreglo de temporales es TLS y se realloca bajo demanda. Al terminar
+     * un hilo, ese puntero desaparece con su TLS: sin liberarlo aquí, cada
+     * hilo que use temporales deja escapar su bloque. No hace falta mutex
+     * porque solo se toca el estado del hilo que llama. */
+    free(g_temporales);
+    g_temporales = NULL;
+    g_numTemporales = 0;
+    g_capTemporales = 0;
+}
+
+void lat_hilo_dormir(double segundos) {
+    if (segundos <= 0) return;
+#ifdef _WIN32
+    Sleep((DWORD)(segundos * 1000.0));
+#else
+    struct timespec ts;
+    ts.tv_sec = (time_t)segundos;
+    ts.tv_nsec = (long)((segundos - (double)ts.tv_sec) * 1e9);
+    while (nanosleep(&ts, &ts) == -1 && errno == EINTR) { }
+#endif
+}
+
+LatValor lat_hilo_cerrojo(void) {
+    LatCerrojo* c = (LatCerrojo*)calloc(1, sizeof(LatCerrojo));
+    if (!c) lat_hilo_error("sin memoria para crear el cerrojo");
+    lat_cerrojo_inicializar(&c->nativo);
+    return lat_puntero(c);
+}
+
+void lat_hilo_entrar(LatValor v) {
+    if (v.tipo != LAT_PUNTERO || !v.como.puntero) {
+        lat_hilo_error("bloquear necesita un cerrojo de hilos");
+        return;
+    }
+    LatCerrojo* c = (LatCerrojo*)v.como.puntero;
+    if (c->destruido) lat_hilo_error("el cerrojo ya fue liberado");
+    lat_cerrojo_entrar(&c->nativo);
+}
+
+void lat_hilo_salir(LatValor v) {
+    if (v.tipo != LAT_PUNTERO || !v.como.puntero) return;
+    LatCerrojo* c = (LatCerrojo*)v.como.puntero;
+    if (c->destruido) return;
+    lat_cerrojo_salir(&c->nativo);
+}
+
+void lat_hilo_cerrojo_liberar(LatValor v) {
+    if (v.tipo != LAT_PUNTERO || !v.como.puntero) return;
+    LatCerrojo* c = (LatCerrojo*)v.como.puntero;
+    if (c->destruido) return;
+    c->destruido = 1;
+    lat_cerrojo_destruir(&c->nativo);
+    free(c);
 }
 
 LatValor lat_obj_nuevo(const char* clase) {

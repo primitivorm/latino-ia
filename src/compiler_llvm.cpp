@@ -34,6 +34,16 @@ extern "C" {
 
 namespace {
 
+// PLAN_HILOS: offset del campo 'args' dentro de struct LatHiloArgs (fn:
+// puntero, nargs: i64, args: puntero), derivado del mismo DataLayout que
+// RuntimeAbiLLVM usa para LatValor (no asumimos packaging de C).
+static unsigned latHiloArgsOffsetArgs(const llvm::DataLayout& dl, llvm::LLVMContext& ctx) {
+    auto* structTy = llvm::StructType::get(
+        ctx, {llvm::PointerType::get(ctx, 0), llvm::Type::getInt64Ty(ctx),
+              llvm::PointerType::get(ctx, 0)});
+    return static_cast<unsigned>(dl.getStructLayout(structTy)->getElementOffset(2));
+}
+
 // Ninguno no debe llegar aquí (genAsignacion filtra ese caso antes); el resto
 // de los valores de TipoAnotado tiene un LatTipo de runtime correspondiente.
 int tipoAnotadoALatTipo(TipoAnotado t) {
@@ -444,7 +454,8 @@ llvm::Value* GeneradorLLVM::genExpr(Expresion& expr, llvm::IRBuilder<>& builder,
             // (Fase L7) Llamada de librería: cadena.xxx(args), lista.xxx(args), ...
             if (auto* obj = dynamic_cast<Identificador*>(am->objeto.get())) {
                 static const std::set<std::string> LIBS = {
-                    "cadena", "lista", "dic", "diccionario", "mate", "sis", "archivo", "paquete"};
+                    "cadena", "lista", "dic", "diccionario", "mate", "sis", "archivo", "paquete",
+                    "hilos"};
                 if (LIBS.count(obj->nombre)) {
                     // "diccionario" es un alias de la librería "dic".
                     const std::string lib = (obj->nombre == "diccionario") ? "dic" : obj->nombre;
@@ -1039,6 +1050,23 @@ void GeneradorLLVM::emitirMarcoRaices(llvm::IRBuilder<>& builder, llvm::Module& 
     builder.CreateCall(fn, {arreglo, builder.getInt64(n)});
 }
 
+void GeneradorLLVM::emitirLiberarBloqueos(llvm::IRBuilder<>& builder, llvm::Module& modulo,
+                                          size_t desde) {
+    llvm::Function* fn = abi_->declarar(modulo, "lat_hilo_salir");
+    for (size_t i = bloqueosActivos_.size(); i > desde; --i)
+        builder.CreateCall(fn, {bloqueosActivos_[i - 1]});
+}
+
+void GeneradorLLVM::entrarBucle(llvm::BasicBlock* salida) {
+    pilaSalidasBucle_.push_back(salida);
+    bloqueosPorBucle_.push_back(bloqueosActivos_.size());
+}
+
+void GeneradorLLVM::salirBucle() {
+    pilaSalidasBucle_.pop_back();
+    bloqueosPorBucle_.pop_back();
+}
+
 void GeneradorLLVM::emitirSacarRaices(llvm::IRBuilder<>& builder, llvm::Module& modulo) {
     llvm::Function* fn = abi_->declarar(modulo, "lat_raices_sacar");
     builder.CreateCall(fn, {});
@@ -1193,9 +1221,9 @@ void GeneradorLLVM::genSentencia(Sentencia& s, llvm::IRBuilder<>& builder, llvm:
         builder.CreateCondBr(cond, bloqueCuerpo, bloqueSalida);
 
         builder.SetInsertPoint(bloqueCuerpo);
-        pilaSalidasBucle_.push_back(bloqueSalida);
+        entrarBucle(bloqueSalida);
         genBloque(mi->cuerpo, builder, modulo, variables);
-        pilaSalidasBucle_.pop_back();
+        salirBucle();
         if (!bloqueTerminado(builder)) builder.CreateBr(bloqueHeader);
 
         builder.SetInsertPoint(bloqueSalida);
@@ -1226,9 +1254,9 @@ void GeneradorLLVM::genSentencia(Sentencia& s, llvm::IRBuilder<>& builder, llvm:
         // `break;` dentro del `while (...) { cuerpo; incremento; }` que
         // emite GeneradorC::genSentencia para Desde.
         builder.SetInsertPoint(bloqueCuerpo);
-        pilaSalidasBucle_.push_back(bloqueSalida);
+        entrarBucle(bloqueSalida);
         genBloque(de->cuerpo, builder, modulo, variables);
-        pilaSalidasBucle_.pop_back();
+        salirBucle();
         if (!bloqueTerminado(builder)) builder.CreateBr(bloqueLatch);
 
         builder.SetInsertPoint(bloqueLatch);
@@ -1284,9 +1312,9 @@ void GeneradorLLVM::genSentencia(Sentencia& s, llvm::IRBuilder<>& builder, llvm:
             builder.CreateCondBr(builder.CreateICmpNE(dentro, builder.getInt32(0)), c, rFin);
             builder.SetInsertPoint(c);
             builder.CreateStore(builder.CreateLoad(tipoLatValor, actual), itVariable->second);
-            pilaSalidasBucle_.push_back(rFin);
+            entrarBucle(rFin);
             genBloque(pa->cuerpo, builder, modulo, variables);
-            pilaSalidasBucle_.pop_back();
+            salirBucle();
             if (!bloqueTerminado(builder)) builder.CreateBr(l);
             builder.SetInsertPoint(l);
             builder.CreateCall(fnSiguiente, {siguiente, iterable, actual});
@@ -1320,9 +1348,9 @@ void GeneradorLLVM::genSentencia(Sentencia& s, llvm::IRBuilder<>& builder, llvm:
             builder.CreateCall(fnNum, {idxNum, iDbl});
             builder.CreateCall(fnObtenerIndice, {actual, iterable, idxNum});
             builder.CreateStore(builder.CreateLoad(tipoLatValor, actual), itVariable->second);
-            pilaSalidasBucle_.push_back(bbFin);
+            entrarBucle(bbFin);
             genBloque(pa->cuerpo, builder, modulo, variables);
-            pilaSalidasBucle_.pop_back();
+            salirBucle();
             if (!bloqueTerminado(builder)) builder.CreateBr(l);
             builder.SetInsertPoint(l);
             builder.CreateStore(builder.CreateAdd(iCur, llvm::ConstantInt::get(llvm::Type::getInt64Ty(*contexto_), 1)), idx);
@@ -1345,9 +1373,9 @@ void GeneradorLLVM::genSentencia(Sentencia& s, llvm::IRBuilder<>& builder, llvm:
 
         builder.CreateBr(bloqueCuerpo);
         builder.SetInsertPoint(bloqueCuerpo);
-        pilaSalidasBucle_.push_back(bloqueSalida);
+        entrarBucle(bloqueSalida);
         genBloque(re->cuerpo, builder, modulo, variables);
-        pilaSalidasBucle_.pop_back();
+        salirBucle();
         if (!bloqueTerminado(builder)) builder.CreateBr(bloqueCondicion);
 
         builder.SetInsertPoint(bloqueCondicion);
@@ -1361,6 +1389,11 @@ void GeneradorLLVM::genSentencia(Sentencia& s, llvm::IRBuilder<>& builder, llvm:
         return;
     }
     if (dynamic_cast<Romper*>(&s)) {
+        // PLAN_HILOS: suelta solo los cerrojos tomados dentro del bucle que
+        // se está abandonando; los cerrojos exteriores siguen vigentes.
+        emitirLiberarBloqueos(builder, modulo,
+                              bloqueosPorBucle_.empty() ? bloqueosActivos_.size()
+                                                        : bloqueosPorBucle_.back());
         emitirRecogerNulo(builder, modulo);
         if (!pilaSalidasBucle_.empty()) builder.CreateBr(pilaSalidasBucle_.back());
         // Sin bucle contenedor: no debería ocurrir (ver comentario en el
@@ -1368,7 +1401,19 @@ void GeneradorLLVM::genSentencia(Sentencia& s, llvm::IRBuilder<>& builder, llvm:
         return;
     }
     if (auto* rt = dynamic_cast<Retornar*>(&s)) {
+        // PLAN_HILOS: dentro de un trampolín de hilo, retornar significa
+        // terminar el hilo; no hay celda de retorno que rellenar.
+        if (finTrampolinHilo_) {
+            emitirLiberarBloqueos(builder, modulo);
+            for (auto& v : rt->valores) {
+                llvm::Value* valor = genExpr(*v, builder, modulo, variables);
+                (void)valor;
+            }
+            builder.CreateBr(finTrampolinHilo_);
+            return;
+        }
         if (!celdaRetorno_) return;  // sin función contenedora: ver Romper.
+        emitirLiberarBloqueos(builder, modulo);
         if (rt->valores.empty()) {
             llvm::Function* fnNulo = abi_->declarar(modulo, "lat_nulo");
             builder.CreateCall(fnNulo, {celdaRetorno_});
@@ -1399,6 +1444,30 @@ void GeneradorLLVM::genSentencia(Sentencia& s, llvm::IRBuilder<>& builder, llvm:
     // GeneradorC::genSentencia(InseguroBloque).
     if (auto* ib = dynamic_cast<InseguroBloque*>(&s)) {
         genBloque(ib->cuerpo, builder, modulo, variables);
+        return;
+    }
+    // PLAN_HILOS.md: paridad con GeneradorC::genSentencia para hilo/esperar/
+    // bloquear. El marco de raíces del creador ya está publicado, así que el
+    // manejar y el cerrojo quedan vivos mientras el hilo arranca.
+    if (auto* h = dynamic_cast<HiloDef*>(&s)) {
+        genHilo(*h, builder, modulo, variables);
+        return;
+    }
+    if (auto* e = dynamic_cast<Esperar*>(&s)) {
+        llvm::Function* fnEsperar = abi_->declarar(modulo, "lat_hilo_esperar");
+        llvm::Value* celda = genExpr(*e->hilo, builder, modulo, variables);
+        builder.CreateCall(fnEsperar, {celda});
+        return;
+    }
+    if (auto* bl = dynamic_cast<Bloquear*>(&s)) {
+        llvm::Function* fnEntrar = abi_->declarar(modulo, "lat_hilo_entrar");
+        llvm::Function* fnSalir = abi_->declarar(modulo, "lat_hilo_salir");
+        llvm::Value* celda = genExpr(*bl->cerrojo, builder, modulo, variables);
+        builder.CreateCall(fnEntrar, {celda});
+        bloqueosActivos_.push_back(celda);
+        genBloque(bl->cuerpo, builder, modulo, variables);
+        bloqueosActivos_.pop_back();
+        if (!bloqueTerminado(builder)) builder.CreateCall(fnSalir, {celda});
         return;
     }
     if (auto* b = dynamic_cast<LlamadaBase*>(&s)) {
@@ -1621,6 +1690,14 @@ void GeneradorLLVM::recolectarAnonimasEnSentencia(Sentencia* s) {
             recolectarAnonimasEnExpresion(v.get());
     } else if (auto* inseguro = dynamic_cast<InseguroBloque*>(s)) {
         recolectarAnonimasLista(inseguro->cuerpo);
+    } else if (auto* h = dynamic_cast<HiloDef*>(s)) {
+        registrarAnonima(h->cuerpo.get());
+        if (h->cuerpo) cuerposHilo_.insert(h->cuerpo.get());
+    } else if (auto* es = dynamic_cast<Esperar*>(s)) {
+        recolectarAnonimasEnExpresion(es->hilo.get());
+    } else if (auto* bl = dynamic_cast<Bloquear*>(s)) {
+        recolectarAnonimasEnExpresion(bl->cerrojo.get());
+        recolectarAnonimasLista(bl->cuerpo);
     } else if (auto* f = dynamic_cast<FuncionDef*>(s)) {
         recolectarAnonimasLista(f->cuerpo);
     } else if (auto* c = dynamic_cast<ClaseDef*>(s)) {
@@ -1634,12 +1711,17 @@ void GeneradorLLVM::recolectarAnonimasEnSentencia(Sentencia* s) {
     }
 }
 
+void GeneradorLLVM::registrarAnonima(FuncionAnonima* f) {
+    if (!f || indicesAnonimas_.count(f)) return;
+    indicesAnonimas_.emplace(f, anonimas_.size());
+    anonimas_.push_back(f);
+    recolectarAnonimasLista(f->cuerpo);
+}
+
 void GeneradorLLVM::recolectarAnonimasEnExpresion(Expresion* e) {
     if (!e) return;
     if (auto* anonima = dynamic_cast<FuncionAnonima*>(e)) {
-        if (!indicesAnonimas_.emplace(anonima, anonimas_.size()).second) return;
-        anonimas_.push_back(anonima);
-        recolectarAnonimasLista(anonima->cuerpo);
+        registrarAnonima(anonima);
     } else if (auto* b = dynamic_cast<Binaria*>(e)) {
         recolectarAnonimasEnExpresion(b->izq.get());
         recolectarAnonimasEnExpresion(b->der.get());
@@ -1813,6 +1895,116 @@ void GeneradorLLVM::genFuncionAnonima(FuncionAnonima& f, llvm::Module& modulo) {
         builder.CreateRetVoid();
     }
     celdaRetorno_ = anteriorRetorno;
+}
+
+llvm::Function* GeneradorLLVM::declararTrampolinHilo(FuncionAnonima& f, llvm::Module& modulo) {
+    auto existente = trampolinesHilo_.find(&f);
+    if (existente != trampolinesHilo_.end()) return existente->second;
+    auto indice = indicesAnonimas_.find(&f);
+    if (indice == indicesAnonimas_.end()) return nullptr;
+    auto* tipoPuntero = llvm::PointerType::get(*contexto_, 0);
+    auto* fn = llvm::Function::Create(
+        llvm::FunctionType::get(tipoPuntero, {tipoPuntero}, false),
+        llvm::Function::InternalLinkage,
+        "lat_hilo_tramp_" + std::to_string(indice->second), &modulo);
+    trampolinesHilo_[&f] = fn;
+    return fn;
+}
+
+void GeneradorLLVM::genTrampolinHilo(FuncionAnonima& f, llvm::Module& modulo) {
+    llvm::Function* fn = declararTrampolinHilo(f, modulo);
+    if (!fn || !fn->empty()) return;
+
+    llvm::StructType* tipoLatValor = abi_->tipoLatValor();
+    llvm::IRBuilder<> builder(*contexto_);
+    llvm::BasicBlock* entrada = llvm::BasicBlock::Create(*contexto_, "entrada", fn);
+    builder.SetInsertPoint(entrada);
+
+    llvm::Value* argsHilo = fn->getArg(0);
+    auto* tipoPuntero = llvm::PointerType::get(*contexto_, 0);
+    const llvm::DataLayout& dl = abi_->moduloOrigen().getDataLayout();
+    llvm::Value* ptrArgs = builder.CreateGEP(
+        llvm::Type::getInt8Ty(*contexto_), argsHilo,
+        builder.getInt64(latHiloArgsOffsetArgs(dl, *contexto_)), "args_latino_ptr");
+    llvm::Value* args = builder.CreateLoad(tipoPuntero,
+        builder.CreateBitCast(ptrArgs, tipoPuntero->getPointerTo()), "args_latino");
+
+    std::unordered_map<std::string, llvm::Value*> variables = globales_;
+    for (size_t i = 0; i < f.parametros.size(); ++i) {
+        llvm::Value* celda = builder.CreateAlloca(tipoLatValor, nullptr, "v_" + f.parametros[i].nombre);
+        llvm::Value* slot = builder.CreateGEP(tipoLatValor, args, builder.getInt64(i), "arg_slot");
+        builder.CreateStore(builder.CreateLoad(tipoLatValor, slot), celda);
+        variables[f.parametros[i].nombre] = celda;
+    }
+    std::set<std::string> excluir;
+    for (const auto& p : f.parametros) excluir.insert(p.nombre);
+    for (const auto& [nombre, celda] : globales_) excluir.insert(nombre);
+    std::set<std::string> nombresLocales;
+    recolectarVariables(f.cuerpo, nombresLocales, excluir);
+    auto locales = declararLocales(nombresLocales, builder, modulo);
+    for (auto& [nombre, celda] : locales) variables[nombre] = celda;
+
+    std::vector<llvm::Value*> raices;
+    for (auto& [nombre, celda] : variables) raices.push_back(celda);
+    emitirMarcoRaices(builder, modulo, raices);
+
+    llvm::BasicBlock* fin =
+        llvm::BasicBlock::Create(*contexto_, "hilo_fin", fn);
+    llvm::Value* anteriorRetorno = celdaRetorno_;
+    celdaRetorno_ = nullptr;  // un hilo no puede retornar valores al creador
+    finTrampolinHilo_ = fin;
+    genBloque(f.cuerpo, builder, modulo, variables);
+    finTrampolinHilo_ = nullptr;
+    celdaRetorno_ = anteriorRetorno;
+    if (!bloqueTerminado(builder)) builder.CreateBr(fin);
+    builder.SetInsertPoint(fin);
+    emitirRecogerNulo(builder, modulo);
+    emitirSacarRaices(builder, modulo);
+    llvm::Function* fnLiberar = abi_->declarar(modulo, "lat_hilo_liberar_recursos");
+    builder.CreateCall(fnLiberar, {});
+    builder.CreateRet(llvm::ConstantPointerNull::get(tipoPuntero));
+}
+
+void GeneradorLLVM::genHilo(HiloDef& h, llvm::IRBuilder<>& builder, llvm::Module& modulo,
+                            const std::unordered_map<std::string, llvm::Value*>& variables) {
+    if (!h.cuerpo) return;
+    llvm::Function* trampolin = declararTrampolinHilo(*h.cuerpo, modulo);
+    if (!trampolin) return;
+    llvm::StructType* tipoLatValor = abi_->tipoLatValor();
+    llvm::PointerType* tipoPuntero = llvm::PointerType::get(*contexto_, 0);
+
+    size_t n = h.cuerpo->parametros.size();
+    llvm::Value* arr = builder.CreateAlloca(tipoLatValor, builder.getInt64(n ? n : 1), "hilo_args");
+    // Publicar las celdas como raices temporales mientras se evalúan las
+    // capturas (mismo motivo que en GeneradorC::genHilo).
+    for (size_t i = 0; i < n; ++i) {
+        llvm::Value* slot = builder.CreateGEP(tipoLatValor, arr, builder.getInt64(i), "arg_slot");
+        emitirTemporal(builder, modulo, slot);
+    }
+    for (size_t i = 0; i < n; ++i) {
+        if (!h.cuerpo->parametros[i].valorInicial) continue;
+        llvm::Value* valor = genExpr(*h.cuerpo->parametros[i].valorInicial, builder, modulo, variables);
+        llvm::Value* slot = builder.CreateGEP(tipoLatValor, arr, builder.getInt64(i), "arg_slot");
+        builder.CreateStore(builder.CreateLoad(tipoLatValor, valor), slot);
+    }
+    // struct LatHiloArgs { fn, nargs, args } -- se construye en memoria con
+    // GEPs, nunca como struct por registro (misma regla que LatValor).
+    llvm::StructType* tipoArgsHilo = llvm::StructType::get(
+        *contexto_, {tipoPuntero, llvm::Type::getInt64Ty(*contexto_), tipoPuntero});
+    llvm::Value* argsHilo = builder.CreateAlloca(tipoArgsHilo, nullptr, "hilo_args_struct");
+    builder.CreateStore(trampolin,
+        builder.CreateGEP(tipoArgsHilo, argsHilo, {builder.getInt32(0), builder.getInt32(0)}, "campo_fn"));
+    builder.CreateStore(builder.getInt64(n),
+        builder.CreateGEP(tipoArgsHilo, argsHilo, {builder.getInt32(0), builder.getInt32(1)}, "campo_nargs"));
+    builder.CreateStore(arr,
+        builder.CreateGEP(tipoArgsHilo, argsHilo, {builder.getInt32(0), builder.getInt32(2)}, "campo_args"));
+
+    llvm::Function* fnCrear = abi_->declarar(modulo, "lat_hilo_crear");
+    llvm::Value* celdaManejar = variables.at(h.nombre);
+    builder.CreateCall(fnCrear, {celdaManejar, trampolin, argsHilo});
+    llvm::Function* fnIniciar = abi_->declarar(modulo, "lat_hilo_iniciar");
+    builder.CreateCall(fnIniciar, {celdaManejar});
+    for (size_t i = 0; i < n; ++i) emitirSacarTemporal(builder, modulo);
 }
 
 llvm::Function* GeneradorLLVM::obtenerWrapperFuncion(const std::string& nombre,
@@ -2290,12 +2482,16 @@ std::unique_ptr<llvm::Module> GeneradorLLVM::generar(Programa& programa) {
             funcionesUsuario.push_back(f);
     for (FuncionDef* f : funcionesUsuario)
         declararFuncion(*f, *modulo);
-    for (FuncionAnonima* f : anonimas_)
+    for (FuncionAnonima* f : anonimas_) {
         declararFuncionAnonima(*f, *modulo);
+        if (cuerposHilo_.count(f)) declararTrampolinHilo(*f, *modulo);
+    }
     for (FuncionDef* f : funcionesUsuario)
         genFuncion(*f, *modulo);
-    for (FuncionAnonima* f : anonimas_)
+    for (FuncionAnonima* f : anonimas_) {
         genFuncionAnonima(*f, *modulo);
+        if (cuerposHilo_.count(f)) genTrampolinHilo(*f, *modulo);
+    }
 
     for (auto& [nombre, c] : clases_)
         genClase(*c, *modulo);
