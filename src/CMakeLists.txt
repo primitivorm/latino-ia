@@ -59,6 +59,9 @@ if(LATINO_LLVM_BACKEND)
   separate_arguments(LATINO_LLVM_DEFS NATIVE_COMMAND "${LLVM_DEFINITIONS}")
   target_compile_definitions(latino PRIVATE ${LATINO_LLVM_DEFS})
   target_link_libraries(latino PRIVATE ${LATINO_LLVM_LIBS})
+  if(NOT WIN32)
+    target_link_libraries(latino PRIVATE Threads::Threads)
+  endif()
 
   # Fase L10 (Decisión 4): el runtime + las 7 bibliotecas cargados junto a
   # latino.exe, para que el modo --jit resuelva lat_* contra el propio

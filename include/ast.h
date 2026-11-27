@@ -32,9 +32,17 @@ enum class TipoAnotado {
     Arreglo  // Arreglo fijo tipado: numero[], cadena[], MiClase[], etc.
 };
 
+// Declaración adelantada y alias de puntero de expresión (necesario antes de
+// ParamFuncion: un hilo captura argumentos por valor como Expresión).
+struct Expresion;
+using ExprPtr = std::unique_ptr<Expresion>;
+
 // Parámetro de función con anotación de tipo opcional.
 struct ParamFuncion {
     std::string nombre;
+    // PLAN_HILOS.md: expresión evaluada en el hilo creador para inicializar el
+    // parámetro (captura por valor). Vacío en parámetros de función/método.
+    std::shared_ptr<Expresion> valorInicial;
     TipoAnotado tipo = TipoAnotado::Ninguno;
     std::string tipoClase;        // nombre de clase si tipo == Objeto
     std::vector<std::string> tipoArgs;  // PLAN_GENERICOS.md: argumentos entre <> de tipoClase (p.ej. "Pila<numero>")
@@ -159,6 +167,11 @@ struct LlamadaBase;
 struct ExternoBloque;
 struct InseguroBloque;
 
+// Declaraciones adelantadas para hilos (al estilo de C#, PLAN_HILOS.md)
+struct HiloDef;
+struct Esperar;
+struct Bloquear;
+
 // Declaraciones adelantadas para macros estilo Julia (PLAN_MACROS.md)
 struct MacroDef;
 struct MacroInvocacion;
@@ -211,6 +224,11 @@ struct Visitante {
     // hasta que el análisis semántico/codegen los implementen (F4/F5/F6).
     virtual void visitar(ExternoBloque&) {}
     virtual void visitar(InseguroBloque&) {}
+    // Visitantes por defecto para hilos (PLAN_HILOS.md): no-op, igual que en
+    // FFI/POO, para no romper visitantes que no necesitan saber de ellos.
+    virtual void visitar(HiloDef&) {}
+    virtual void visitar(Esperar&) {}
+    virtual void visitar(Bloquear&) {}
     // Visitantes por defecto para macros (PLAN_MACROS.md): no-op, como en
     // FFI/POO. El ExpandidorMacros consume y elimina estos nodos antes de que
     // lleguen al análisis semántico o a los backends.
@@ -248,7 +266,6 @@ struct Nodo {
 struct Expresion : Nodo {};
 struct Sentencia : Nodo {};
 
-using ExprPtr = std::unique_ptr<Expresion>;
 using SentPtr = std::unique_ptr<Sentencia>;
 using ListaSent = std::vector<SentPtr>;
 
@@ -676,6 +693,35 @@ struct ExternoBloque : Sentencia {
 // (chequeo puramente estático, análogo a "unsafe" en Rust — ver Decisión de
 // diseño 5 de PLAN_FFI.md).
 struct InseguroBloque : Sentencia {
+    ListaSent cuerpo;
+    LATINO_ACEPTAR
+};
+
+// --- Hilos al estilo de C# (PLAN_HILOS.md) ---------------------------------
+
+// hilo nombre(param0, param1, ...) ... fin
+// Crea e inicia un hilo. `nombre` es la variable donde se guarda el manejar
+// (handle) opaco devuelto por el runtime. Los parámetros se comportan como los
+// de una función anónima: son variables locales del cuerpo, inicializadas con
+// las expresiones evaluadas en el hilo creador en el momento del arranque.
+struct HiloDef : Sentencia {
+    std::string nombre;
+    std::unique_ptr<FuncionAnonima> cuerpo;
+    LATINO_ACEPTAR
+};
+
+// esperar expresion  (equivalente a Thread.Join() de C#)
+// La expresión debe evaluar a un manejar de hilo creado por `hilo` o por
+// `hilos.crear`. Al terminar, el hilo queda marcado como ya esperado.
+struct Esperar : Sentencia {
+    ExprPtr hilo;
+    LATINO_ACEPTAR
+};
+
+// bloquear(expresion) ... fin  (equivalente a lock(obj) de C#)
+// La expresión debe evaluar a un cerrojo creado con hilos.cerrojo().
+struct Bloquear : Sentencia {
+    ExprPtr cerrojo;
     ListaSent cuerpo;
     LATINO_ACEPTAR
 };

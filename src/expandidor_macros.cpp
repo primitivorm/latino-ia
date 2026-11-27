@@ -170,6 +170,8 @@ private:
     void recogerLocales(const Expresion* expresion, std::set<std::string>& locales);
     void recogerLocales(const Sentencia* sentencia, std::set<std::string>& locales);
     void renombrar(ExprPtr& expresion, const std::map<std::string, std::string>& mapa);
+    void renombrar(std::shared_ptr<Expresion>& expresion,
+                   const std::map<std::string, std::string>& mapa);
     void renombrar(SentPtr& sentencia, const std::map<std::string, std::string>& mapa);
     void renombrarLista(ListaSent& lista, const std::map<std::string, std::string>& mapa);
     bool transformarLista(ListaSent& lista);
@@ -515,6 +517,33 @@ SentPtr SistemaMacros::copiarSent(const Sentencia* s, int modo, Entorno* entorno
         c->cuerpo = copiarLista(n->cuerpo, modo, entorno);
         return c;
     }
+    if (auto* n = dynamic_cast<const HiloDef*>(s)) {
+        auto c = std::make_unique<HiloDef>(); copiaBase(c.get());
+        c->nombre = n->nombre;
+        if (n->cuerpo) {
+            auto fn = std::make_unique<FuncionAnonima>();
+            fn->linea = n->cuerpo->linea;
+            fn->variadico = n->cuerpo->variadico;
+            fn->cuerpo = copiarLista(n->cuerpo->cuerpo, modo, entorno);
+            fn->parametros = n->cuerpo->parametros;
+            for (size_t i = 0; i < fn->parametros.size(); ++i)
+                fn->parametros[i].valorInicial =
+                    copiarExpr(n->cuerpo->parametros[i].valorInicial.get(), modo, entorno);
+            c->cuerpo = std::move(fn);
+        }
+        return c;
+    }
+    if (auto* n = dynamic_cast<const Esperar*>(s)) {
+        auto c = std::make_unique<Esperar>(); copiaBase(c.get());
+        c->hilo = copiarExpr(n->hilo.get(), modo, entorno);
+        return c;
+    }
+    if (auto* n = dynamic_cast<const Bloquear*>(s)) {
+        auto c = std::make_unique<Bloquear>(); copiaBase(c.get());
+        c->cerrojo = copiarExpr(n->cerrojo.get(), modo, entorno);
+        c->cuerpo = copiarLista(n->cuerpo, modo, entorno);
+        return c;
+    }
 
     // Declaraciones de POO: se copian campo por campo y se recorren los cuerpos
     // de métodos para expander macros que aparezcan dentro de ellos.
@@ -788,9 +817,32 @@ void SistemaMacros::recogerLocales(const Sentencia* s, std::set<std::string>& lo
         for (const auto& x : n->cuerpo) recogerLocales(x.get(), locales);
     } else if (auto* n = dynamic_cast<const InseguroBloque*>(s)) {
         for (const auto& x : n->cuerpo) recogerLocales(x.get(), locales);
+    } else if (auto* n = dynamic_cast<const HiloDef*>(s)) {
+        locales.insert(n->nombre);
+        if (n->cuerpo) {
+            for (const auto& p : n->cuerpo->parametros) locales.insert(p.nombre);
+            for (const auto& x : n->cuerpo->cuerpo) recogerLocales(x.get(), locales);
+        }
+    } else if (auto* n = dynamic_cast<const Esperar*>(s)) {
+        recogerLocales(n->hilo.get(), locales);
+    } else if (auto* n = dynamic_cast<const Bloquear*>(s)) {
+        recogerLocales(n->cerrojo.get(), locales);
+        for (const auto& x : n->cuerpo) recogerLocales(x.get(), locales);
     } else if (auto* n = dynamic_cast<const LlamadaBase*>(s)) {
         for (const auto& a : n->argumentos) recogerLocales(a.get(), locales);
     }
+}
+
+// PLAN_HILOS: las capturas viven en un shared_ptr. renombrar() nunca
+// reemplaza el nodo raíz (solo edita nombres dentro del árbol), así que es
+// seguro prestar el puntero a la implementación de ExprPtr y liberar la
+// propiedad temporal antes de devolverlo al shared_ptr original.
+void SistemaMacros::renombrar(std::shared_ptr<Expresion>& e,
+                              const std::map<std::string, std::string>& mapa) {
+    if (!e) return;
+    ExprPtr prestado(e.get());
+    renombrar(prestado, mapa);
+    prestado.release();
 }
 
 void SistemaMacros::renombrar(ExprPtr& e, const std::map<std::string, std::string>& mapa) {
@@ -864,6 +916,22 @@ void SistemaMacros::renombrar(SentPtr& s, const std::map<std::string, std::strin
         if (it != mapa.end()) n->nombre = it->second;
         for (auto& x : n->cuerpo) renombrar(x, mapa);
     } else if (auto* n = dynamic_cast<InseguroBloque*>(s.get())) {
+        renombrarLista(n->cuerpo, mapa);
+    } else if (auto* n = dynamic_cast<HiloDef*>(s.get())) {
+        auto it = mapa.find(n->nombre);
+        if (it != mapa.end()) n->nombre = it->second;
+        if (n->cuerpo) {
+            for (auto& p : n->cuerpo->parametros) {
+                auto itp = mapa.find(p.nombre);
+                if (itp != mapa.end()) p.nombre = itp->second;
+                renombrar(p.valorInicial, mapa);
+            }
+            renombrarLista(n->cuerpo->cuerpo, mapa);
+        }
+    } else if (auto* n = dynamic_cast<Esperar*>(s.get())) {
+        renombrar(n->hilo, mapa);
+    } else if (auto* n = dynamic_cast<Bloquear*>(s.get())) {
+        renombrar(n->cerrojo, mapa);
         renombrarLista(n->cuerpo, mapa);
     } else if (auto* n = dynamic_cast<LlamadaBase*>(s.get())) {
         for (auto& a : n->argumentos) renombrar(a, mapa);
@@ -1451,6 +1519,12 @@ SistemaMacros::Salida SistemaMacros::ejecutar(Sentencia& sentencia, Entorno& ent
         entorno.definir(n->nombre, ValorMacro::funcionV(funcion));
     } else if (auto* n = dynamic_cast<InseguroBloque*>(&sentencia)) {
         salida = ejecutarLista(n->cuerpo, entorno);
+    } else if (auto* n = dynamic_cast<Bloquear*>(&sentencia)) {
+        salida = ejecutarLista(n->cuerpo, entorno);
+    } else if (auto* n = dynamic_cast<Esperar*>(&sentencia)) {
+        evaluar(n->hilo.get(), entorno);
+    } else if (auto* n = dynamic_cast<HiloDef*>(&sentencia)) {
+        fallar("'hilo' no se puede ejecutar dentro de una macro", n->linea);
     } else if (auto* n = dynamic_cast<Elegir*>(&sentencia)) {
         ValorMacro opcion = evaluar(n->opcion.get(), entorno);
         bool tomada = false;

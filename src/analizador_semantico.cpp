@@ -266,12 +266,14 @@ bool AnalizadorSemantico::esIncorporada(const std::string& nombre) const {
            nombre == "leer" || nombre == "tipo" || nombre == "imprimirf" ||
            nombre == "limpiar" || nombre == "error" || nombre == "rango" ||
            nombre == "tiempo_ns";  // PLAN_MACROS.md: reloj usado por @tiempo
+    // PLAN_HILOS.md: `esperar` es palabra reservada (no una incorporada);
+    // las operaciones explícitas viven en la librería `hilos`.
 }
 
 bool AnalizadorSemantico::esLibreria(const std::string& nombre) const {
     return nombre == "cadena" || nombre == "lista" || nombre == "dic" ||
            nombre == "diccionario" || nombre == "mate"   || nombre == "sis"   || nombre == "archivo" ||
-           nombre == "paquete";
+           nombre == "paquete" || nombre == "hilos";
 }
 
 void AnalizadorSemantico::recolectarFunciones(Programa& programa) {
@@ -1449,6 +1451,36 @@ void AnalizadorSemantico::visitar(InseguroBloque& n) {
     ++profundidadInseguro;
     analizarBloque(n.cuerpo);
     --profundidadInseguro;
+}
+
+// PLAN_HILOS.md: el cuerpo de un hilo se analiza como una función anónima
+// (parámetros y locales propios), pero el manejar se declara en el ámbito
+// creador. `esperar` valida que su argumento sea un identificador declarado.
+void AnalizadorSemantico::visitar(HiloDef& n) {
+    if (!n.cuerpo) return;
+    if (estaDeclarada(n.nombre))
+        agregarError(n.linea, "la variable '" + n.nombre + "' ya está declarada");
+    declararVariable(n.nombre, TipoAnotado::Ninguno, n.linea, false);
+    // Las capturas se evalúan en el ámbito creador, antes de que los nombres
+    // de los parámetros del hilo entren en alcance.
+    for (const auto& p : n.cuerpo->parametros)
+        if (p.valorInicial) p.valorInicial->aceptar(*this);
+    entrarAmbito();
+    for (const auto& p : n.cuerpo->parametros)
+        declararVariable(p.nombre, p.tipo, n.linea, false, p.tipoElemento, p.tipoElementoClase);
+    ++profundidadFuncion;
+    analizarBloque(n.cuerpo->cuerpo);
+    --profundidadFuncion;
+    salirAmbito();
+}
+
+void AnalizadorSemantico::visitar(Esperar& n) {
+    if (n.hilo) n.hilo->aceptar(*this);
+}
+
+void AnalizadorSemantico::visitar(Bloquear& n) {
+    if (n.cerrojo) n.cerrojo->aceptar(*this);
+    analizarBloque(n.cuerpo);
 }
 
 void AnalizadorSemantico::visitar(Retornar& n) {

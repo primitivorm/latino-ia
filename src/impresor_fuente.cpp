@@ -334,6 +334,31 @@ void ImpresorFuente::imprimirSentencia(const Sentencia* s) {
         imprimirLista(n->cuerpo);
         nivel--;
         linea("fin");
+    } else if (auto* n = dynamic_cast<const HiloDef*>(s)) {
+        salida << "hilo " << n->nombre << '(';
+        if (n->cuerpo) {
+            for (size_t i = 0; i < n->cuerpo->parametros.size(); i++) {
+                if (i) salida << ", ";
+                salida << n->cuerpo->parametros[i].nombre;
+            }
+        }
+        salida << ")\n";
+        nivel++;
+        if (n->cuerpo) imprimirLista(n->cuerpo->cuerpo);
+        nivel--;
+        linea("fin");
+    } else if (auto* n = dynamic_cast<const Esperar*>(s)) {
+        salida << "esperar ";
+        imprimirExpresion(n->hilo.get());
+        salida << '\n';
+    } else if (auto* n = dynamic_cast<const Bloquear*>(s)) {
+        salida << "bloquear(";
+        imprimirExpresion(n->cerrojo.get());
+        salida << ")\n";
+        nivel++;
+        imprimirLista(n->cuerpo);
+        nivel--;
+        linea("fin");
     } else if (auto* n = dynamic_cast<const Incluir*>(s)) {
         linea("incluir \"" + n->modulo + "\"");
     } else if (auto* n = dynamic_cast<const LlamadaBase*>(s)) {

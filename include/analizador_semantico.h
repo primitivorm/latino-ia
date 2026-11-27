@@ -74,6 +74,9 @@ public:
     void visitar(InterfazDef&) override;
     void visitar(Retornar&) override;
     void visitar(InseguroBloque&) override;  // PLAN_FFI.md (F4)
+    void visitar(HiloDef&) override;         // PLAN_HILOS.md
+    void visitar(Esperar&) override;
+    void visitar(Bloquear&) override;
 
 private:
     struct InfoFuncion {

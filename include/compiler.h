@@ -70,6 +70,20 @@ private:
     int contadorAnonimo = 0;
     std::vector<FuncionAnonima*> anonimas;              // orden de aparición
     std::unordered_map<FuncionAnonima*, int> indiceAnonimo;  // nodo -> índice
+    // PLAN_HILOS: solo los cuerpos de `hilo` necesitan un trampolín con firma
+    // nativa de hilo; las anónimas normales siguen siendo callables LatFnModulo.
+    std::set<FuncionAnonima*> cuerposHilo;
+    // PLAN_HILOS: etiqueta C del finally del trampolín actual, para que un
+    // `retornar` dentro del cuerpo de un hilo salga limpiamente del hilo.
+    std::vector<std::string> etiquetaFinHilo;
+    // PLAN_HILOS: cerrojos tomados por `bloquear` en la función actual, para
+    // liberarlos también si el cuerpo termina con `retornar`.
+    std::vector<std::string> bloqueosActivos;
+    // Número de cerrojos activos al entrar en cada bucle: un `romper` debe
+    // liberar solo los cerrojos tomados DENTRO del bucle, no los que lo
+    // contienen (esos siguen vigentes hasta el final del `bloquear`).
+    std::vector<size_t> bloqueosPorBucle;
+    void emitirLiberarBloqueos(size_t desde = 0);
 
     void recolectarFunciones(Programa& programa);
     void recolectarExterno(Programa& programa);
@@ -79,10 +93,19 @@ private:
     void recolectarAnonimasEnSentencia(Sentencia* s);
     void recolectarAnonimasEnExpresion(Expresion* e);
 
+    // PLAN_HILOS.md: al registrar una función anónima se decide también si se
+    // emite como callable normal (LatFnModulo) o como trampolín de hilo
+    // (función con la firma que espera pthread/qthreads, que llama al callable
+    // con los argumentos capturados).
+    void registrarAnonima(FuncionAnonima* f);
+    std::string genHilo(HiloDef* h);
+
+
     // Nombre C de la i-ésima función anónima: lat_fn_anon_<i>.
     std::string anonimoC(FuncionAnonima* f);
 
     void genFuncionAnonima(FuncionAnonima* f, const std::string& nombreC);
+    void genTrampolinHilo(FuncionAnonima* f, const std::string& nombreC);
 
     void emitir(const std::string& linea);   // escribe con sangría + salto
     std::string nuevoTemp();

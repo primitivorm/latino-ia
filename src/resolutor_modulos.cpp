@@ -237,6 +237,24 @@ public:
         visitarCuerpoFuncion(n.parametros, TipoAnotado::Ninguno, tipoRetornoClase, n.cuerpo);
     }
 
+    void visitar(HiloDef& n) override {
+        // El manejar es una variable local del ámbito que crea el hilo; el
+        // cuerpo se visita como una anónima (sus parámetros sombrean nombres
+        // de nivel superior, igual que en cualquier función). Las capturas
+        // se evalúan en el ámbito CREador, antes de entrar al cuerpo.
+        if (n.cuerpo) {
+            for (auto& p : n.cuerpo->parametros) visitarExpr(p.valorInicial);
+            std::string tipoRetornoClase;
+            visitarCuerpoFuncion(n.cuerpo->parametros, TipoAnotado::Ninguno,
+                                 tipoRetornoClase, n.cuerpo->cuerpo);
+        }
+    }
+    void visitar(Esperar& n) override { visitarExpr(n.hilo); }
+    void visitar(Bloquear& n) override {
+        visitarExpr(n.cerrojo);
+        visitarBloque(n.cuerpo);
+    }
+
     void visitar(ClaseDef& n) override {
         renombrarBounds(n.genericos);
         renombrarTipo(n.padre);
@@ -364,6 +382,35 @@ private:
                             return;
                         }
                         auto nuevo = std::make_unique<Identificador>();
+                        nuevo->nombre = itMiembro->second;
+                        nuevo->linea = e->linea;
+                        e = std::move(nuevo);
+                        return;
+                    }
+                }
+            }
+        }
+        e->aceptar(*this);
+    }
+
+    // PLAN_HILOS: las capturas de un `hilo` se guardan en un shared_ptr para
+    // que ParamFuncion siga siendo copiable. Reescribe ns.X exactamente igual
+    // que visitarExpr(ExprPtr&), pero sin transferir propiedad del nodo.
+    void visitarExpr(std::shared_ptr<Expresion>& e) {
+        if (!e) return;
+        if (auto* am = dynamic_cast<AccesoMiembro*>(e.get())) {
+            if (auto* id = dynamic_cast<Identificador*>(am->objeto.get())) {
+                if (!estaSombreado(id->nombre)) {
+                    auto itNs = namespaces_.find(id->nombre);
+                    if (itNs != namespaces_.end()) {
+                        auto itMiembro = itNs->second.tabla->find(am->miembro);
+                        if (itMiembro == itNs->second.tabla->end()) {
+                            reportarError("'" + id->nombre + "." + am->miembro +
+                                          "' no esta exportado por '" +
+                                          itNs->second.rutaMostrada + "'");
+                            return;
+                        }
+                        auto nuevo = std::make_shared<Identificador>();
                         nuevo->nombre = itMiembro->second;
                         nuevo->linea = e->linea;
                         e = std::move(nuevo);

@@ -139,6 +139,11 @@ private:
     SentPtr parseExterno();
     SentPtr parseInseguro();
 
+    // Hilos al estilo de C# (PLAN_HILOS.md): hilo / esperar / bloquear
+    SentPtr parseHilo();
+    SentPtr parseEsperar();
+    SentPtr parseBloquear();
+
     // Macros estilo Julia (PLAN_MACROS.md): macro / @ / quote / $ / :simbolo
     SentPtr parseMacro();
     ExprPtr parseQuote();

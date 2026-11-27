@@ -337,6 +337,9 @@ SentPtr Parser::parseSentencia() {
         if (p == "importar") return parseImportar();
         if (p == "externo")  return parseExterno();
         if (p == "inseguro") return parseInseguro();
+        if (p == "hilo")     return parseHilo();
+        if (p == "esperar")  return parseEsperar();
+        if (p == "bloquear") return parseBloquear();
         if (p == "macro")    return parseMacro();
         if (p == "romper") {
             int l = actual.line;
@@ -1181,6 +1184,78 @@ SentPtr Parser::parseInseguro() {
     avanzar();  // consume "inseguro"
     auto nodo = std::make_unique<InseguroBloque>();
     nodo->linea = l;
+    nodo->cuerpo = parseBloque({"fin"});
+    esperarReservada("fin");
+    return nodo;
+}
+
+// ---------------------------------------------------------------------------
+// Hilos al estilo de C# (PLAN_HILOS.md)
+// ---------------------------------------------------------------------------
+
+// hilo nombre(p0, p1, ...) ... fin
+// `nombre` identifica la variable que recibe el manejar del hilo; los
+// parámetros son locales del cuerpo y se inicializan con las expresiones
+// evaluadas en el creador (semántica de "captura por valor" de C#).
+SentPtr Parser::parseHilo() {
+    int l = actual.line;
+    avanzar();  // consume "hilo"
+    if (actual.type != TokenType::Identificador)
+        error("se esperaba el nombre de la variable de hilo después de 'hilo'");
+
+    auto nodo = std::make_unique<HiloDef>();
+    nodo->linea = l;
+    nodo->nombre = actual.lexeme;
+    avanzar();
+
+    auto fn = std::make_unique<FuncionAnonima>();
+    fn->linea = l;
+    if (esDelimitador("(")) {
+        avanzar();
+        if (!esDelimitador(")")) {
+            for (;;) {
+                if (actual.type != TokenType::Identificador)
+                    error("se esperaba el nombre de un parámetro del hilo");
+                ParamFuncion p;
+                p.nombre = actual.lexeme;
+                avanzar();
+                // Argumento del hilo: `hilo t(x) ... fin` captura el valor de
+                // `x` del ámbito creador (captura por valor, como en C#).
+                esperarOperador(":");
+                p.valorInicial = parseExpresion();
+                fn->parametros.push_back(p);
+                if (esDelimitador(",")) { avanzar(); continue; }
+                break;
+            }
+        }
+        esperarDelimitador(")");
+    }
+    fn->cuerpo = parseBloque({"fin"});
+    esperarReservada("fin");
+    nodo->cuerpo = std::move(fn);
+    return nodo;
+}
+
+// esperar expresion  (Thread.Join)
+SentPtr Parser::parseEsperar() {
+    int l = actual.line;
+    avanzar();  // consume "esperar"
+    auto nodo = std::make_unique<Esperar>();
+    nodo->linea = l;
+    nodo->hilo = parseExpresion();
+    consumirFinDeSentencia();
+    return nodo;
+}
+
+// bloquear(expresion) ... fin  (lock)
+SentPtr Parser::parseBloquear() {
+    int l = actual.line;
+    avanzar();  // consume "bloquear"
+    esperarDelimitador("(");
+    auto nodo = std::make_unique<Bloquear>();
+    nodo->linea = l;
+    nodo->cerrojo = parseExpresion();
+    esperarDelimitador(")");
     nodo->cuerpo = parseBloque({"fin"});
     esperarReservada("fin");
     return nodo;

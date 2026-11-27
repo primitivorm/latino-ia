@@ -1177,8 +1177,60 @@ por compatibilidad, pero la forma canónica es la española.
 
 Plan completo, decisiones y fases en [input/PLAN_MACROS.md](input/PLAN_MACROS.md).
 
+<a name="hilos"></a>
+## XIV. Hilos estilo C#
+
+Latino soporta hilos con tres palabras reservadas en español, más una
+librería `hilos` con la API equivalente:
+
+```latino
+hilo t(x: 41, s: "hola")
+    imprimir(x + 1)
+    imprimir(s)
+fin
+
+esperar t                  # Thread.Join(): espera y libera el manejar
+
+global cerrojo = hilos.cerrojo()
+global total = 0
+bloquear(cerrojo)          # lock(cerrojo) de C#, reentrante
+    total = total + 1
+fin
+```
+
+- `hilo nombre(p: expr, ...) ... fin` crea un hilo y guarda su manejar en
+  `nombre`. Cada argumento se evalúa en el creador y se captura **por valor**,
+  igual que el estado que se pasa a un `Thread` de C#. Un `retornar` dentro
+  del cuerpo termina el hilo (no produce un valor observable).
+- `esperar expr` espera a que termine el manejar indicado. Un mismo manejar
+  solo puede esperarse una vez.
+- `bloquear(expr) ... fin` toma el cerrojo al entrar y lo suelta al salir,
+  incluso si el cuerpo usa `retornar` o `romper`. La expresión debe evaluar
+  a un cerrojo creado con `hilos.cerrojo()`.
+- Para compartir una variable entre hilos, declárala con `global`; las
+  variables locales son propias de cada hilo.
+
+API explícita (equivalente a la sintaxis):
+
+| Función | Descripción |
+|---|---|
+| `hilos.crear(fn, args)` | crea e inicia un hilo que llama a `fn` con los argumentos de la lista `args` |
+| `hilos.esperar(t)` | espera al hilo `t` |
+| `hilos.dormir(segundos)` | suspende el hilo actual |
+| `hilos.rendir()` | cede el resto del turno de ejecución al planificador |
+| `hilos.cerrojo()` | crea un cerrojo reentrante |
+| `hilos.entrar(c, fn, args)` | ejecuta `fn(args)` dentro de `bloquear(c)` |
+| `hilos.salir(c)` | libera un cerrojo tomado manualmente |
+| `hilos.cerrojo_liberar(c)` | destruye el cerrojo (úselo solo cuando ningún hilo lo use) |
+
+Detalles, decisiones de diseño y estado en [input/PLAN_HILOS.md](input/PLAN_HILOS.md).
+
+**Fuera de alcance en v1:** `async`/`await`, canales, semáforos,
+`Monitor.Wait/Pulse`, cancelación, prioridades ni `ThreadLocal<T>`. No hay
+detección automática de accesos concurrentes sin cerrojo.
+
 <a name="plbrsRvds"></a>
-## XIV. Palabras reservadas hasta el momento
+## XV. Palabras reservadas hasta el momento
 ```
 caso
 cierto  | verdadero
@@ -1195,6 +1247,9 @@ fin
 funcion | fun
 global
 hasta
+hilo
+esperar
+bloquear
 importar
 inseguro
 macro
@@ -1210,7 +1265,7 @@ sino
 osi
 ```
 
-## XV. Apéndice: gestión automática de memoria
+## XVI. Apéndice: gestión automática de memoria
 
 El programador Latino **no libera memoria manualmente**. Cadenas, listas,
 diccionarios y objetos se asignan en el heap del runtime y se liberan de forma
@@ -1220,6 +1275,12 @@ parámetros, los temporales de la sentencia en curso y el valor devuelto por un
 llaman a `lat_recoger` al final de cada sentencia y antes de cada retorno;
 `lat_liberar_todo` (registrado con `atexit`) actúa como red de seguridad al
 terminar el proceso, incluida la ruta `--jit`.
+
+Con hilos, la pila de raíces y los temporales son propios de cada hilo
+(`thread-local storage`); el registro global de bloques está protegido por un
+mutex. El barrido solo ocurre cuando no hay otro hilo Latino activo, para no
+liberar valores que otro hilo todavía está usando. Los argumentos capturados
+por `hilo` se copian y se publican como raíces del nuevo hilo.
 
 La recolección es **shallow** (por bloque, sin cascada recursiva), por lo que
 tolera aliases y ciclos:

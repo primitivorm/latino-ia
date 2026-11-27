@@ -1,0 +1,20 @@
+# PLAN_HILOS.md: hilos estilo C# con palabras reservadas en español.
+global cerrojo = hilos.cerrojo()
+global total = 0
+
+hilo sumar(n: 100)
+    desde(i = 0; i < n; i++)
+        bloquear(cerrojo)
+            total = total + 1
+        fin
+    fin
+fin
+
+hilo saludar(s: "hilo")
+    imprimir(s)
+fin
+
+esperar sumar
+esperar saludar
+imprimir(total)
+#salida: hilo 100

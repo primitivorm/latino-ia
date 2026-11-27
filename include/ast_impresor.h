@@ -64,6 +64,11 @@ public:
     void visitar(ExternoBloque&) override;
     void visitar(InseguroBloque&) override;
 
+    // Hilos (PLAN_HILOS.md)
+    void visitar(HiloDef&) override;
+    void visitar(Esperar&) override;
+    void visitar(Bloquear&) override;
+
 private:
     std::ostream& salida;
     int nivel;

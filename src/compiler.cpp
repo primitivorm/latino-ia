@@ -164,6 +164,11 @@ void GeneradorC::emitirMarcoRaices(const std::set<std::string>& nombres,
     emitir("lat_raices_empujar(_raices, " + std::to_string(raices.size()) + ");");
 }
 
+void GeneradorC::emitirLiberarBloqueos(size_t desde) {
+    for (size_t i = bloqueosActivos.size(); i > desde; --i)
+        emitir("lat_hilo_salir(" + bloqueosActivos[i - 1] + ");");
+}
+
 void GeneradorC::emitirRetorno(const std::string& valorC) {
     std::string t = nuevoTemp();
     emitir("LatValor " + t + " = " + valorC + ";");
@@ -294,6 +299,20 @@ void GeneradorC::recolectarAnonimasEnSentencia(Sentencia* s) {
         recolectarAnonimasLista(ib->cuerpo);
         return;
     }
+    if (auto* h = dynamic_cast<HiloDef*>(s)) {
+        registrarAnonima(h->cuerpo.get());
+        if (h->cuerpo) cuerposHilo.insert(h->cuerpo.get());
+        return;
+    }
+    if (auto* es = dynamic_cast<Esperar*>(s)) {
+        recolectarAnonimasEnExpresion(es->hilo.get());
+        return;
+    }
+    if (auto* bl = dynamic_cast<Bloquear*>(s)) {
+        recolectarAnonimasEnExpresion(bl->cerrojo.get());
+        recolectarAnonimasLista(bl->cuerpo);
+        return;
+    }
     if (auto* f = dynamic_cast<FuncionDef*>(s)) {
         // Una función nombrada puede contener funciones anónimas en su cuerpo.
         recolectarAnonimasLista(f->cuerpo);
@@ -323,11 +342,7 @@ void GeneradorC::recolectarAnonimasEnSentencia(Sentencia* s) {
 void GeneradorC::recolectarAnonimasEnExpresion(Expresion* e) {
     if (!e) return;
     if (auto* f = dynamic_cast<FuncionAnonima*>(e)) {
-        if (indiceAnonimo.count(f)) return;  // ya registrada
-        indiceAnonimo[f] = contadorAnonimo++;
-        anonimas.push_back(f);
-        // Su cuerpo también puede contener anónimas anidadas.
-        recolectarAnonimasLista(f->cuerpo);
+        registrarAnonima(f);
         return;
     }
     if (auto* b = dynamic_cast<Binaria*>(e)) {
@@ -392,6 +407,14 @@ std::string GeneradorC::anonimoC(FuncionAnonima* f) {
     return "lat_fn_anon_" + std::to_string(it->second);
 }
 
+void GeneradorC::registrarAnonima(FuncionAnonima* f) {
+    if (!f || indiceAnonimo.count(f)) return;
+    indiceAnonimo[f] = contadorAnonimo++;
+    anonimas.push_back(f);
+    // Su cuerpo también puede contener anónimas anidadas.
+    recolectarAnonimasLista(f->cuerpo);
+}
+
 void GeneradorC::genFuncionAnonima(FuncionAnonima* f, const std::string& nombreC) {
     emitir("static LatValor " + nombreC + "(int nargs, LatValor* args) {");
     ++indentacion;
@@ -439,6 +462,47 @@ void GeneradorC::genFuncionAnonima(FuncionAnonima* f, const std::string& nombreC
     genBloque(f->cuerpo);
     emitirRetornoNulo();
 
+    --indentacion;
+    emitir("}");
+    emitir("");
+
+}
+
+// PLAN_HILOS.md: trampolín con la firma que espera el runtime. El hilo
+// creado por `hilo nombre(...) ... fin` captura sus argumentos por valor
+// (semántica de C#), así que el trampolín los copia de la estructura
+// `LatHiloArgs` a las celdas locales del callable antes de ejecutarlo.
+void GeneradorC::genTrampolinHilo(FuncionAnonima* f, const std::string& nombreC) {
+    emitir("static void* " + nombreC + "_hilo(void* ptr) {");
+    ++indentacion;
+    emitir("LatHiloArgs* argsHilo = (LatHiloArgs*)ptr;");
+    for (size_t i = 0; i < f->parametros.size(); i++) {
+        emitir("LatValor " + GeneradorC::varC(f->parametros[i].nombre) +
+               " = argsHilo->args[" + std::to_string(i) + "];");
+    }
+    std::set<std::string> excluir;
+    for (const auto& p : f->parametros) excluir.insert(p.nombre);
+    excluir.insert(globalesExplicitos.begin(), globalesExplicitos.end());
+    std::set<std::string> vars;
+    recolectarVariables(f->cuerpo, vars, excluir);
+    for (const std::string& v : vars)
+        emitir("LatValor " + GeneradorC::varC(v) + " = lat_nulo();");
+    std::set<std::string> raices;
+    for (const auto& p : f->parametros) raices.insert(GeneradorC::varC(p.nombre));
+    for (const std::string& v : vars) raices.insert(GeneradorC::varC(v));
+    for (const std::string& g : variablesGlobalesC) raices.insert(GeneradorC::varC(g));
+    emitirMarcoRaices(raices);
+    std::string etiqueta = nombreC + "_hilo_fin";
+    etiquetaFinHilo.push_back(etiqueta);
+    genBloque(f->cuerpo);
+    etiquetaFinHilo.pop_back();
+    emitir(etiqueta + ":");
+    emitir("lat_recoger(lat_nulo());");
+    emitir("lat_raices_sacar();");
+    // PLAN_HILOS: el arreglo TLS de temporales se realloca bajo demanda; sin
+    // liberarlo aquí cada hilo que use temporales deja escapar su bloque.
+    emitir("lat_hilo_liberar_recursos();");
+    emitir("return NULL;");
     --indentacion;
     emitir("}");
     emitir("");
@@ -744,7 +808,8 @@ std::string GeneradorC::genLlamada(Llamada* ll) {
     if (auto* am = dynamic_cast<AccesoMiembro*>(ll->destino.get())) {
         if (auto* obj = dynamic_cast<Identificador*>(am->objeto.get())) {
             static const char* LIBS[] = {
-                "cadena", "lista", "dic", "diccionario", "mate", "sis", "archivo", "paquete", nullptr
+                "cadena", "lista", "dic", "diccionario", "mate", "sis", "archivo", "paquete",
+                "hilos", nullptr
             };
             bool esLib = false;
             for (int i = 0; LIBS[i]; i++)
@@ -1068,7 +1133,9 @@ void GeneradorC::genSentenciaImpl(Sentencia* s) {
         genSentencia(de->inicio.get());
         emitir("while (lat_es_verdadero(" + genExpr(de->condicion.get()) + ")) {");
         ++indentacion;
+        bloqueosPorBucle.push_back(bloqueosActivos.size());
         genBloque(de->cuerpo);
+        bloqueosPorBucle.pop_back();
         genSentencia(de->incremento.get());
         --indentacion;
         emitir("}");
@@ -1087,7 +1154,9 @@ void GeneradorC::genSentenciaImpl(Sentencia* s) {
         ++indentacion;
         emitir("LatValor " + actual + " = " + iter + ".como.arreglo->datos[" + idx + "];");
         emitir(GeneradorC::varC(pa->variable) + " = " + actual + ";");
+        bloqueosPorBucle.push_back(bloqueosActivos.size());
         genBloque(pa->cuerpo);
+        bloqueosPorBucle.pop_back();
         --indentacion;
         emitir("}");
         --indentacion;
@@ -1097,7 +1166,9 @@ void GeneradorC::genSentenciaImpl(Sentencia* s) {
         ++indentacion;
         emitir("LatValor " + actual + " = " + iter + ".como.lista->datos[" + idx + "];");
         emitir(GeneradorC::varC(pa->variable) + " = " + actual + ";");
+        bloqueosPorBucle.push_back(bloqueosActivos.size());
         genBloque(pa->cuerpo);
+        bloqueosPorBucle.pop_back();
         --indentacion;
         emitir("}");
         --indentacion;
@@ -1108,7 +1179,9 @@ void GeneradorC::genSentenciaImpl(Sentencia* s) {
         emitir("while (lat_rango_contiene(" + iter + ", " + actual + ")) {");
         ++indentacion;
         emitir(GeneradorC::varC(pa->variable) + " = " + actual + ";");
+        bloqueosPorBucle.push_back(bloqueosActivos.size());
         genBloque(pa->cuerpo);
+        bloqueosPorBucle.pop_back();
         emitir(actual + " = lat_rango_siguiente(" + iter + ", " + actual + ");");
         --indentacion;
         emitir("}");
@@ -1120,13 +1193,21 @@ void GeneradorC::genSentenciaImpl(Sentencia* s) {
     }
     if (auto* mi = dynamic_cast<Mientras*>(s)) {
         emitir("while (lat_es_verdadero(" + genExpr(mi->condicion.get()) + ")) {");
-        ++indentacion; genBloque(mi->cuerpo); --indentacion;
+        ++indentacion;
+        bloqueosPorBucle.push_back(bloqueosActivos.size());
+        genBloque(mi->cuerpo);
+        bloqueosPorBucle.pop_back();
+        --indentacion;
         emitir("}");
         return;
     }
     if (auto* re = dynamic_cast<Repetir*>(s)) {
         emitir("do {");
-        ++indentacion; genBloque(re->cuerpo); --indentacion;
+        ++indentacion;
+        bloqueosPorBucle.push_back(bloqueosActivos.size());
+        genBloque(re->cuerpo);
+        bloqueosPorBucle.pop_back();
+        --indentacion;
         emitir("} while (!lat_es_verdadero(" + genExpr(re->condicionHasta.get()) + "));");
         return;
     }
@@ -1158,11 +1239,30 @@ void GeneradorC::genSentenciaImpl(Sentencia* s) {
         return;
     }
     if (dynamic_cast<Romper*>(s)) {
+        // PLAN_HILOS: un `romper` dentro de un `bloquear` que a su vez está
+        // dentro del bucle debe soltar ese cerrojo antes de saltar. Los
+        // cerrojos tomados antes del bucle siguen vigentes.
+        emitirLiberarBloqueos(bloqueosPorBucle.empty()
+                                  ? bloqueosActivos.size()
+                                  : bloqueosPorBucle.back());
         emitir("lat_recoger(lat_nulo());");
         emitir("break;");
         return;
     }
     if (auto* rt = dynamic_cast<Retornar*>(s)) {
+        // PLAN_HILOS: un `retornar` dentro del cuerpo de un hilo no tiene
+        // llamador al que devolver un valor; equivale a terminar el hilo.
+        if (!etiquetaFinHilo.empty()) {
+            emitirLiberarBloqueos();
+            for (auto& v : rt->valores) {
+                std::string t = nuevoTemp();
+                emitir("LatValor " + t + " = " + genExpr(v.get()) + ";");
+                emitir("(void)" + t + ";");
+            }
+            emitir("goto " + etiquetaFinHilo.back() + ";");
+            return;
+        }
+        emitirLiberarBloqueos();
         if (rt->valores.empty()) {
             emitirRetornoNulo();
             return;
@@ -1193,6 +1293,30 @@ void GeneradorC::genSentenciaImpl(Sentencia* s) {
         genBloque(ib->cuerpo);
         return;
     }
+    if (auto* h = dynamic_cast<HiloDef*>(s)) {
+        genHilo(h);
+        return;
+    }
+    if (auto* e = dynamic_cast<Esperar*>(s)) {
+        emitir("lat_hilo_esperar(" + genExpr(e->hilo.get()) + ");");
+        return;
+    }
+    if (auto* bl = dynamic_cast<Bloquear*>(s)) {
+        std::string c = nuevoTemp();
+        emitir("LatValor " + c + " = " + genExpr(bl->cerrojo.get()) + ";");
+        emitir("lat_hilo_entrar(" + c + ");");
+        bloqueosActivos.push_back(c);
+        // Bloque simple, no `do { } while (0)`: un `romper` dentro de
+        // `bloquear` debe romper el BUCLE contenedor, no este bloque.
+        emitir("{");
+        ++indentacion;
+        genBloque(bl->cuerpo);
+        --indentacion;
+        emitir("}");
+        bloqueosActivos.pop_back();
+        emitir("lat_hilo_salir(" + c + ");");
+        return;
+    }
     // FuncionDef, ExternoBloque u otros: no se emiten dentro de un bloque
     // (ExternoBloque ya se recolectó en recolectarExterno/generar(), igual
     // que un FuncionDef anidado tampoco se registra).
@@ -1201,6 +1325,35 @@ void GeneradorC::genSentenciaImpl(Sentencia* s) {
 void GeneradorC::genBloque(const ListaSent& cuerpo) {
     for (const auto& s : cuerpo)
         if (s) genSentencia(s.get());
+}
+
+std::string GeneradorC::genHilo(HiloDef* h) {
+    if (!h->cuerpo) return "";
+    std::string fn = anonimoC(h->cuerpo.get());
+
+    std::string arr = nuevoTemp();
+    size_t n = h->cuerpo->parametros.size();
+    // C no permite arreglos de tamaño 0: reservamos una celda aunque nargs=0.
+    emitir("LatValor " + arr + "[" + std::to_string(n ? n : 1) + "];");
+    // Publicar las celdas como raices temporales mientras se evalúan las
+    // capturas: una expresión que recoja basura no puede liberar una captura
+    // ya evaluada antes de que lat_hilo_crear() la copie.
+    for (size_t i = 0; i < n; i++)
+        emitir("lat_raices_empujar_temporal(&" + arr + "[" + std::to_string(i) + "]);");
+    for (size_t i = 0; i < h->cuerpo->parametros.size(); i++)
+        emitir(arr + "[" + std::to_string(i) + "] = " +
+               genExpr(h->cuerpo->parametros[i].valorInicial.get()) + ";");
+
+    std::string args = nuevoTemp();
+    emitir("LatHiloArgs " + args + ";");
+    emitir(args + ".nargs = " + std::to_string(h->cuerpo->parametros.size()) + ";");
+    emitir(args + ".args = " + arr + ";");
+    emitir(GeneradorC::varC(h->nombre) + " = lat_hilo_crear(" + fn + "_hilo, " + args + ");");
+    emitir("lat_hilo_iniciar(" + GeneradorC::varC(h->nombre) + ");");
+    // A partir de iniciar(), la copia privada del hilo está protegida por
+    // g_marcosActivos; las celdas temporales del creador ya no hacen falta.
+    for (size_t i = 0; i < n; i++) emitir("lat_raices_sacar_temporal();");
+    return "";
 }
 
 void GeneradorC::genFuncion(FuncionDef* f) {
@@ -1492,6 +1645,8 @@ void GeneradorC::generarCuerpo(Programa& programa) {
     // las referencie ya dispone del símbolo.
     for (FuncionAnonima* f : anonimas)
         genFuncionAnonima(f, anonimoC(f));
+    for (FuncionAnonima* f : anonimas)
+        if (cuerposHilo.count(f)) genTrampolinHilo(f, anonimoC(f));
 
     // Definiciones de métodos de clases y estructuras.
     for (auto& [nombre, c] : clases)

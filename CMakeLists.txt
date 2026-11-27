@@ -1,6 +1,12 @@
 cmake_minimum_required(VERSION 3.12)
 project(latino)
 
+# PLAN_HILOS: pthreads en Unix (en Windows se usa la API Win32 directamente).
+if(NOT WIN32)
+  set(THREADS_PREFER_PTHREAD_FLAG ON)
+  find_package(Threads REQUIRED)
+endif()
+
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
@@ -130,11 +136,15 @@ if(LATINO_LLVM_BACKEND)
     runtime/libs/archivo.c
     runtime/libs/cadena.c
     runtime/libs/dic.c
+    runtime/libs/hilos.c
     runtime/libs/lista.c
     runtime/libs/mate.c
     runtime/libs/paquete.c
     runtime/libs/sis.c)
   target_include_directories(latino_runtime_estatico PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/runtime)
+  if(NOT WIN32)
+    target_link_libraries(latino_runtime_estatico PUBLIC Threads::Threads)
+  endif()
   set_target_properties(latino_runtime_estatico PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
 endif()
 
@@ -151,11 +161,15 @@ add_library(latino_runtime STATIC
   runtime/libs/archivo.c
   runtime/libs/cadena.c
   runtime/libs/dic.c
+  runtime/libs/hilos.c
   runtime/libs/lista.c
   runtime/libs/mate.c
   runtime/libs/paquete.c
   runtime/libs/sis.c)
 target_include_directories(latino_runtime PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/runtime)
+if(NOT WIN32)
+  target_link_libraries(latino_runtime PUBLIC Threads::Threads)
+endif()
 
 enable_testing()
 add_subdirectory(tests)

@@ -101,7 +101,7 @@ int ejecutarGnu(const std::string& cc, const std::string& archivoC,
                           " -I " + entrecomillar(runtimeDir + "/libs") +
                           " " + entrecomillar(archivoC) +
                           " " + entrecomillar(runtimeDir + "/latino.c") + libs +
-                          " -o " + entrecomillar(salidaExe) + " -lm" + enlazarExtra;
+                          " -o " + entrecomillar(salidaExe) + " -lm -pthread" + enlazarExtra;
     return std::system(comando.c_str());
 }
 

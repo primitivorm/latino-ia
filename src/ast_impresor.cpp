@@ -476,3 +476,20 @@ void ImpresorAST::visitar(InseguroBloque& n) {
     linea("cuerpo:");
     hijos(n.cuerpo);
 }
+
+void ImpresorAST::visitar(HiloDef& n) {
+    linea("Hilo " + n.nombre);
+    if (n.cuerpo) hijo(*n.cuerpo);
+}
+
+void ImpresorAST::visitar(Esperar& n) {
+    linea("Esperar");
+    if (n.hilo) hijo(*n.hilo);
+}
+
+void ImpresorAST::visitar(Bloquear& n) {
+    linea("Bloquear");
+    if (n.cerrojo) hijo(*n.cerrojo);
+    linea("cuerpo:");
+    hijos(n.cuerpo);
+}

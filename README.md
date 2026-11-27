@@ -343,6 +343,28 @@ mecanismos conviven. Detalle completo en
 [input/PLAN_FFI.md](input/PLAN_FFI.md) y en la sección XII de
 [SINTAXIS.md](SINTAXIS.md).
 
+### Hilos estilo C#
+
+```latino
+hilo t(x: 41)
+    imprimir(x + 1)
+fin
+
+global cerrojo = hilos.cerrojo()
+global total = 0
+bloquear(cerrojo)
+    total = total + 1
+fin
+esperar t
+```
+
+`hilo`, `esperar` y `bloquear` son palabras reservadas en español;
+también está disponible la API `hilos.crear/esperar/dormir/rendir/cerrojo`.
+Los argumentos se capturan por valor y las variables compartidas se declaran
+con `global`. Funciona en los backends C, LLVM y `--jit`. Detalle completo en
+[input/PLAN_HILOS.md](input/PLAN_HILOS.md) y en la sección XIV de
+[SINTAXIS.md](SINTAXIS.md).
+
 ### Operadores
 
 ```latino
