@@ -278,6 +278,7 @@ void lat_abi_referenciar_todo(void) {
     (void)lat_sis_tiempo;
     (void)lat_sis_usuario;
     (void)lat_sumar;
+    (void)lat_tiempo_ns;
     (void)lat_tipo;
     (void)lat_liberar_todo;
     (void)lat_raices_empujar;

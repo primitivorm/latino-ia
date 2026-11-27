@@ -208,6 +208,8 @@ void lat_imprimirf_args(size_t n, const LatValor* args);
 LatValor lat_limpiar(void);
 LatValor lat_error(LatValor v);
 LatValor lat_incluir(LatValor v);
+/* PLAN_MACROS.md: reloj monotónico en nanosegundos, usado por @tiempo. */
+LatValor lat_tiempo_ns(void);
 
 /* --- Gestión de memoria por conteo de referencias (Fase 19) ---
  * APIs heredadas: lat_valor_liberar se usa en las bajas internas del runtime

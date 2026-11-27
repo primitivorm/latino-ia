@@ -15,8 +15,9 @@ el [Manual-Latino](https://github.com/lenguaje-latino/Manual-Latino) están
 implementadas y cubiertas por pruebas E2E, incluyendo tipado gradual
 opcional, Programación Orientada a Objetos (clases, herencia, interfaces,
 estructuras), genéricos al estilo de Rust (`<T>`, bounds, turbofish),
-módulos (`exportar`/`importar`) y FFI con C al estilo de Rust (`externo`/
-`inseguro`, ver [FFI con C](#ffi-con-c-al-estilo-de-rust)).
+módulos (`exportar`/`importar`), macros al estilo de Julia (`macro`, `quote`,
+`$`, `esc`, `@expandir_macro`, ver [Macros](#macros-al-estilo-de-julia)) y FFI con C
+al estilo de Rust (`externo`/`inseguro`, ver [FFI con C](#ffi-con-c-al-estilo-de-rust)).
 
 | Fase | Descripción | PR |
 |------|-------------|-----|
@@ -182,6 +183,37 @@ cociente, residuo = dividir(10, 3)   # cociente=3.33..., residuo=1
 escribir(cociente)
 escribir(residuo)
 ```
+
+### Macros al estilo de Julia
+
+Las macros se ejecutan en tiempo de compilación y reciben código sin evaluar.
+`quote` construye código, `$` interpola y `@` invoca la macro:
+
+```latino
+macro doble(x)
+    retornar quote $x * 2 fin
+fin
+
+escribir(@doble 21)    # 42
+
+# Higiene: 'temporal' se renombra para no colisionar con la variable del usuario
+macro con_temporal(x)
+    retornar quote
+        temporal = $x
+        escribir(temporal + 1)
+    fin
+fin
+
+y = 3
+@con_temporal y        # 4
+escribir(y)            # 3
+```
+
+También se puede construir/inspeccionar el AST con `Expr(...)` y `:simbolo`,
+y usar `esc(...)` para excluir un fragmento de la higiene. Macros integradas:
+`@mostrar`, `@afirmar` (alias `@asegurar`), `@tiempo` y `@expandir_macro`. Ver
+[SINTAXIS.md](SINTAXIS.md#xiii-macros-estilo-julia) y
+[input/PLAN_MACROS.md](input/PLAN_MACROS.md).
 
 ### Librerías estándar
 

@@ -19,6 +19,8 @@ add_executable(latino
   ast.cpp
   ast_impresor.cpp
   parser.cpp
+  impresor_fuente.cpp
+  expandidor_macros.cpp
   analizador_semantico.cpp
   resolutor_modulos.cpp
   compiler.cpp

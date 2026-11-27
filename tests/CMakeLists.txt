@@ -123,6 +123,24 @@ target_include_directories(test_modulos PRIVATE ${CMAKE_SOURCE_DIR}/include)
 
 add_test(NAME test_modulos COMMAND test_modulos)
 
+# Macros al estilo de Julia (PLAN_MACROS.md): parser, impresor de fuente,
+# expandedor/intérprete compile-time y generación de código C tras la expansión.
+add_executable(test_macros
+  test_macros.cpp
+  ${CMAKE_SOURCE_DIR}/src/lexer.cpp
+  ${CMAKE_SOURCE_DIR}/src/parser.cpp
+  ${CMAKE_SOURCE_DIR}/src/ast.cpp
+  ${CMAKE_SOURCE_DIR}/src/ast_impresor.cpp
+  ${CMAKE_SOURCE_DIR}/src/impresor_fuente.cpp
+  ${CMAKE_SOURCE_DIR}/src/expandidor_macros.cpp
+  ${CMAKE_SOURCE_DIR}/src/compiler.cpp
+  ${CMAKE_SOURCE_DIR}/src/fn_binaria.cpp
+  ${CMAKE_SOURCE_DIR}/src/recolector_variables.cpp
+)
+target_include_directories(test_macros PRIVATE ${CMAKE_SOURCE_DIR}/include)
+
+add_test(NAME test_macros COMMAND test_macros)
+
 # Pruebas de generacion de codigo C para "externo"/"inseguro" (PLAN_FFI.md,
 # F5/F7): marshalling de argumentos/retorno y preambulo (extern/#pragma
 # comment/#include <stdint.h>). Mismo patron que test_codegen (Fase 5).
@@ -379,6 +397,7 @@ endmacro()
 
 add_suite20(test_funciones_base)
 add_suite20(test_funciones_anonimas_e2e)
+add_suite20(test_macros_e2e)
 add_suite20(test_lib_cadena)
 add_suite20(test_lib_lista)
 add_suite20(test_lib_dic)

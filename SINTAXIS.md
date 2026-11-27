@@ -1071,8 +1071,114 @@ deja `unsafe` en Rust).
 Plan completo, decisiones de diseño y alcance en
 [input/PLAN_FFI.md](input/PLAN_FFI.md).
 
+## XIII. Macros estilo Julia
+
+Las macros son funciones que se ejecutan **en tiempo de compilación** y
+reciben **expresiones sin evaluar**. Su resultado es código Latino que se
+inserta en el lugar de la invocación, antes del análisis semántico y de la
+generación de código. No existen en runtime: el ejecutable final no contiene
+ni la definición ni la llamada a la macro.
+
+```python
+# Definición (los parámetros son AST, no valores)
+macro doble(x)
+    retornar quote $x * 2 fin
+fin
+
+# Invocación: con o sin paréntesis
+escribir(@doble 21)       # 42
+escribir(@doble(3 + 4))   # 14
+```
+
+### Cuasi-cita, interpolación y símbolos
+
+`quote ... fin` construye código en vez de ejecutarlo. `$expr` se evalúa en el
+intérprete de macros y su valor se inserta en el AST. `:nombre` es un símbolo
+(equivalente al `Symbol` de Julia); se usa como primer argumento de
+`Expr(...)` y para construir nombres de forma dinámica.
+
+```python
+macro suma(a, b)
+    retornar quote ($a) + ($b) fin
+fin
+escribir(@suma 2, 3)   # 5
+```
+
+### Higiene
+
+Las variables introducidas por un `quote` se renombran automáticamente para
+no colisionar con las del programa que invoca la macro. El código que viene de
+los argumentos (interpolado con `$`) conserva sus nombres. `esc(expr)` marca
+explícitamente un fragmento para que no se renombre y se evalúa en tiempo de
+compilación:
+
+```python
+macro con_temporal(x)
+    retornar quote
+        temporal = $x      # 'temporal' se renombra; $x no
+        temporal + 1
+    fin
+fin
+
+macro usar(x)
+    retornar quote esc(x) + 1 fin   # sin esc, 'x' no existiría en el código generado
+fin
+```
+
+### Construcción programática del AST
+
+`Expr(tipo, ...)` construye nodos del AST. Los tipos disponibles son
+`:numero`, `:cadena`, `:logico`, `:nulo`, `:identificador`, `:simbolo`,
+`:llamada`, `:binaria`, `:unaria`, `:asignacion`, `:indice`, `:miembro`,
+`:lista`, `:bloque`, `:macro`, `:retornar`, `:si` y `:mientras`. También están
+disponibles `string`, `simbolo`, `generar_simbolo` (alias `gensimb`; también
+se acepta `gensym`), `longitud`, `tipo`, `escribir`, `rango` y `error` dentro
+del cuerpo de una macro, además de funciones
+definidas con `funcion` dentro del propio cuerpo.
+
+En un valor `Expr` se puede inspeccionar `.tipo` (símbolo con el tipo del
+nodo) y `.args` (lista de subexpresiones), lo que permite escribir macros que
+analizan y transforman el código que reciben.
+
+### Macros integradas
+
+| Macro | Alias | Efecto |
+|---|---|---|
+| `@mostrar expr, ...` | `@show` | imprime `texto_de_la_expresion = valor` y devuelve el valor |
+| `@afirmar cond` | `@asegurar`, `@assert` | termina el programa con `error("afirmación falló: ...")` si `cond` es falsa |
+| `@tiempo expr` | `@time` | imprime el tiempo transcurrido en milisegundos (reloj monotónico `tiempo_ns()`) |
+| `@expandir_macro expr` | `@macroexpand` | imprime por stdout el código Latino resultante de expander `expr` |
+
+```python
+x = 7
+@mostrar x + 1      # x + 1 = 8 (en tiempo de ejecución)
+@afirmar x > 0
+@tiempo x * 2       # como sentencia; imprime el tiempo en ms
+@expandir_macro @doble 5    # se imprime al compilar: (5 * 2)
+```
+
+`@expandir_macro` escribe en stdout durante la **compilación**, no en la
+ejecución del programa generado. Los nombres en inglés se conservan como alias
+por compatibilidad, pero la forma canónica es la española.
+
+### Limitaciones de la versión 1
+
+- Una macro usada en posición de **expresión** debe devolver una sola
+  expresión (un `quote` con una sola sentencia, o un `Expr` de expresión).
+  Los bloques con varias sentencias se pueden usar como sentencia.
+- `@tiempo` se comporta como sentencia: ejecuta la expresión, imprime el tiempo
+  y no puede usarse directamente como valor de otra expresión.
+- Las definiciones `exportar macro ...` se reconocen en el AST, pero la
+  exportación/importación de macros entre módulos no está incluida en v1.
+- No hay macros variádicas: el número de argumentos debe coincidir con el de
+  parámetros declarados.
+- El intérprete de macros tiene un límite de 100000 iteraciones por bucle y
+  64 niveles de expansión anidada.
+
+Plan completo, decisiones y fases en [input/PLAN_MACROS.md](input/PLAN_MACROS.md).
+
 <a name="plbrsRvds"></a>
-## XIII. Palabras reservadas hasta el momento
+## XIV. Palabras reservadas hasta el momento
 ```
 caso
 cierto  | verdadero
@@ -1091,18 +1197,20 @@ global
 hasta
 importar
 inseguro
+macro
 mientras
 nulo
 para
 repetir
 regresar | retornar | retorno | ret
+quote
 romper
 si
 sino
 osi
 ```
 
-## XIV. Apéndice: gestión automática de memoria
+## XV. Apéndice: gestión automática de memoria
 
 El programador Latino **no libera memoria manualmente**. Cadenas, listas,
 diccionarios y objetos se asignan en el heap del runtime y se liberan de forma

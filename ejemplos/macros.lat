@@ -1,0 +1,26 @@
+# ejemplos/macros.lat — macros al estilo Julia (input/PLAN_MACROS.md).
+
+macro doble(x)
+    retornar quote $x * 2 fin
+fin
+
+macro con_temporal(x)
+    retornar quote
+        temporal = $x
+        escribir(temporal + 1)
+    fin
+fin
+
+# Expansión en posición de expresión.
+escribir(@doble 21)     #salida: 42
+
+# Bloque con higiene: 'temporal' se renombra dentro de la macro.
+@con_temporal 5         #salida: 6
+
+# Builtins de las macros integradas: el reloj no se imprime aquí para que la
+# salida del ejemplo sea determinista.
+@afirmar 2 > 1
+# @tiempo se ejerce en las pruebas unitarias: su salida incluye un tiempo real.
+@expandir_macro @doble 3
+
+escribir("fin")         #salida: fin

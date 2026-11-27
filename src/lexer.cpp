@@ -217,6 +217,10 @@ Token Lexer::getNextToken() {
             return Token{TokenType::Operador, ".", startLine};
         case '?':
             return Token{TokenType::Operador, "?", startLine};
+        case '@':
+            return Token{TokenType::Operador, "@", startLine};
+        case '$':
+            return Token{TokenType::Operador, "$", startLine};
         case ':':
             if (peekChar() == ':') { getNextChar(); return Token{TokenType::Operador, "::", startLine}; }
             return Token{TokenType::Operador, ":", startLine};
@@ -249,7 +253,9 @@ bool Lexer::esPalabraReservada(const std::string& palabra) const {
         // Nueva palabra reservada para genéricos (PLAN_GENERICOS.md)
         "donde",
         // Nuevas palabras reservadas para FFI con C (PLAN_FFI.md)
-        "externo", "enlazar", "inseguro"
+        "externo", "enlazar", "inseguro",
+        // Nuevas palabras reservadas para macros (PLAN_MACROS.md)
+        "macro", "quote"
     };
 
     return palabrasReservadas.count(palabra) > 0;
