@@ -138,6 +138,10 @@ private:
     // FFI con C (PLAN_FFI.md): externo / enlazar / inseguro
     SentPtr parseExterno();
     SentPtr parseInseguro();
+
+    // Macros estilo Julia (PLAN_MACROS.md): macro / @ / quote / $ / :simbolo
+    SentPtr parseMacro();
+    ExprPtr parseQuote();
     FuncionExterna parseFuncionExterna();
     // Convierte un nombre de tipo FFI ("numero", "entero32", "puntero", ...)
     // al enum TipoFFI. Devuelve false (sin tocar `out`) si no es un tipo FFI

@@ -1,5 +1,9 @@
 /* latino.c — implementación del runtime de Latino. Ver latino.h. */
 
+#if !defined(_WIN32) && !defined(_POSIX_C_SOURCE)
+#define _POSIX_C_SOURCE 199309L  /* clock_gettime(), usado por lat_tiempo_ns */
+#endif
+
 #include "latino.h"
 #include "libs/dic.h"
 #include "libs/lista.h"
@@ -11,6 +15,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 /* ================================================================
  * Fase 18 — Motor de expresiones regulares (ERE, subconjunto).
@@ -1623,6 +1631,37 @@ LatValor lat_error(LatValor v) {
 LatValor lat_incluir(LatValor v) {
     (void)v;
     return lat_nulo();
+}
+
+/* PLAN_MACROS.md: reloj monotónico de alta resolución para la macro @time.
+ * Se devuelve como LAT_NUMERO (double); el conteo de nanosegundos pierde
+ * precisión después de ~104 días, más que suficiente para medir una expresión. */
+LatValor lat_tiempo_ns(void) {
+    LatValor v;
+    v.tipo = LAT_NUMERO;
+#ifdef _WIN32
+    {
+        static LARGE_INTEGER frecuencia = {0};
+        LARGE_INTEGER contador;
+        if (frecuencia.QuadPart == 0) QueryPerformanceFrequency(&frecuencia);
+        QueryPerformanceCounter(&contador);
+        v.como.numero = frecuencia.QuadPart
+                            ? (double)contador.QuadPart * 1000000000.0 /
+                                  (double)frecuencia.QuadPart
+                            : 0.0;
+    }
+#else
+    {
+        struct timespec ts;
+#ifdef CLOCK_MONOTONIC
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+#else
+        clock_gettime(CLOCK_REALTIME, &ts);
+#endif
+        v.como.numero = (double)ts.tv_sec * 1000000000.0 + (double)ts.tv_nsec;
+    }
+#endif
+    return v;
 }
 
 /* ================================================================

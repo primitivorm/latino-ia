@@ -10,7 +10,7 @@ La especificación completa del lenguaje vive en [SINTAXIS.md](SINTAXIS.md).
 ## Pipeline de compilación
 
 ```
-archivo.lat → Lexer → Parser (AST) → Análisis semántico → Generación C → compilador C → ejecutable
+archivo.lat → Lexer → Parser (AST) → resolución de módulos/inclusiones → expansión de macros → Análisis semántico → Generación C/LLVM → ejecutable
 ```
 
 El código C generado enlaza con `runtime/latino.c` y las librerías de `runtime/libs/`.
@@ -19,13 +19,13 @@ El código C generado enlaza con `runtime/latino.c` y las librerías de `runtime
 
 | Carpeta / archivo | Contenido |
 |---|---|
-| `src/` | Compilador: `lexer.cpp`, `parser.cpp`, `ast.cpp`, `analizador_semantico.cpp`, `compiler.cpp`, `main.cpp` |
+| `src/` | Compilador: `lexer.cpp`, `parser.cpp`, `ast.cpp`, `expandidor_macros.cpp`, `impresor_fuente.cpp`, `analizador_semantico.cpp`, `compiler.cpp`, `compiler_llvm.cpp`, `main.cpp` |
 | `include/` | Cabeceras del compilador |
 | `runtime/latino.c/.h` | Runtime base: tipos dinámicos, aritmética, IO, memoria ref-contada |
 | `runtime/libs/` | Librerías estándar en C: `cadena`, `lista`, `dic`, `mate`, `sis`, `archivo`, `paquete` |
 | `ejemplos/` | Programas `.lat` con anotación `#salida:` para pruebas E2E |
 | `tests/` | Suites de prueba unitarias y E2E (CTest) |
-| `input/` | Planes de trabajo (`PLAN_BASE.md`, `PLAN_LIBS.md`, `PLAN_POO.md`, `PLAN_LLVM.md`) |
+| `input/` | Planes de trabajo (`PLAN_BASE.md`, `PLAN_LIBS.md`, `PLAN_POO.md`, `PLAN_LLVM.md`, `PLAN_MACROS.md`) |
 
 ## Cómo construir
 
@@ -125,6 +125,8 @@ Suites de prueba disponibles:
 | `test_runtime_ffi` | Runtime de FFI con C: `LAT_PUNTERO`/`lat_ffi_verificar_tipo` (Fase F3 de `PLAN_FFI.md`) |
 | `test_ffi` | Parser/semántico/codegen (backend C) de `externo`/`inseguro` (`PLAN_FFI.md`) |
 | `test_ffi_e2e` | Programas completos con `externo`/`inseguro` llamando símbolos ya enlazados por defecto (Fase F7 de `PLAN_FFI.md`) |
+| `test_macros` | Parser, impresor de fuente, expandedor/intérprete compile-time y generación C tras expansión (`PLAN_MACROS.md`) |
+| `test_macros_e2e` | Programas completos con macros (incluidas `@mostrar`/`@afirmar`/`@tiempo`/`@expandir_macro`), en C y LLVM |
 
 ## Convenciones del código
 
@@ -543,6 +545,49 @@ tiene una instalación real de LLVM 18.1.x vía vcpkg. Reconstruyendo ahí,
 y `test_ffi_e2e` con `--backend llvm` pasa sus 4 casos de punta a punta —
 el código de `GeneradorLLVM` de F6/F7 queda verificado con LLVM real, sin
 cambios de código.
+
+## Macros al estilo de Julia (en desarrollo)
+
+Plan completo en [input/PLAN_MACROS.md](input/PLAN_MACROS.md). Agrega
+`macro nombre(params) ... fin`, invocación con `@`, cuasi-cita `quote`/`$`,
+símbolos `:nombre`, higiene con `esc()`, construcción programática del AST con
+`Expr(...)` y las macros integradas `@mostrar`/`@afirmar`/`@tiempo`/`@expandir_macro`
+(ver sección XIII de [SINTAXIS.md](SINTAXIS.md)).
+
+**Estado:** fases M1-M7 completas y verificadas: 85/85 pruebas en el build C y
+149/149 con LLVM habilitado (macros: 3/3 en C y 5/5 en LLVM, incluidas las
+variantes `_llvm`). Las macros **no existen en runtime**: se ejecutan en tiempo de
+compilación mediante un intérprete C++ (`ExpandidorMacros`) sobre valores
+`ValorMacro`, y el AST resultante sustituye a `MacroDef`/`MacroInvocacion`
+antes del análisis semántico y de ambos backends — por eso ni
+`AnalizadorSemantico` ni `GeneradorC`/`GeneradorLLVM` conocen nodos de macro.
+La expansión ocurre en `src/main.cpp` después de resolver módulos e
+`incluir`, e imprime en stdout el texto que produce `@expandir_macro`.
+
+Hallazgos de la implementación que conviene recordar:
+
+- `construirExpr()` recibe los argumentos **sin** el símbolo de tipo;
+  `Expr()` separa el primer argumento (`:llamada`, `:binaria`, ...) antes de
+  delegar. Las macros incluidas construyen nodos directamente con el mismo
+  convenio.
+- `lat_negar()` del runtime es negación **numérica**: la negación lógica que
+  genera `@afirmar` se baja a `cond == falso`, no a `Expr(:unaria, :!, ...)`.
+- La expansión recorre todo el AST, así que `copiarSent()` debe conocer **todos**
+  los tipos de `Sentencia` (incluidos `ClaseDef`/`EstructuraDef`/`InterfazDef`,
+  `Elegir` y las declaraciones de módulos). Olvidar uno provoca errores de
+  "sentencia no soportada dentro de una macro" en programas que no usan macros.
+  (Este fallo apareció en la primera corrida completa y ya está corregido.)
+- `@tiempo` necesita `tiempo_ns()` en el runtime core (`lat_tiempo_ns()`, reloj
+  monotónico) y su referencia en `tools/abi_probe.c` para la ABI del backend
+  LLVM. Solo se usa como sentencia en v1.
+- `@expandir_macro` imprime durante la compilación, no en el ejecutable generado.
+- Los nombres canónicos de las macros integradas y de `generar_simbolo` están en
+  español; se conservan `show`/`assert`/`time`/`macroexpand`/`gensym` (y los
+  alias `asegurar`/`gensimb`) por compatibilidad.
+
+Fuera de alcance de v1: macros exportadas/importadas entre módulos, macros
+variádicas, bloques multi-sentencia como valor de expresión y sustitución de
+tipos en genéricos.
 
 ## Ramas y PRs
 

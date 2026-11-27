@@ -671,7 +671,7 @@ std::string GeneradorC::genLlamada(Llamada* ll) {
                 ll->argumentos.empty() ? "lat_nulo()" : genExpr(ll->argumentos[0].get());
             return "lat_" + nombre + "(" + arg + ")";
         }
-        if (nombre == "leer" || nombre == "limpiar") {
+        if (nombre == "leer" || nombre == "limpiar" || nombre == "tiempo_ns") {
             return "lat_" + nombre + "()";
         }
         if (nombre == "rango") {

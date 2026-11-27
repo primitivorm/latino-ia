@@ -360,7 +360,7 @@ llvm::Value* GeneradorLLVM::genExpr(Expresion& expr, llvm::IRBuilder<>& builder,
                 return celda;
             }
             // Builtins sin argumentos.
-            if (nombre == "leer" || nombre == "limpiar") {
+            if (nombre == "leer" || nombre == "limpiar" || nombre == "tiempo_ns") {
                 llvm::Function* fn = abi_->declarar(modulo, "lat_" + nombre);
                 llvm::Value* celda = builder.CreateAlloca(tipoLatValor, nullptr, "builtin_ret");
                 builder.CreateCall(fn, {celda});

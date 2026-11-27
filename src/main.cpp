@@ -23,6 +23,7 @@
 #include "ast.h"
 #include "ast_impresor.h"
 #include "compiler.h"
+#include "expandidor_macros.h"
 #include "invocador_c.h"
 #include "lexer.h"
 #include "parser.h"
@@ -304,6 +305,18 @@ int main(int argc, char** argv) {
         visitados.insert(fs::absolute(ruta).generic_string());
         if (!procesarInclusioneesLat(*programa, dirBase, visitados))
             return 1;
+    }
+
+    // PLAN_MACROS.md: expansión de macros. Ocurre después de resolver módulos e
+    // `incluir`, y antes del análisis semántico: los cuerpos de macro se
+    // ejecutan en tiempo de compilación y los nodos MacroDef/MacroInvocacion
+    // desaparecen del AST, de modo que semántico y backends no los ven.
+    {
+        std::ostringstream reporte;
+        if (!ExpandidorMacros::expandir(*programa, reporte))
+            return 1;  // error de expansión (ya reportado)
+        std::string texto = reporte.str();
+        if (!texto.empty()) std::cout << texto;
     }
 
     // Análisis semántico.

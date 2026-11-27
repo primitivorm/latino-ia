@@ -159,6 +159,15 @@ struct LlamadaBase;
 struct ExternoBloque;
 struct InseguroBloque;
 
+// Declaraciones adelantadas para macros estilo Julia (PLAN_MACROS.md)
+struct MacroDef;
+struct MacroInvocacion;
+struct CitaExpr;
+struct InterpolacionExpr;
+struct SimboloExpr;
+struct BloqueMacroExpr;
+struct FragmentoExpr;
+
 // --- Interfaz del Visitante -----------------------------------------------
 struct Visitante {
     virtual ~Visitante() = default;
@@ -202,6 +211,16 @@ struct Visitante {
     // hasta que el análisis semántico/codegen los implementen (F4/F5/F6).
     virtual void visitar(ExternoBloque&) {}
     virtual void visitar(InseguroBloque&) {}
+    // Visitantes por defecto para macros (PLAN_MACROS.md): no-op, como en
+    // FFI/POO. El ExpandidorMacros consume y elimina estos nodos antes de que
+    // lleguen al análisis semántico o a los backends.
+    virtual void visitar(MacroDef&) {}
+    virtual void visitar(MacroInvocacion&) {}
+    virtual void visitar(CitaExpr&) {}
+    virtual void visitar(InterpolacionExpr&) {}
+    virtual void visitar(SimboloExpr&) {}
+    virtual void visitar(BloqueMacroExpr&) {}
+    virtual void visitar(FragmentoExpr&) {}
     virtual void visitar(Asignacion&) = 0;
     virtual void visitar(ExprSentencia&) = 0;
     virtual void visitar(Si&) = 0;
@@ -218,6 +237,10 @@ struct Visitante {
 // --- Clases base -----------------------------------------------------------
 struct Nodo {
     int linea = 0;
+    // Uso interno del expandedor de macros (PLAN_MACROS.md): true en los
+    // subárboles inyectados con esc(), que por tanto no se renombran en la
+    // pasada de higiene. Los backends lo ignoran.
+    bool macroEscapado = false;
     virtual ~Nodo();  // anclaje de vtable definido en ast.cpp
     virtual void aceptar(Visitante& v) = 0;
 };
@@ -654,6 +677,68 @@ struct ExternoBloque : Sentencia {
 // diseño 5 de PLAN_FFI.md).
 struct InseguroBloque : Sentencia {
     ListaSent cuerpo;
+    LATINO_ACEPTAR
+};
+
+// --- Macros al estilo de Julia (PLAN_MACROS.md) -----------------------------
+
+// macro nombre(p0, p1, ...) ... fin
+// Define una funcion que se ejecuta en tiempo de expansion, no en runtime.
+// Los parametros reciben EXPRESIONES SIN EVALUAR (AST) y el cuerpo devuelve
+// otra expresion que se inserta en el lugar de la invocacion.
+struct MacroDef : Sentencia {
+    std::string nombre;
+    std::vector<std::string> parametros;
+    ListaSent cuerpo;
+    bool exportado = false;
+    LATINO_ACEPTAR
+};
+
+// @nombre arg0, arg1, ...
+// Invocacion de macro. `argumentos` son los subarboles originales (no se
+// evaluan aqui: se pasan como valores Expr al cuerpo de la macro).
+struct MacroInvocacion : Expresion {
+    std::string nombre;
+    std::vector<ExprPtr> argumentos;
+    LATINO_ACEPTAR
+};
+
+// quote ... fin
+// Cuasi-cita: produce una expresion como valor, sin evaluar su contenido.
+// Los $ dentro se interpolan en tiempo de expansion.
+struct CitaExpr : Expresion {
+    ListaSent cuerpo;
+    LATINO_ACEPTAR
+};
+
+// $expr  (solo tiene sentido dentro de quote o en un cuerpo de macro)
+// Se evalua en tiempo de expansion y su valor se inserta en el AST.
+struct InterpolacionExpr : Expresion {
+    ExprPtr expresion;
+    LATINO_ACEPTAR
+};
+
+// :nombre  (simbolo, equivalente al Symbol de Julia)
+// Se usa como primer argumento de Expr(:llamada, ...) y como nombre en el
+// depurado de @expandir_macro.
+struct SimboloExpr : Expresion {
+    std::string nombre;
+    LATINO_ACEPTAR
+};
+
+// Nodo interno: bloque de sentencias devuelto por una macro. No se puede
+// escribir directamente; `quote` lo produce cuando tiene varias sentencias.
+struct BloqueMacroExpr : Expresion {
+    ListaSent sentencias;
+    LATINO_ACEPTAR
+};
+
+// Nodo interno: fragmento inyectado desde la llamada ($expr o esc(expr)).
+// `escapado == true` indica que la higiene NO debe renombrar sus variables
+// (equivale a esc() de Julia). Se elimina al terminar la expansion.
+struct FragmentoExpr : Expresion {
+    ExprPtr expresion;
+    bool escapado = false;
     LATINO_ACEPTAR
 };
 

@@ -3,6 +3,7 @@
 #include "parser.h"
 
 #include <iostream>
+#include <set>
 #include <stdexcept>
 #include <string>
 
@@ -336,6 +337,7 @@ SentPtr Parser::parseSentencia() {
         if (p == "importar") return parseImportar();
         if (p == "externo")  return parseExterno();
         if (p == "inseguro") return parseInseguro();
+        if (p == "macro")    return parseMacro();
         if (p == "romper") {
             int l = actual.line;
             avanzar();
@@ -1184,6 +1186,45 @@ SentPtr Parser::parseInseguro() {
     return nodo;
 }
 
+// macro nombre(p0, p1, ...) ... fin
+// Los parámetros son nombres sin tipo: reciben expresiones sin evaluar (AST).
+SentPtr Parser::parseMacro() {
+    int l = actual.line;
+    avanzar();  // consume "macro"
+    if (actual.type != TokenType::Identificador)
+        error("se esperaba el nombre de la macro");
+    auto nodo = std::make_unique<MacroDef>();
+    nodo->linea = l;
+    nodo->nombre = actual.lexeme;
+    avanzar();
+    esperarDelimitador("(");
+    if (!esDelimitador(")")) {
+        for (;;) {
+            if (actual.type != TokenType::Identificador)
+                error("se esperaba el nombre de un parámetro de macro");
+            nodo->parametros.push_back(actual.lexeme);
+            avanzar();
+            if (esDelimitador(",")) { avanzar(); continue; }
+            break;
+        }
+    }
+    esperarDelimitador(")");
+    nodo->cuerpo = parseBloque({"fin"});
+    esperarReservada("fin");
+    return nodo;
+}
+
+// quote ... fin: produce una expresion (cuasi-cita) en tiempo de expansion.
+ExprPtr Parser::parseQuote() {
+    int l = actual.line;
+    avanzar();  // consume "quote"
+    auto nodo = std::make_unique<CitaExpr>();
+    nodo->linea = l;
+    nodo->cuerpo = parseBloque({"fin"});
+    esperarReservada("fin");
+    return nodo;
+}
+
 std::vector<ExprPtr> Parser::parseListaExpresiones() {
     std::vector<ExprPtr> v;
     v.push_back(parseExpresion());
@@ -1295,6 +1336,41 @@ ExprPtr Parser::parseMultiplicativo() {
 }
 
 ExprPtr Parser::parseUnario() {
+    // Interpolación de macros: $expr (típicamente dentro de quote).
+    if (esOperador("$")) {
+        int l = actual.line;
+        avanzar();
+        auto i = std::make_unique<InterpolacionExpr>();
+        i->linea = l;
+        i->expresion = parseUnario();
+        return i;
+    }
+    // Símbolo al estilo de Julia: :nombre (equivalente a Symbol). También se
+    // aceptan operadores como símbolo (:+, :*, :==, ...) porque Expr(:binaria,
+    // :+, ...) los usa para construir código. No interfiere con anotaciones de
+    // tipo ni con el ':' de los diccionarios: esos se consumen en sus propios
+    // productores, antes de llegar a parseUnario().
+    auto simboloValido = [&]() {
+        const Token& s = lexer.verSiguiente();
+        // Las palabras reservadas también son símbolos válidos (:macro,
+        // :nulo, :fin, ...), necesarios para Expr(:macro, ...).
+        if (s.type == TokenType::Identificador || s.type == TokenType::PalabraReservada)
+            return true;
+        if (s.type != TokenType::Operador) return false;
+        static const std::set<std::string> operadoresSimbolo = {
+            "+", "-", "*", "/", "%", "^", "!", "==", "!=", "<", ">", "<=", ">=",
+            "&&", "||", ".."};
+        return operadoresSimbolo.count(s.lexeme) != 0;
+    };
+    if (esOperador(":") && simboloValido()) {
+        int l = actual.line;
+        avanzar();
+        auto s = std::make_unique<SimboloExpr>();
+        s->nombre = actual.lexeme;
+        s->linea = l;
+        avanzar();
+        return s;
+    }
     if (esOperador("-")) {
         avanzar();
         auto u = std::make_unique<Unaria>();
@@ -1449,7 +1525,41 @@ ExprPtr Parser::parsePrimario() {
         }
         if (tk.lexeme == "fun" || tk.lexeme == "funcion")
             return parseFuncionAnonima();
+        if (tk.lexeme == "quote")
+            return parseQuote();
         error("expresión inesperada: palabra reservada '" + tk.lexeme + "'");
+    }
+
+    // @macro arg0, arg1, ... — los argumentos se parsean como expresiones
+    // pero NO se evalúan: se entregan como AST al cuerpo de la macro.
+    if (esOperador("@")) {
+        avanzar();
+        if (actual.type != TokenType::Identificador)
+            error("se esperaba el nombre de la macro después de '@'");
+        auto m = std::make_unique<MacroInvocacion>();
+        m->linea = tk.line;
+        m->nombre = actual.lexeme;
+        avanzar();
+        if (esDelimitador("(")) {
+            // Forma opcional con paréntesis: @macro(a, b)
+            avanzar();
+            if (!esDelimitador(")")) {
+                m->argumentos = parseListaExpresiones();
+            }
+            esperarDelimitador(")");
+        } else if (!esFinDeLinea() && !esEOF() && !esTerminadorBloque() &&
+                   !esDelimitador(")") && !esDelimitador("]") && !esDelimitador("}") &&
+                   !esOperador("=") && !esDelimitador(",")) {
+            // Forma Julia: @macro expr (un argumento) o @macro a, b (varios).
+            // parseExpresion absorbe los operadores, así que "@mostrar 2 + 2"
+            // es una sola expresión, no tres argumentos.
+            m->argumentos.push_back(parseExpresion());
+            while (esDelimitador(",")) {
+                avanzar();
+                m->argumentos.push_back(parseExpresion());
+            }
+        }
+        return m;
     }
 
     if (tk.type == TokenType::Identificador) {

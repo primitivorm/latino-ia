@@ -264,7 +264,8 @@ bool AnalizadorSemantico::esIncorporada(const std::string& nombre) const {
     return nombre == "escribir" || nombre == "imprimir" || nombre == "escribe" || nombre == "poner" ||
            nombre == "acadena" || nombre == "alogico" || nombre == "anumero" ||
            nombre == "leer" || nombre == "tipo" || nombre == "imprimirf" ||
-           nombre == "limpiar" || nombre == "error" || nombre == "rango";
+           nombre == "limpiar" || nombre == "error" || nombre == "rango" ||
+           nombre == "tiempo_ns";  // PLAN_MACROS.md: reloj usado por @tiempo
 }
 
 bool AnalizadorSemantico::esLibreria(const std::string& nombre) const {
